@@ -1,0 +1,248 @@
+<ui:FluentWindow x:Class="PdfBookmarkMerger.WpfApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:models="clr-namespace:PdfBookmarkMerger.Core.Models;assembly=PdfBookmarkMerger.Core"
+        xmlns:conv="clr-namespace:PdfBookmarkMerger.WpfApp.Converters"
+        xmlns:vm="clr-namespace:PdfBookmarkMerger.App.ViewModels;assembly=PdfBookmarkMerger.App"
+        Title="PDF結合ツール" Height="720" Width="1100"
+        Icon="pack://application:,,,/Assets/app.ico"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="None"
+        AllowDrop="True"
+        Drop="OnWindowDrop"
+        DragOver="OnWindowDragOver">
+    <ui:FluentWindow.Resources>
+        <conv:EnumToVisibilityConverter x:Key="EnumToVisibilityConverter" />
+        <conv:NullableDoubleToStringConverter x:Key="NullableDoubleToStringConverter" />
+        <conv:ZoomPercentToStringConverter x:Key="ZoomPercentToStringConverter" />
+        <conv:DepthToTitleWidthConverter x:Key="DepthToTitleWidthConverter" />
+        <ObjectDataProvider x:Key="DestinationTypeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="models:BookmarkDestinationType" />
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
+    </ui:FluentWindow.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="PDF結合ツール">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/Assets/app.ico" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <!-- 手順1: ファイル指定 -->
+        <Grid Grid.Row="1" Margin="16"
+              Visibility="{Binding Step.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=SelectFiles}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14"
+                       Text="結合したいPDFファイル、またはPDFが入ったフォルダを指定してください。" TextWrapping="Wrap"/>
+
+            <Border Grid.Row="1" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4">
+                <ListBox x:Name="FileListBox"
+                         ItemsSource="{Binding FileList.Files}"
+                         ScrollViewer.VerticalScrollBarVisibility="Visible"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         AllowDrop="True"
+                         Drop="OnFileListDrop"
+                         DragOver="OnFileListDragOver"
+                         PreviewMouseLeftButtonDown="OnFileListPreviewMouseLeftButtonDown"
+                         PreviewMouseMove="OnFileListPreviewMouseMove"
+                         SelectionMode="Extended">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:PdfFileEntryViewModel}">
+                            <!--
+                                Foregroundを明示指定する。WPF-UIのListBoxItem標準スタイルは選択時に
+                                Foregroundを白系(ListBoxItemSelectedForegroundThemeBrush)へ切り替えるが、
+                                この行が使う選択時背景(SolidBackgroundFillColorSecondaryBrush)は薄い色のため、
+                                指定しないと選択時に文字が読めなくなる。
+                            -->
+                            <Border Padding="6,5" CornerRadius="4" TextElement.Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource SolidBackgroundFillColorTertiaryBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource SolidBackgroundFillColorSecondaryBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" Grid.Column="0">
+                                        <ui:SymbolIcon Symbol="DocumentPdf24" Margin="0,0,8,0" />
+                                        <TextBlock Text="{Binding FileName}" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding FilePath}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                                               Text="{Binding PageCount.Value, StringFormat={}{0}ページ}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
+                <ui:Button Content="設定..." Command="{Binding OpenSettingsCommand}" Margin="0,0,24,0" />
+                <ui:Button Content="ファイルを追加..." Command="{Binding AddFilesViaDialogCommand}" Margin="0,0,8,0" />
+                <ui:Button Content="フォルダを追加..." Command="{Binding AddFolderViaDialogCommand}" Margin="0,0,8,0" />
+                <ui:Button Content="削除" Click="OnRemoveSelectedFileClick" Margin="0,0,8,0" />
+                <ui:Button Content="上へ" Click="OnMoveFileUpClick" Margin="0,0,8,0" />
+                <ui:Button Content="下へ" Click="OnMoveFileDownClick" Margin="0,0,24,0" />
+                <ui:Button Content="次へ" Appearance="Primary" Command="{Binding ConfirmFilesCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 手順2・3: しおり編集 -->
+        <Grid Grid.Row="1" Margin="16"
+              Visibility="{Binding Step.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=EditBookmarks}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"><Run Text="しおりの内容を確認・編集してください。" /><LineBreak /><Run Text="階層等の変更はドラッグ&amp;ドロップで実行します(ドロップ先の行の上半分に合わせると子(下位レベル)、下半分に合わせると兄弟(同レベル)として挿入されます)。" /></TextBlock>
+
+            <Border Grid.Row="1" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4">
+                <TreeView x:Name="BookmarkTreeView"
+                          ItemsSource="{Binding BookmarkTree.RootNodes}"
+                          Padding="0,0,0,32"
+                          ScrollViewer.VerticalScrollBarVisibility="Visible"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          AllowDrop="True"
+                          Drop="OnBookmarkTreeDrop"
+                          DragOver="OnBookmarkTreeDragOver"
+                          DragLeave="OnBookmarkTreeDragLeave"
+                          PreviewMouseLeftButtonDown="OnBookmarkTreePreviewMouseLeftButtonDown"
+                          PreviewMouseMove="OnBookmarkTreePreviewMouseMove"
+                          SelectedItemChanged="OnBookmarkTreeSelectedItemChanged">
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="{x:Type TreeViewItem}">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded.Value, Mode=TwoWay}" />
+                        </Style>
+                    </TreeView.ItemContainerStyle>
+                    <TreeView.Resources>
+                        <HierarchicalDataTemplate DataType="{x:Type vm:BookmarkNodeViewModel}" ItemsSource="{Binding Children}">
+                            <Border Padding="4,3" CornerRadius="4" Tag="{Binding}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=TreeViewItem}, Path=IsSelected}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource SolidBackgroundFillColorSecondaryBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=TreeViewItem}, Path=IsKeyboardFocusWithin}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource SolidBackgroundFillColorSecondaryBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <StackPanel Orientation="Horizontal" Margin="2">
+                                    <TextBlock Text="{Binding LevelNumber, Mode=OneTime, StringFormat=Lv.{0}}"
+                                               Width="34" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="11" />
+                                    <TextBox Text="{Binding Title.Value, UpdateSourceTrigger=PropertyChanged}"
+                                             TextChanged="OnBookmarkTitleTextChanged" Margin="0,0,6,0">
+                                        <TextBox.Width>
+                                            <MultiBinding Converter="{StaticResource DepthToTitleWidthConverter}">
+                                                <Binding Path="Depth" />
+                                                <Binding Path="DataContext.BookmarkTree.TitleColumnBaseWidth.Value"
+                                                         RelativeSource="{RelativeSource AncestorType=TreeView}" />
+                                            </MultiBinding>
+                                        </TextBox.Width>
+                                    </TextBox>
+                                    <ComboBox ItemsSource="{Binding Source={StaticResource DestinationTypeValues}}"
+                                              SelectedItem="{Binding DestinationType.Value, Mode=TwoWay}" Width="90" Margin="0,0,6,0"
+                                              IsEnabled="{Binding IsDestinationTypeEditable.Value}"
+                                              Background="{DynamicResource ComboBoxDropDownBackground}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}" Padding="4,3">
+                                                    <TextBlock Text="{Binding}" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <CheckBox Content="展開表示" IsChecked="{Binding IsOpen.Value, Mode=TwoWay}"
+                                              IsEnabled="{Binding IsExpandToggleEditable.Value}"
+                                              VerticalAlignment="Center" Width="90" Margin="0,0,6,0" />
+                                    <TextBlock Text="Left" VerticalAlignment="Center" Margin="4,0,2,0" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                    <TextBox Text="{Binding Left.Value, Converter={StaticResource NullableDoubleToStringConverter}}"
+                                             IsEnabled="{Binding IsLeftEditable.Value}" Width="48" Margin="0,0,4,0" />
+                                    <TextBlock Text="Top" VerticalAlignment="Center" Margin="0,0,2,0" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                    <TextBox Text="{Binding Top.Value, Converter={StaticResource NullableDoubleToStringConverter}}"
+                                             IsEnabled="{Binding IsTopEditable.Value}" Width="48" Margin="0,0,4,0" />
+                                    <TextBlock Text="Zoom(%)" VerticalAlignment="Center" Margin="0,0,2,0" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                    <TextBox Text="{Binding Zoom.Value, Converter={StaticResource ZoomPercentToStringConverter}}"
+                                             IsEnabled="{Binding IsZoomEditable.Value}" Width="48" Margin="0,0,8,0" />
+                                    <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="11">
+                                        <Run Text="[" /><Run Text="{Binding ActionType, Mode=OneTime}" /><Run Text="] 元: " />
+                                        <Run Text="{Binding SourceFileName, Mode=OneTime}" /><Run Text=" p." />
+                                        <Run Text="{Binding OriginalPageNumber, Mode=OneTime, StringFormat={}{0}}" /><Run Text=" → 結合後 p." />
+                                        <Run Text="{Binding MergedPageNumber, Mode=OneTime}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </HierarchicalDataTemplate>
+                    </TreeView.Resources>
+                </TreeView>
+            </Border>
+
+            <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                <!-- 1行目: 画面遷移・一律設定 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <ui:Button Content="設定..." Command="{Binding OpenSettingsCommand}" Margin="0,0,24,0" />
+                    <ui:Button Content="戻る" Command="{Binding BackToFileListCommand}" Margin="0,0,24,0" />
+                    <CheckBox Content="一律でFitに設定" IsChecked="{Binding BookmarkTree.ForceFitForAll.Value, Mode=TwoWay}"
+                              VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <CheckBox Content="一律で展開表示を設定" IsThreeState="True"
+                              IsChecked="{Binding BookmarkTree.GlobalExpandOverride.Value, Mode=TwoWay}"
+                              VerticalAlignment="Center" />
+                </StackPanel>
+                <!-- 2行目: ツリー編集操作・結合実行 -->
+                <StackPanel Orientation="Horizontal">
+                    <ui:Button Content="ルートに追加" Click="OnAddRootBookmarkClick" Margin="0,0,8,0" />
+                    <ui:Button Content="子(下位レベル)として追加" Click="OnAddChildBookmarkClick" Margin="0,0,8,0" />
+                    <ui:Button Content="兄弟(同レベル)として追加" Click="OnAddSiblingBookmarkClick" Margin="0,0,8,0" />
+                    <ui:Button Content="削除" Click="OnDeleteBookmarkClick" Margin="0,0,8,0" />
+                    <ui:Button x:Name="LevelCapButton" Content="子要素のレベル上限を設定..." Click="OnSetLevelCapClick"
+                               IsEnabled="False" Margin="0,0,24,0" />
+                    <ui:Button Content="結合してPDFを保存..." Appearance="Primary" Command="{Binding MergeCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="2" Padding="12,8" Background="{DynamicResource ControlFillColorDefaultBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="{Binding StatusMessage.Value}" VerticalAlignment="Center" />
+                <ui:ProgressRing Grid.Column="1" IsIndeterminate="True" Width="18" Height="18"
+                                  Visibility="{Binding IsBusy.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=True}" />
+            </Grid>
+        </Border>
+    </Grid>
+</ui:FluentWindow>

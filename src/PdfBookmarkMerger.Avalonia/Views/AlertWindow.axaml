@@ -1,0 +1,12 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PdfBookmarkMerger.AvaloniaApp.Views.AlertWindow"
+        Icon="avares://PdfBookmarkMerger.Avalonia/Assets/app.ico"
+        Width="420" SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="20" Spacing="16">
+        <TextBlock x:Name="MessageText" TextWrapping="Wrap" />
+        <Button Content="OK" HorizontalAlignment="Right" Click="OnOkClick" />
+    </StackPanel>
+</Window>

@@ -1,0 +1,19 @@
+<Application x:Class="PdfBookmarkMerger.WpfApp.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!--
+                    ui:ThemesDictionary / ui:ControlsDictionary を使うこと。
+                    静的な pack://.../Wpf.Ui.xaml を直接マージすると、ApplicationThemeManagerが
+                    現在のテーマ辞書を認識できず GetAppTheme()=Unknown となり、
+                    SystemThemeWatcher.Watch によるダーク/ライト自動切り替えが効かなくなる不具合を確認済み。
+                -->
+                <ui:ThemesDictionary Theme="Light" />
+                <ui:ControlsDictionary />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント</title>
+<style>
+  :root {
+    --paper: #f1efea;
+    --surface: #ffffff;
+    --surface-2: #eae7de;
+    --ink: #1e2430;
+    --ink-soft: #5b6472;
+    --ink-faint: #838c98;
+    --ribbon: #a8631f;
+    --ribbon-ink: #ffffff;
+    --teal: #2f6e6b;
+    --line: #ddd7c9;
+    --line-strong: #c7c0ae;
+    --code-bg: #16191f;
+    --code-ink: #dfe4ea;
+    --code-accent: #e0a768;
+    --ok: #3c7d4f;
+    --warn: #a8631f;
+    --radius: 6px;
+    --measure: 70ch;
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #15181d;
+      --surface: #1c2027;
+      --surface-2: #232833;
+      --ink: #e8e4da;
+      --ink-soft: #9aa1ac;
+      --ink-faint: #6c7480;
+      --ribbon: #e0a768;
+      --ribbon-ink: #191307;
+      --teal: #6bb0ac;
+      --line: #2a2f38;
+      --line-strong: #383f4b;
+      --code-bg: #0f1216;
+      --code-ink: #dfe4ea;
+      --code-accent: #e0a768;
+      --ok: #6fbf8b;
+      --warn: #e0a768;
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #15181d;
+    --surface: #1c2027;
+    --surface-2: #232833;
+    --ink: #e8e4da;
+    --ink-soft: #9aa1ac;
+    --ink-faint: #6c7480;
+    --ribbon: #e0a768;
+    --ribbon-ink: #191307;
+    --teal: #6bb0ac;
+    --line: #2a2f38;
+    --line-strong: #383f4b;
+    --code-bg: #0f1216;
+    --code-ink: #dfe4ea;
+    --code-accent: #e0a768;
+    --ok: #6fbf8b;
+    --warn: #e0a768;
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    --paper: #f1efea;
+    --surface: #ffffff;
+    --surface-2: #eae7de;
+    --ink: #1e2430;
+    --ink-soft: #5b6472;
+    --ink-faint: #838c98;
+    --ribbon: #a8631f;
+    --ribbon-ink: #ffffff;
+    --teal: #2f6e6b;
+    --line: #ddd7c9;
+    --line-strong: #c7c0ae;
+    --code-bg: #16191f;
+    --code-ink: #dfe4ea;
+    --code-accent: #e0a768;
+    --ok: #3c7d4f;
+    --warn: #a8631f;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+  }
+
+  body {
+    font-family: "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Segoe UI", system-ui, -apple-system, "Noto Sans JP", sans-serif;
+    font-size: 15.5px;
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: "Cascadia Code", "SF Mono", "Consolas", "Yu Gothic UI", ui-monospace, monospace;
+  }
+
+  a { color: var(--teal); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { color: var(--ribbon); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  /* ---------- layout shell ---------- */
+
+  .shell {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  nav.toc {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100dvh;
+    overflow-y: auto;
+    padding: 28px 18px 28px 28px;
+    border-right: 1px solid var(--line);
+  }
+
+  nav.toc .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+
+  nav.toc .brand .mark {
+    width: 26px;
+    height: 32px;
+    border-radius: 2px 2px 6px 6px;
+    background: linear-gradient(180deg, var(--surface) 0%, var(--surface) 100%);
+    border: 1.5px solid var(--line-strong);
+    position: relative;
+    flex: none;
+  }
+  nav.toc .brand .mark::after {
+    content: "";
+    position: absolute;
+    top: -1px;
+    right: 4px;
+    width: 7px;
+    height: 15px;
+    background: var(--ribbon);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+  }
+
+  nav.toc .brand .word {
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    font-size: 15px;
+  }
+  nav.toc .brand .word small {
+    display: block;
+    font-weight: 500;
+    color: var(--ink-soft);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+
+  nav.toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: toc;
+  }
+  nav.toc li { counter-increment: toc; }
+  nav.toc a {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 6px 8px;
+    margin: 1px 0;
+    border-radius: 4px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    font-size: 13.5px;
+    border-left: 2px solid transparent;
+  }
+  nav.toc a::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ribbon);
+    flex: none;
+  }
+  nav.toc a:hover {
+    color: var(--ink);
+    background: var(--surface);
+  }
+  nav.toc .toc-foot {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    line-height: 1.7;
+  }
+
+  main {
+    padding: 48px 56px 120px;
+    min-width: 0;
+  }
+
+  header.doc-head {
+    margin-bottom: 56px;
+  }
+
+  header.doc-head .eyebrow {
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--ribbon);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  header.doc-head h1 {
+    font-size: 34px;
+    line-height: 1.3;
+    margin: 0 0 10px;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+
+  header.doc-head .sub {
+    color: var(--ink-soft);
+    font-size: 16px;
+    max-width: var(--measure);
+    margin-bottom: 22px;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .chip {
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 11.5px;
+    padding: 4px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--ink-soft);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+
+  section {
+    margin-bottom: 58px;
+    max-width: 920px;
+  }
+
+  section > h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 22px;
+    margin: 0 0 6px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    text-wrap: balance;
+  }
+  section > h2 .num {
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 14px;
+    color: var(--ribbon);
+    flex: none;
+  }
+
+  section > .lede {
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    margin: 14px 0 22px;
+  }
+
+  h3 {
+    font-size: 16.5px;
+    margin: 30px 0 10px;
+    letter-spacing: 0.01em;
+  }
+  h3 .tag {
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--teal);
+    font-weight: 500;
+    margin-left: 8px;
+  }
+
+  p { max-width: var(--measure); margin: 0 0 14px; }
+  ul, ol { max-width: var(--measure); padding-left: 1.3em; margin: 0 0 16px; }
+  li { margin-bottom: 5px; }
+
+  strong { font-weight: 700; }
+
+  code.inline, .mono.inline {
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 0.87em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 0.05em 0.4em;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  pre.code {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.65;
+    margin: 0 0 18px;
+    max-width: 920px;
+  }
+  pre.code .c { color: #8b95a3; }
+  pre.code .k { color: var(--code-accent); }
+  pre.code .s { color: #8fc7c2; }
+
+  .table-wrap { overflow-x: auto; max-width: 920px; margin: 0 0 20px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: 14px;
+  }
+  caption {
+    text-align: left;
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-bottom: 6px;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  thead th {
+    color: var(--ink-soft);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  tbody tr:hover { background: var(--surface); }
+  td.mono, th.mono { font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace; font-size: 12.5px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    max-width: 920px;
+  }
+  .card h4 {
+    margin: 0 0 8px;
+    font-size: 14.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card p:last-child { margin-bottom: 0; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 920px;
+  }
+  @media (max-width: 720px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.03em;
+  }
+  .badge.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .badge.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .badge::before { content: "●"; font-size: 8px; }
+
+  /* ---------- architecture diagram ---------- */
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 640px;
+    margin: 8px 0 22px;
+  }
+  .stack .layer {
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .stack .layer .name { font-weight: 700; font-size: 14px; }
+  .stack .layer .desc { color: var(--ink-soft); font-size: 12.5px; }
+  .stack .layer.heads {
+    background: transparent;
+    border: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .stack .layer.heads .half {
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    background: var(--surface-2);
+  }
+  .stack .layer.heads .half .name { font-weight: 700; font-size: 14px; }
+  .stack .layer.heads .half .desc { color: var(--ink-soft); font-size: 12.5px; margin-top: 2px; }
+  .stack .arrow {
+    align-self: center;
+    color: var(--ink-faint);
+    font-size: 12px;
+    margin: -2px 0;
+  }
+  .stack .layer.accent { border-color: var(--ribbon); }
+  .stack .layer.accent .name { color: var(--ribbon); }
+
+  /* offset diagram */
+  .offset-diagram { max-width: 920px; margin-bottom: 18px; }
+  .offset-diagram .file-row {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    margin-bottom: 6px;
+  }
+  .offset-diagram .page {
+    flex: 1;
+    min-width: 22px;
+    height: 34px;
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--ink-soft);
+    background: var(--surface);
+  }
+  .offset-diagram .page.bm { border-color: var(--ribbon); color: var(--ribbon); font-weight: 700; background: color-mix(in srgb, var(--ribbon) 10%, var(--surface)); }
+  .offset-diagram .flabel { width: 92px; flex: none; font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; }
+  .offset-diagram .flabel b { color: var(--ink); margin-right: 4px; }
+
+  /* ---------- misc ---------- */
+
+  hr.rule {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 44px 0;
+  }
+
+  footer.doc-foot {
+    max-width: 920px;
+    color: var(--ink-faint);
+    font-size: 12.5px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+  }
+
+  ::selection { background: color-mix(in srgb, var(--ribbon) 30%, transparent); }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
+    main { padding: 32px 22px 90px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>設計ドキュメント</small></div>
+    </div>
+    <ol>
+      <li><a href="#overview">概要</a></li>
+      <li><a href="#architecture">アーキテクチャ</a></li>
+      <li><a href="#techstack">技術選定</a></li>
+      <li><a href="#solution">ソリューション構成</a></li>
+      <li><a href="#domain">ドメインモデル</a></li>
+      <li><a href="#core-services">Coreサービス</a></li>
+      <li><a href="#app-layer">ViewModel層</a></li>
+      <li><a href="#features">機能設計</a></li>
+      <li><a href="#settings-logging">設定・ロギング・例外処理</a></li>
+      <li><a href="#platform-notes">プラットフォーム固有の留意点</a></li>
+      <li><a href="#testing">テスト戦略</a></li>
+      <li><a href="#windows-release-build">Windows公開ビルド手順</a></li>
+      <li><a href="#mac-build">macビルド手順</a></li>
+      <li><a href="#limitations">既知の制限事項</a></li>
+      <li><a href="#related-docs">関連ドキュメント</a></li>
+    </ol>
+    <div class="toc-foot">
+      .NET 10 ・ 最終更新 2026-07-27<br />
+      対象: Windows(WPF-UI) / macOS(Avalonia)
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="overview">
+      <div class="eyebrow">Design Document — v1.0.0(初版)</div>
+      <h1>複数PDFファイル結合ツール「PdfBookmarkMerger」設計ドキュメント</h1>
+      <p class="sub">
+        複数のPDFファイルをドラッグ&amp;ドロップで結合し、各ファイルのしおり(Outline)を
+        ページオフセット付きで自動抽出・編集したうえで1つのPDFに書き出すデスクトップアプリケーション。
+        ReactiveProperty MVVM を核とするアプリケーション層を、WPF-UI(Windows)とAvalonia UI(macOS)の
+        2つのUIヘッドで共有する構成を採る。
+      </p>
+      <div class="chips">
+        <span class="chip">.NET 10</span>
+        <span class="chip">C# 13</span>
+        <span class="chip">ReactiveProperty 9.9.0</span>
+        <span class="chip">Microsoft.Extensions.Hosting 10</span>
+        <span class="chip">Serilog</span>
+        <span class="chip">WPF-UI 4.3.0</span>
+        <span class="chip">Avalonia UI 12.1.0</span>
+        <span class="chip">PDFsharp 6.2.4 (MIT)</span>
+        <span class="chip">xUnit + Shouldly</span>
+      </div>
+    </header>
+
+    <section id="architecture">
+      <h2><span class="num">01</span>アーキテクチャ</h2>
+      <p class="lede">
+        「PDFの読み書き」「アプリケーションロジック」「画面」を3層に分離し、
+        画面層だけをWindows版・mac版で作り分ける。ViewModelまで含むアプリケーション層を
+        完全に共有することで、機能追加・修正が一箇所で両OSに反映される。
+      </p>
+
+      <div class="stack">
+        <div class="layer">
+          <span class="name">PdfBookmarkMerger.Core</span>
+          <span class="desc">ドメインモデル / PDF入出力・結合ロジック(PDFsharp) / DI非依存</span>
+        </div>
+        <div class="arrow">↑ 参照</div>
+        <div class="layer accent">
+          <span class="name">PdfBookmarkMerger.App</span>
+          <span class="desc">ReactiveProperty ViewModel / Generic Hostブートストラップ / 設定・ロギング配線</span>
+        </div>
+        <div class="arrow">↑ 参照</div>
+        <div class="layer heads">
+          <div class="half">
+            <div class="name">PdfBookmarkMerger.Wpf</div>
+            <div class="desc">WPF-UI / Windows専用ダイアログ実装</div>
+          </div>
+          <div class="half">
+            <div class="name">PdfBookmarkMerger.Avalonia</div>
+            <div class="desc">Avalonia UI / macOS(クロスプラットフォーム)ダイアログ実装</div>
+          </div>
+        </div>
+      </div>
+
+      <p>
+        画面固有の処理(ファイル/フォルダ選択ダイアログ、プロパティダイアログ、メッセージ表示)は
+        <code class="inline">PdfBookmarkMerger.App.Services.IDialogService</code> という1本のインターフェースに集約し、
+        WPF版は <code class="inline">WpfDialogService</code>、Avalonia版は
+        <code class="inline">AvaloniaDialogService</code> がそれぞれ実装する。
+        ViewModelはこのインターフェースにのみ依存するため、ビジネスロジックはUIフレームワークを一切知らない。
+      </p>
+
+      <div class="card">
+        <h4>設計判断 <span class="badge ok">重要</span></h4>
+        <p>
+          WPFプロジェクトの既定名前空間は本来 <code class="inline">PdfBookmarkMerger.Wpf</code>、
+          Avaloniaプロジェクトは <code class="inline">PdfBookmarkMerger.Avalonia</code> となるはずだったが、
+          いずれも末尾セグメントがライブラリ自身のルート名前空間(<code class="inline">Wpf.Ui.*</code> /
+          <code class="inline">Avalonia.*</code>)と衝突し、
+          <code class="inline">CS0234</code>(「型または名前空間の名前 'Ui'/'Controls' が名前空間 'PdfBookmarkMerger.Wpf' に存在しません」)
+          が発生した。これはC#の名前解決が内側の名前空間から外側へ順に「同名の子名前空間」を探索する仕様に起因する。
+          対処として <code class="inline">&lt;RootNamespace&gt;</code> をそれぞれ
+          <code class="inline">PdfBookmarkMerger.WpfApp</code> / <code class="inline">PdfBookmarkMerger.AvaloniaApp</code> に変更し、
+          衝突するセグメント名を避けた(プロジェクト名・出力アセンブリ名は変更していない)。
+        </p>
+      </div>
+
+      <p>
+        上記3層に加え、<code class="inline">tools/PdfBookmarkMerger.SampleGenerator</code> という補助プロジェクトを
+        ソリューションに含めている。これは配布物には含まれない開発者向けCLIツールで、
+        <code class="inline">tests/sample/</code> 配下のテスト用サンプルPDF(しおり3階層以上のものと、しおりを持たないもの)を
+        PDFsharpで再生成する。手作業でPDFを作り直す必要をなくし、サンプルPDFの構成(しおりツリー・座標・フォント)を
+        コードとして版管理できるようにするための位置づけ。<code class="inline">PdfBookmarkMerger.Core</code>には依存しない
+        (ページ生成・しおり作成のみを直接PDFsharpで行うため)。
+      </p>
+
+      <div class="card">
+        <h4>アプリ全体の例外方針 <span class="badge ok">重要</span></h4>
+        <p>
+          個々の非同期処理(メタデータ読込・結合実行等)は<code class="inline">MainWindowViewModel</code>内で
+          try/catchしログ・エラーダイアログに変換しているが、それ以外の予期しない例外(バインディング内部・
+          非同期ラムダの例外伝播漏れ等)によってアプリが無言でクラッシュし、ログに何も残らない事象があった。
+          <code class="inline">PdfBookmarkMergerHostFactory.LogUnhandledException(Exception?, string source, bool flush)</code>
+          を共通ヘルパーとして設け、WPF版は<code class="inline">AppDomain.UnhandledException</code>・
+          <code class="inline">Application.DispatcherUnhandledException</code>・
+          <code class="inline">TaskScheduler.UnobservedTaskException</code>から、Avalonia版は前者と後者2つから
+          (Avalonia側にDispatcherUnhandledException相当のAPIは無いため)呼び出し、
+          クラッシュ前に可能な限りSerilogへ記録してから<code class="inline">Log.CloseAndFlush()</code>する。
+          <code class="inline">flush</code>引数は「この後プロセスが終了する経路か」を呼び出し側が明示するためのもので、
+          継続実行されるハンドラ(未観測タスク例外)で誤ってtrueにすると以降のログが一切書き込まれなくなる点に注意。
+        </p>
+      </div>
+    </section>
+
+    <section id="techstack">
+      <h2><span class="num">02</span>技術選定</h2>
+      <p class="lede">
+        すべて商用利用可能なOSSライセンス(MIT / Apache-2.0)で構成し、追加コストなくクローズドソースの
+        商用配布が可能な組み合わせを選定した。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>領域</th><th class="mono">ライブラリ</th><th>ライセンス</th><th>選定理由</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MVVM</td><td class="mono">ReactiveProperty 9.9.0</td><td>MIT</td><td>ReactivePropertySlim / ReactiveCommand / AsyncReactiveCommand によりWPF・Avalonia双方で同一のバインディング可能プロパティ・コマンドを提供</td></tr>
+            <tr><td>DI・起動</td><td class="mono">Microsoft.Extensions.Hosting</td><td>MIT</td><td>汎用ホストでDIコンテナ・Configuration・Loggingを一括構築</td></tr>
+            <tr><td>設定</td><td class="mono">Microsoft.Extensions.Configuration / Options</td><td>MIT</td><td>appsettings.json + ユーザー設定JSONの階層読込、<code class="inline">IOptionsMonitor</code>によるホットリロード</td></tr>
+            <tr><td>ロギング</td><td class="mono">Serilog + Sinks.Console/File</td><td>Apache-2.0</td><td>構造化ログ、ローリングファイルシンク、Configuration連携</td></tr>
+            <tr><td>Windows UI</td><td class="mono">WPF-UI 4.3.0</td><td>MIT</td><td>Fluent Design準拠のWindowsネイティブコントロール群</td></tr>
+            <tr><td>mac/クロスUI</td><td class="mono">Avalonia UI 12.1.0</td><td>MIT</td><td>.NETからmacOSネイティブアプリを構築できる主要クロスプラットフォームUIフレームワーク</td></tr>
+            <tr><td>PDF入出力</td><td class="mono">PDFsharp 6.2.4</td><td>MIT</td><td>しおり(Outline)の読み書きAPIが充実し、無条件で商用利用可。iText7はAGPL(クローズドソース商用利用に別途ライセンス購入が必要)、QuestPDFはCommunityライセンスに売上高等の条件があるため除外</td></tr>
+            <tr><td>テスト</td><td class="mono">xUnit + Shouldly</td><td>Apache-2.0 / BSD-3</td><td>可読性の高いアサーション(<code class="inline">value.ShouldBe(x)</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="solution">
+      <h2><span class="num">03</span>ソリューション構成</h2>
+      <pre class="code"><span class="c">PdfBookmarkMerger.slnx</span>
+src/
+  PdfBookmarkMerger.Core/          <span class="c"># ドメインモデル・PDF結合ロジック(PDFsharp依存、UI非依存)</span>
+    Models/                <span class="c"># PdfFileEntry, BookmarkNode, PdfDocumentPropertiesModel, PdfFileMetadata, PdfMergeRequest, ...</span>
+    Services/              <span class="c"># IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService,</span>
+                           <span class="c"># BookmarkOffsetCalculator, MissingBookmarkFallback, BookmarkDestinationTypeMapper</span>
+  PdfBookmarkMerger.App/           <span class="c"># 共有ViewModel層(ReactiveProperty) — RootNamespace: PdfBookmarkMerger.App</span>
+    Options/               <span class="c"># PdfBookmarkMergerOptions, ThemeMode</span>
+    Services/              <span class="c"># IUserSettingsService/UserSettingsService, IDialogService(実装は各ヘッド)</span>
+    ViewModels/             <span class="c"># MainWindowViewModel, FileListViewModel, BookmarkTreeViewModel, BookmarkNodeViewModel, ...</span>
+    PdfBookmarkMergerHostFactory.cs <span class="c"># Generic Host共通ブートストラップ + 未処理例外ログ共通処理</span>
+  PdfBookmarkMerger.Wpf/           <span class="c"># Windows版 — RootNamespace: PdfBookmarkMerger.WpfApp</span>
+  PdfBookmarkMerger.Avalonia/      <span class="c"># macOS版 — RootNamespace: PdfBookmarkMerger.AvaloniaApp</span>
+tests/
+  PdfBookmarkMerger.Core.Tests/          <span class="c"># xUnit + Shouldly、Core層(PDF入出力・結合ロジック)。サンプルPDF自動生成ロジックを含む</span>
+  PdfBookmarkMerger.App.Tests/           <span class="c"># xUnit + Shouldly、App層ViewModel(結合対象ファイル整合性・しおりツリー編集ロジック)</span>
+  PdfBookmarkMerger.UiConverters.Tests/  <span class="c"># xUnit + Shouldly、WPF/Avalonia双方のConverterを実際に呼び出すゴールデンテスト(net10.0-windows)</span>
+  sample/                                <span class="c"># PdfBookmarkMerger.Core.Testsとは独立した、手動確認・検証用のサンプルPDF一式</span>
+tools/
+  PdfBookmarkMerger.SampleGenerator/     <span class="c"># tests/sample/配下のサンプルPDFを再生成する開発者向けCLI(配布物には含まない)</span>
+docs/
+  design.html                           <span class="c"># 本ドキュメント(設計)</span>
+  detailed-design.html                  <span class="c"># 詳細設計ドキュメント(クラス図・関数リファレンス)</span>
+  manual-verification-checklist.html    <span class="c"># UIコードビハインド手動確認手順書</span>
+scripts/
+  publish-wpf-release.ps1               <span class="c"># WPF-UI版の公開ビルド(単一ファイル発行→dist/へフォルダ+zip両方を生成)</span>
+Directory.Build.props                   <span class="c"># ソリューション全体の版数(&lt;Version&gt;、単一の情報源)</span></pre>
+    </section>
+
+    <section id="domain">
+      <h2><span class="num">04</span>ドメインモデル</h2>
+      <p class="lede"><code class="inline">PdfBookmarkMerger.Core.Models</code> はPDFsharp型に依存しないプレーンなPOCOとして設計し、テスト容易性を確保している。</p>
+
+      <h3>BookmarkNode <span class="tag">しおり1件分の完全な情報を保持</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">プロパティ</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">Title</td><td>しおりの表示文字列(編集可)</td></tr>
+            <tr><td class="mono">SourceFileEntryId / OriginalPageIndex</td><td>ジャンプ先ページを特定する、抽出元ファイルID + ファイル内0始まりページ番号</td></tr>
+            <tr><td class="mono">MergedPageIndex</td><td>結合後PDFにおける0始まりページ番号(表示用の副次情報)</td></tr>
+            <tr><td class="mono">DestinationType</td><td>GoToアクションの表示方法(Xyz/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV)</td></tr>
+            <tr><td class="mono">Left / Top / Right / Bottom / Zoom</td><td>ジャンプ先の表示座標・倍率(<code class="inline">double?</code>)</td></tr>
+            <tr><td class="mono">IsOpen</td><td>しおりパネルでの初期展開状態</td></tr>
+            <tr><td class="mono">ActionType</td><td>常に <code class="inline">"GoTo"</code>(PDFsharpが生成できるアクション種別は GoTo のみ)</td></tr>
+            <tr><td class="mono">Children</td><td>子しおりのリスト(再帰構造)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>その他の主要モデル</h3>
+      <ul>
+        <li><code class="inline">PdfFileEntry</code> — 結合対象ファイル1件(Id / FilePath / PageCount)。並び順がそのまま結合順になる。</li>
+        <li><code class="inline">PdfDocumentPropertiesModel</code> — Title/Author/Subject/Keywords/Creator。保存ダイアログのプロパティ編集に使用。</li>
+        <li><code class="inline">PdfFileMetadata</code> — 1ファイル分の抽出結果(PageCount + Bookmarksツリー + Properties)。</li>
+        <li><code class="inline">PdfMergeRequest</code> — 結合処理への入力一式(Files / Bookmarks / Properties / OutputPath)。</li>
+      </ul>
+    </section>
+
+    <section id="core-services">
+      <h2><span class="num">05</span>Coreサービス</h2>
+
+      <h3>IPdfFileCollectorService <span class="tag">ファイル/フォルダ展開</span></h3>
+      <p>D&amp;Dやダイアログで渡されたパス群(ファイル・フォルダ混在)から、PDFファイルパスの一覧を作る。
+        フォルダが渡された場合は<strong>直下のみ</strong>(<code class="inline">SearchOption.TopDirectoryOnly</code>)を対象とし、
+        子フォルダは検索しない。存在しないパス・非PDFは無視してログに記録するのみで処理は継続する。</p>
+
+      <h3>IPdfMetadataService <span class="tag">ページ数・しおり抽出</span></h3>
+      <p>PDFsharpの <code class="inline">PdfReader.Open(path, PdfDocumentOpenMode.Import)</code> でファイルを開き、
+        <code class="inline">document.Outlines</code> を再帰的に辿って <code class="inline">BookmarkNode</code> ツリーへ変換する。
+        しおりが1件も無いPDFは空リストを返すだけで例外を投げない。ジャンプ先ページが特定できないしおり
+        (外部ファイルへのリンク等)は警告ログを出して読み飛ばし、処理全体は継続する。
+        ジャンプ先<code class="inline">PdfPage</code>からページ番号を引く処理は、しおり1件ごとに
+        <code class="inline">document.Pages</code>を線形探索していた実装を、<code class="inline">ReadMetadataAsync</code>の冒頭で
+        1度だけ構築する<code class="inline">Dictionary&lt;PdfPage, int&gt;</code>(<code class="inline">ReferenceEqualityComparer</code>使用)
+        による参照ルックアップに置き換えており、しおり数・ページ数が多いPDFでも計算量が線形に収まる。</p>
+
+      <h3>BookmarkOffsetCalculator / MissingBookmarkFallback <span class="tag">累積ページオフセット計算・非破壊設計</span></h3>
+      <p>
+        <code class="inline">MissingBookmarkFallback.ResolveEffectiveBookmarks</code>は、しおりを1件も持たないファイルについて
+        ファイル名(拡張子なし)をタイトルとするしおりを補った「ファイルごとの実効しおりリスト」を
+        <code class="inline">Dictionary&lt;Guid, IReadOnlyList&lt;BookmarkNode&gt;&gt;</code>として新たに構築して返す。
+        続く<code class="inline">BookmarkOffsetCalculator.ComputeMergedBookmarks</code>は、その実効しおりリストと
+        ファイルの結合順序・各ファイルのページ数から、しおりの<code class="inline">MergedPageIndex</code>を
+        「<strong>自分より前に綴じ込まれる全ファイルの総ページ数 + 自ファイル内のページ番号</strong>」として計算するが、
+        その際<code class="inline">BookmarkNode.Clone()</code>で複製したツリーに対して計算結果を書き込み、複製を返す。
+        いずれも<strong>入力(<code class="inline">metadataByFileId</code>としてキャッシュされている元のBookmarkNode群)を
+        変更しない非破壊設計</strong>であり、しおり抽出結果を後から再計算・再利用しても元データが壊れない。
+        メタデータ未取得(読み込み失敗)のファイルは結果からスキップされ、処理は継続する。
+      </p>
+
+      <div class="offset-diagram">
+        <div class="file-row">
+          <div class="flabel"><b>A.pdf</b>6p</div>
+          <div class="page bm">0</div><div class="page">1</div><div class="page">2</div><div class="page">3</div><div class="page">4</div><div class="page">5</div>
+        </div>
+        <div class="file-row">
+          <div class="flabel"><b>B.pdf</b>4p</div>
+          <div class="page bm">6</div><div class="page">7</div><div class="page">8</div><div class="page">9</div>
+        </div>
+        <div class="file-row">
+          <div class="flabel"><b>C.pdf</b>3p<br />(しおりなし)</div>
+          <div class="page">10</div><div class="page">11</div><div class="page">12</div>
+        </div>
+      </div>
+      <p style="margin-top:-8px; font-size: 13px; color: var(--ink-soft);">
+        橙枠 = しおりのジャンプ先ページ。B.pdf先頭のしおりは自ファイル内では0番目だが、
+        直前のA.pdf(6ページ)分を加算し、結合後は6番目のページを指す。
+      </p>
+
+      <h3>IPdfMergeService <span class="tag">結合本体</span></h3>
+      <p>
+        出力用の空 <code class="inline">PdfDocument</code> を作成し、各入力ファイルを順に
+        <code class="inline">PdfDocumentOpenMode.Import</code> で開いて <code class="inline">output.AddPage(page)</code> で1ページずつ取り込む。
+        このとき <code class="inline">(FileEntry.Id, 元ページ番号) → 出力先PdfPage</code> の対応表を作りながら進め、
+        編集済みしおりツリーを再帰的に辿って対応表からジャンプ先ページを解決し、出力ドキュメントの
+        <code class="inline">Outlines</code> を再構築する。ファイルパスではなく <code class="inline">Guid</code> のファイルIDをキーにすることで、
+        同一PDFファイルを複数回結合対象に追加しても正しく動作する。最後にプロパティを設定して保存する。
+      </p>
+
+      <div class="card">
+        <h4>実装上の落とし穴 <span class="badge warn">要注意</span></h4>
+        <p>
+          PDFsharpの <code class="inline">PdfDocument</code> は <code class="inline">Save()</code> 呼び出し後、
+          <code class="inline">PageCount</code> を含む<strong>あらゆるプロパティへのアクセスで例外</strong>
+          (<code class="inline">"The document was already saved and cannot be modified anymore."</code>)を送出する。
+          結合完了ログにページ数を出力する際は、<code class="inline">Save()</code> の<strong>前</strong>に
+          <code class="inline">var totalPageCount = output.PageCount;</code> のようにローカル変数へ退避しておく必要がある。
+        </p>
+      </div>
+    </section>
+
+    <section id="app-layer">
+      <h2><span class="num">06</span>ViewModel層(PdfBookmarkMerger.App)</h2>
+      <p class="lede">
+        ReactiveProperty の <code class="inline">ReactivePropertySlim&lt;T&gt;</code> / <code class="inline">AsyncReactiveCommand</code> を用い、
+        WPF・Avalonia双方の<code class="inline">Binding</code>構文から等しく参照できる形でViewModelを実装している。
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">クラス</th><th>役割</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">MainWindowViewModel</td><td>手順1〜4の全体フローを統括する状態機械。<code class="inline">WorkflowStep</code>(SelectFiles / EditBookmarks)を持ち、<code class="inline">CombineLatest</code>で各コマンドのCanExecuteを組み立てる</td></tr>
+            <tr><td class="mono">FileListViewModel</td><td>結合対象ファイル一覧。追加・削除・並べ替え(<code class="inline">MoveUp/MoveDown/MoveTo</code>)</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModel</td><td>しおり編集ツリー。<code class="inline">AddRoot/AddChild/AddSiblingAfter/Remove/Move</code>。<code class="inline">Move</code>は自分自身の子孫への移動を<code class="inline">IsDescendantOf</code>で防止</td></tr>
+            <tr><td class="mono">BookmarkNodeViewModel</td><td>しおり1ノード分の編集可能プロパティ(Title/DestinationType/IsOpen/Left/Top/Right/Bottom/Zoom)</td></tr>
+            <tr><td class="mono">PdfFileEntryViewModel</td><td>ファイル一覧1行分のViewModel。<code class="inline">LoadFailed</code>(メタデータ読込失敗フラグ)を持つ</td></tr>
+            <tr><td class="mono">PropertiesDialogViewModel / SettingsViewModel / LevelCapDialogViewModel</td><td>各ダイアログ用の小さなViewModel</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h4>結合対象ファイルの整合性 <span class="badge ok">重要</span></h4>
+        <p>
+          <code class="inline">ConfirmFilesAsync</code>でメタデータ読込に失敗したファイルは、
+          <code class="inline">PdfFileEntryViewModel.MarkLoadFailed()</code>で<code class="inline">LoadFailed</code>フラグを立てたうえで
+          しおりツリーの計算対象からは除外するが、一覧(<code class="inline">FileList.Files</code>)自体からは削除しない
+          (再確認できるようにするため)。そのため<code class="inline">MergeAsync</code>側でも
+          <code class="inline">FileList.Files.Where(f =&gt; !f.LoadFailed.Value)</code>で同じ判定基準を使い、
+          結合対象ファイル一覧をしおりツリーの計算時と一致させている。これを怠ると、しおりの計算には含まれない
+          ファイルが実際の結合には混入し、結合失敗やページオフセットのずれを引き起こす
+          (回帰テスト: <code class="inline">MainWindowViewModelTests.MergeAsync_ExcludesFilesThatFailedMetadataLoad_...</code>)。
+          また<code class="inline">ConfirmFilesAsync</code>は、読込に成功したファイルが1件も無い場合
+          <code class="inline">WorkflowStep.EditBookmarks</code>へ遷移せず<code class="inline">SelectFiles</code>のまま留まる。
+        </p>
+      </div>
+
+      <h3>設定の保存(Configuration / Options)</h3>
+      <p>
+        <code class="inline">PdfBookmarkMergerOptions</code>(<code class="inline">LastOutputDirectory</code> / ウィンドウサイズ)は、
+        起動時に <code class="inline">appsettings.json</code>(既定値)と
+        <code class="inline">%AppData%/PdfBookmarkMerger/settings.json</code>(ユーザー設定、<code class="inline">reloadOnChange: true</code>)の
+        2段階でConfigurationに読み込み、<code class="inline">IOptionsMonitor&lt;PdfBookmarkMergerOptions&gt;</code> 経由でViewModelへ供給する。
+        設定変更(結合保存時の出力先フォルダ記憶など)は <code class="inline">IUserSettingsService.SaveAsync</code> が
+        JSONファイルへ書き戻し、ファイル監視によってConfigurationとOptionsが自動的に再読み込みされる。
+      </p>
+    </section>
+
+    <section id="features">
+      <h2><span class="num">07</span>機能設計 — 要件対応表</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th style="width:70px">要件</th><th>内容</th><th>実装</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">1-1</td><td>ファイル/フォルダのD&amp;D・ダイアログ読込</td><td class="mono">PdfFileCollectorService, IDialogService.ShowOpenPdfFilesDialogAsync/ShowOpenFolderDialogAsync, Window/ListBox Dropハンドラ</td></tr>
+            <tr><td class="mono">1-2</td><td>一覧の並べ替え・削除</td><td class="mono">FileListViewModel.MoveUp/MoveDown/MoveTo/Remove + 一覧上のD&amp;D</td></tr>
+            <tr><td class="mono">2-1</td><td>ページ数・しおり全情報の抽出</td><td class="mono">PdfMetadataService(再帰的Outline抽出)</td></tr>
+            <tr><td class="mono">2-2</td><td>累積ページオフセット / しおりなしファイルでも継続</td><td class="mono">BookmarkOffsetCalculator + ファイル単位try/catch(MainWindowViewModel.ConfirmFilesAsync)</td></tr>
+            <tr><td class="mono">3-1</td><td>しおりツリー編集UI(D&amp;D・文字列編集追加削除)</td><td class="mono">BookmarkTreeViewModel + TreeView(TreeDataTemplate / HierarchicalDataTemplate)</td></tr>
+            <tr><td class="mono">4</td><td>結合・プロパティダイアログ(既定値は先頭ファイル流用)</td><td class="mono">PdfMergeService.MergeAsync + MainWindowViewModel.MergeAsync</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>ワークフロー</h3>
+      <ol>
+        <li><strong>ファイル指定</strong> — D&amp;D/ダイアログで追加、並べ替え・削除、「次へ」で確定</li>
+        <li><strong>しおり抽出</strong> — 確定と同時に全ファイルのページ数・しおりを読み込み、オフセットを計算</li>
+        <li><strong>しおり編集</strong> — ツリー上でタイトル・表示方法・座標・開閉状態を編集、D&amp;Dで並べ替え/再親子付け、追加・削除</li>
+        <li><strong>結合・保存</strong> — 保存先ダイアログ → プロパティダイアログ(既定値は先頭ファイルのプロパティ) → 結合実行</li>
+      </ol>
+    </section>
+
+    <section id="settings-logging">
+      <h2><span class="num">08</span>設定・ロギング・例外処理</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h4>設定ファイル</h4>
+          <p class="mono" style="font-size:12.5px;">appsettings.json(同梱既定値)<br />%AppData%/PdfBookmarkMerger/settings.json(ユーザー設定)</p>
+          <p>両OSとも <code class="inline">Environment.SpecialFolder.ApplicationData</code> で解決するため、同一ロジックをWindows/macOSで共用できる。</p>
+        </div>
+        <div class="card">
+          <h4>ログ出力</h4>
+          <p class="mono" style="font-size:12.5px;">%AppData%/PdfBookmarkMerger/logs/pdfbookmarkmerger-.log(日次ローリング, 14世代保持) + コンソール</p>
+          <p>Serilog の <code class="inline">MinimumLevel</code> はappsettings.jsonの<code class="inline">Serilog</code>セクション(Serilog.Settings.Configuration)から上書き可能。</p>
+        </div>
+      </div>
+
+      <h3>appsettings.json(同梱既定値、WPF版・Avalonia版で同一内容)</h3>
+      <pre class="code">{
+  <span class="s">"Serilog"</span>: {
+    <span class="s">"MinimumLevel"</span>: {
+      <span class="s">"Default"</span>: <span class="s">"Information"</span>,
+      <span class="s">"Override"</span>: { <span class="s">"Microsoft"</span>: <span class="s">"Warning"</span>, <span class="s">"System"</span>: <span class="s">"Warning"</span> }
+    }
+  },
+  <span class="s">"PdfBookmarkMerger"</span>: {
+    <span class="s">"LastOutputDirectory"</span>: null,
+    <span class="s">"WindowWidth"</span>: 1100,
+    <span class="s">"WindowHeight"</span>: 750
+  }
+}</pre>
+      <p>
+        <code class="inline">%AppData%/PdfBookmarkMerger/settings.json</code>(ユーザー設定)は同じ
+        <code class="inline">"PdfBookmarkMerger"</code>セクション構造を持ち、<code class="inline">Configuration</code>の
+        2段目として上書きマージされる(初回起動時は存在せず、最初の結合成功時や設定変更時に
+        <code class="inline">UserSettingsService.SaveAsync</code>が新規作成する)。
+      </p>
+
+      <h3>ユーザー設定の書き込み(アトミック化)</h3>
+      <p>
+        <code class="inline">UserSettingsService.SaveAsync</code>は、<code class="inline">settings.json</code>を直接
+        <code class="inline">File.WriteAllTextAsync</code>で上書きするのではなく、同一フォルダの一時ファイル
+        (<code class="inline">settings.json.tmp</code>)へ書き込んでから<code class="inline">File.Move(overwrite: true)</code>で
+        置き換える。同一ボリューム内の<code class="inline">File.Move</code>はアトミックであるため、
+        書き込み途中でプロセスが強制終了しても<code class="inline">settings.json</code>自体が壊れた状態(JSONとして
+        パース不能)で残ることがない。
+      </p>
+
+      <h3>未処理例外のログ記録</h3>
+      <p>
+        <a href="#architecture">アーキテクチャ節</a>で述べた通り、WPF/Avalonia双方の起動処理(<code class="inline">App</code>の
+        コンストラクタ)で<code class="inline">AppDomain.UnhandledException</code>等をできるだけ早期に登録し、
+        <code class="inline">PdfBookmarkMergerHostFactory.LogUnhandledException</code>経由でSerilogへ記録する。
+        <code class="inline">Host.Build()</code>実行前(Serilog未設定)の例外はログに残らない場合があるが、
+        通常運用中に発生する例外は本ハンドラで捕捉・記録できる。
+      </p>
+    </section>
+
+    <section id="platform-notes">
+      <h2><span class="num">09</span>プラットフォーム固有の留意点</h2>
+      <p class="lede">
+        ViewModel層(<code class="inline">PdfBookmarkMerger.App</code>)はWPF・Avalonia間で完全に共有しているが、
+        XAML側の見た目・レイアウトはUIフレームワークごとの既定テーマに依存するため、
+        同じ意図の実装でも既定値の食い違いが不具合として表面化することがある。実際に発生した2件を記録する。
+      </p>
+
+      <div class="card">
+        <h4>TreeViewItem.IsExpandedの既定バインディング欠落(Avalonia) <span class="badge warn">修正済み</span></h4>
+        <p>
+          WPF版は<code class="inline">TreeView.ItemContainerStyle</code>で
+          <code class="inline">&lt;Setter Property="IsExpanded" Value="{Binding IsExpanded.Value, Mode=TwoWay}"/&gt;</code>
+          を明示しているのに対し、Avalonia版の<code class="inline">TreeDataTemplate</code>にはIsExpandedを
+          バインドする手段が無く、この設定自体が丸ごと抜けていた。結果として
+          <code class="inline">BookmarkNodeViewModel.IsExpanded</code>の既定値(<code class="inline">true</code>)が
+          一切反映されず、しおり編集ツリーが常に折りたたまれた状態で表示される不具合になっていた。
+          <code class="inline">MainWindow.axaml</code>の<code class="inline">TreeView.Styles</code>に
+          <code class="inline">&lt;Style Selector="TreeViewItem" x:DataType="vm:BookmarkNodeViewModel"&gt;</code>を追加し、
+          同様のバインディングを行うことで解決した。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>タイトル列の階層インデント幅の食い違い(Avalonia) <span class="badge warn">修正済み</span></h4>
+        <p>
+          <code class="inline">DepthToTitleWidthConverter</code>と<code class="inline">RecomputeTitleColumnWidth</code>は、
+          タイトル欄の幅から「階層の深さ × 1階層あたりのインデント幅」を差し引くことで、表示方法・座標欄など
+          後続列の横位置を階層に関わらず揃えている。この「1階層あたりのインデント幅」定数をAvalonia版でも
+          WPF-UIの値(19px)のまま流用していたが、Avalonia FluentThemeの既定<code class="inline">TreeViewItem</code>が
+          実際に適用するインデントは16pxで、3pxの差分が階層が深いノードほど後続列を右にずらしていた
+          (Avalonia.Headlessでウィンドウを実際にレイアウトし、各コントロールの絶対座標を比較して実測・特定)。
+          併せて、幅の実測(<code class="inline">MeasureTextWidth</code>)がハードコードされた
+          <code class="inline">"Segoe UI"</code>・13ptを使っており、<code class="inline">Program.cs</code>の
+          <code class="inline">.WithInterFont()</code>で実際に既定化されているInter・14pt
+          (<code class="inline">ControlContentThemeFontSize</code>)と食い違っていた点も
+          <code class="inline">Typeface.Default</code>・14ptを使うよう修正した。
+          この経緯から、<code class="inline">PdfBookmarkMerger.UiConverters.Tests</code>の
+          <code class="inline">DepthToTitleWidthConverter</code>ゴールデンテストは「WPF/Avaloniaの計算結果が
+          一致する」ことではなく、「各実装が<em>自身の</em>正しいインデント定数通りに計算しているか」を検証する形に
+          設計している(そもそも実際のインデント幅がフレームワーク間で異なる以上、一致するのが誤り)。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>2つのUIヘッドの並行保守について</h4>
+        <p>
+          Converter・ThemeApplier・ダイアログサービスはWPF/Avaloniaでそれぞれ独立して実装しており、
+          上記のような「既定値が微妙に異なる」種類の不具合は今後も起こり得る。
+          <code class="inline">PdfBookmarkMerger.UiConverters.Tests</code>のゴールデンテストは、変換ロジックの
+          挙動をコード変更時に機械的に検証できるようにするための対策だが、D&amp;D・Adorner描画・ダイアログ表示など
+          実際のウィンドウ操作を伴う部分は自動テスト化のコストが高いため、
+          <a href="manual-verification-checklist.html">UIコードビハインド手動確認手順書</a>による目視確認を
+          リリース前に行う運用としている。
+        </p>
+      </div>
+    </section>
+
+    <section id="testing">
+      <h2><span class="num">10</span>テスト戦略</h2>
+      <p class="lede">
+        xUnit + Shouldlyを使い、3つのテストプロジェクトに責務を分けている。いずれも外部フィクスチャファイルを
+        持たず、テスト実行のたびにサンプルPDF生成やフェイク実装で必要な状態をその場で作る。
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">プロジェクト</th><th>対象レイヤー</th><th>件数</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">PdfBookmarkMerger.Core.Tests</td><td>Core(PDF入出力・結合ロジック)。<code class="inline">SamplePdfFactory</code>がPDFsharpでサンプルPDFをその場で生成</td><td>14</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.App.Tests</td><td>App層ViewModel。<code class="inline">TestHelpers/FakeServices.cs</code>のフェイク実装(モックライブラリ不使用)でDIを差し替える</td><td>7</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.UiConverters.Tests</td><td>WPF/Avalonia双方のConverterクラスを実際に参照・実行するゴールデンテスト(net10.0-windows)</td><td>25</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">サンプル(Core.Tests)</th><th>構成</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">CreateWithDeepBookmarks</td><td>指定ページ数 + <strong>Part &gt; Chapter &gt; Section &gt; Subsection</strong> の4階層しおり(要件の「3階層以上」を満たす)。テストでは titlePrefix を変えて2種類(A / B)を生成し、複数ファイルの結合を検証</td></tr>
+            <tr><td class="mono">CreateWithoutBookmarks</td><td>しおりを一切持たないPDF。結合対象に混在させても処理が継続することを検証</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">テストクラス</th><th>検証内容</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">PdfMetadataServiceTests</td><td>4階層しおりの完全な抽出(タイトル・ページ番号・階層)、しおりなしPDFで空リスト・例外なし</td></tr>
+            <tr><td class="mono">BookmarkOffsetCalculatorTests</td><td>累積ページオフセットの計算、メタデータ未取得ファイルのスキップ、<strong>入力(元のBookmarkNode)を変更しないこと(非破壊性)</strong></td></tr>
+            <tr><td class="mono">MissingBookmarkFallbackTests</td><td>しおりなしファイルへのファイル名しおり補完、直前ファイルの表示方法の引き継ぎ(座標は引き継がない)、既存しおりを持つファイルは複製せず同一インスタンスを返すこと</td></tr>
+            <tr><td class="mono">PdfMergeServiceTests</td><td>しおり付き2ファイル+しおりなし1ファイルを結合し、結合結果を再オープンしてページ数・しおり階層・ジャンプ先ページ・プロパティを検証(統合テスト)</td></tr>
+            <tr><td class="mono">PdfFileCollectorServiceTests</td><td>フォルダ直下のみ展開・子フォルダ除外、非PDF無視、存在しないパスの無視</td></tr>
+            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)</td></tr>
+            <tr><td class="mono">ConverterParityTests</td><td>Zoom%変換・座標文字列変換・テーマラベルはWPF/Avalonia間で結果が一致すること。<code class="inline">DepthToTitleWidthConverter</code>は両実装が<em>それぞれ自身の</em>インデント定数(19px/16px)通りに計算していること(<a href="#platform-notes">詳細</a>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><span class="badge ok">結果</span> 全46テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
+    </section>
+
+    <section id="windows-release-build">
+      <h2><span class="num">11</span>Windows公開ビルド手順(WPF-UI版)</h2>
+      <p class="lede">
+        <code class="inline">scripts/publish-wpf-release.ps1</code>が、公開用の自己完結型・単一ファイル・圧縮publishビルド→
+        zip圧縮までを一括で行う。バージョンはリポジトリ直下の<code class="inline">Directory.Build.props</code>の
+        <code class="inline">&lt;Version&gt;</code>(単一の情報源)から自動取得するため、スクリプト自体に
+        バージョン番号を重複して書く必要はない。
+      </p>
+      <pre class="code"><span class="c"># 既定(win-x64, Release)で実行</span>
+pwsh ./scripts/publish-wpf-release.ps1
+
+<span class="c"># ランタイム識別子・構成を指定する場合</span>
+pwsh ./scripts/publish-wpf-release.ps1 -RuntimeIdentifier win-arm64 -Configuration Release</pre>
+      <p>
+        <code class="inline">dotnet publish</code>は<code class="inline">-p:PublishSingleFile=true
+        -p:EnableCompressionInSingleFile=true -p:DebugType=None</code>を指定し、出力先を
+        <code class="inline">dist/PdfBookmarkMerger-Wpf-v&lt;Version&gt;-&lt;RID&gt;/</code>に直接向ける。
+        <code class="inline">dist/</code>は<code class="inline">.gitignore</code>対象(git管理外)のため、
+        <strong>展開済みフォルダ・zipアーカイブの両方を削除せずそのまま残す</strong>
+        (フォルダは動作確認・そのまま実行する用途、zipは配布用の2用途)。
+      </p>
+
+      <div class="card">
+        <h4>WPFの単一ファイル発行に関する制約 <span class="badge warn">要注意</span></h4>
+        <p>
+          単一ファイル発行でも、WPFの描画・入力を担うネイティブ相互運用DLL
+          (<code class="inline">wpfgfx_cor3.dll</code> / <code class="inline">PresentationNative_cor3.dll</code> /
+          <code class="inline">D3DCompiler_47_cor3.dll</code> / <code class="inline">PenImc_cor3.dll</code> /
+          <code class="inline">vcruntime140_cor3.dll</code>、計5ファイル・約7.8MB)はexeへ埋め込めず、
+          <code class="inline">appsettings.json</code>とともにexeと同じフォルダに残る(.NET SDKの既知の制約で回避不可)。
+          そのため「exe 1個のみ」の配布にはならない点に注意。<br />
+          実測サイズ(win-x64, 圧縮あり・PDB除外): フォルダ全体 <strong>約70.5MB</strong>
+          (exe単体 約62.6MB) / zip圧縮後 <strong>約60.7MB</strong>。比較として非圧縮の通常自己完結フォルダ
+          (単一ファイル無し)は453ファイル・約150.5MB。本環境で実際にexeを起動し、
+          正常に動作することを確認済み。
+        </p>
+      </div>
+    </section>
+
+    <section id="mac-build">
+      <h2><span class="num">12</span>macビルド手順</h2>
+      <p class="lede">
+        本開発環境はWindows上のPowerShell/Bashのみで、実機のmacは利用できない。そのため
+        <strong>クロスコンパイル・自己完結型パブリッシュの成功まで</strong>を本環境で確認しており、
+        実機mac上でのウィンドウ表示・D&amp;D操作等の目視確認は行っていない。配布前に実機での動作確認を推奨する。
+      </p>
+
+      <h3>Apple Silicon (arm64) 向け</h3>
+      <pre class="code"><span class="c">dotnet publish src/PdfBookmarkMerger.Avalonia/PdfBookmarkMerger.Avalonia.csproj \
+  -c Release -r osx-arm64 --self-contained true</span></pre>
+
+      <h3>Intel (x64) 向け</h3>
+      <pre class="code"><span class="c">dotnet publish src/PdfBookmarkMerger.Avalonia/PdfBookmarkMerger.Avalonia.csproj \
+  -c Release -r osx-x64 --self-contained true</span></pre>
+
+      <p>
+        本環境で <code class="inline">osx-arm64</code> 向けパブリッシュを実行し、
+        <code class="inline">Avalonia.Native.dll</code> を含むmacOS固有ランタイム一式が正しく出力されることを確認済み
+        (<code class="inline">src/PdfBookmarkMerger.Avalonia/bin/Release/net10.0/osx-arm64/publish/</code>)。
+        実機macでの最終パッケージ化(<code class="inline">.app</code>バンドル化・コード署名・Notarization)は
+        今後の課題として <a href="#limitations">既知の制限事項</a> に記載する。
+      </p>
+    </section>
+
+    <section id="limitations">
+      <h2><span class="num">13</span>既知の制限事項・今後の課題</h2>
+      <ul>
+        <li>
+          <strong>PDFsharp 6.2.4のOutline開閉状態(Opened)往復に関する制限</strong> —
+          自己出力したPDFを読み戻した際、<code class="inline">PdfOutline.Opened</code>プロパティ自体は
+          <code class="inline">/Count</code>符号を正しく解釈できない既知の不具合がある(<code class="inline">/Count</code>自体は
+          正しく書き込まれている)。<code class="inline">PdfMetadataService</code>・<code class="inline">PdfMergeService</code>双方で
+          <code class="inline">/Count</code>を直接読み書きすることで回避済み(タイトル・階層・ジャンプ先ページ等ほかの
+          全項目は元々問題なく往復する)。
+        </li>
+        <li><strong>mac実機での動作確認未実施</strong> — クロスパブリッシュの成功までを確認。D&amp;D操作やウィンドウ描画等の目視確認は未実施。</li>
+        <li><strong>コード署名・Notarization未設定</strong> — 配布用の<code class="inline">.app</code>化・署名・公証は今後の課題。</li>
+        <li>
+          <strong>自動UIテストは部分的</strong> — ViewModel層(<code class="inline">PdfBookmarkMerger.App.Tests</code>)と
+          WPF/Avalonia双方のConverter(<code class="inline">PdfBookmarkMerger.UiConverters.Tests</code>)は自動テスト化済みだが、
+          実際のD&amp;D操作・Adorner描画・ダイアログ表示を伴う部分は
+          <a href="manual-verification-checklist.html">手動確認手順書</a>による目視確認に依存している。
+          <code class="inline">Avalonia.Headless</code>を使えば個別の不具合調査時にレイアウト結果を検証できることを
+          <a href="#platform-notes">プラットフォーム固有の留意点</a>の調査で確認しており、恒常的なテストとして
+          組み込むかは今後の検討課題。
+        </li>
+        <li><strong>しおりD&amp;Dの落下先仕様</strong> — ノード上へドロップすると常にその子(末尾)として挿入する簡潔なモデルを採用。兄弟間の「前/後」挿入位置指定はツールバーの「兄弟として追加」等で代替する。</li>
+      </ul>
+    </section>
+
+    <section id="related-docs">
+      <h2><span class="num">14</span>関連ドキュメント</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h4>詳細設計ドキュメント</h4>
+          <p>クラス図(SVG)・各クラスのメンバー/メソッド詳細・主要アルゴリズムの解説。</p>
+          <p><a href="detailed-design.html">detailed-design.html</a></p>
+        </div>
+        <div class="card">
+          <h4>UIコードビハインド 手動確認手順書</h4>
+          <p>自動テスト化していないD&amp;D・ダイアログ・テーマ切替等の目視確認チェックリスト。</p>
+          <p><a href="manual-verification-checklist.html">manual-verification-checklist.html</a></p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger 設計ドキュメント / .NET 10 / 対象OS: Windows 10 以降(WPF-UI版)、macOS(Avalonia版・クロスビルド確認済み)
+    </footer>
+  </main>
+</div>
+</body>
+</html>

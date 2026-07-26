@@ -1,0 +1,63 @@
+<ui:FluentWindow x:Class="PdfBookmarkMerger.WpfApp.Views.SettingsDialogWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:sys="clr-namespace:System;assembly=mscorlib"
+                 xmlns:options="clr-namespace:PdfBookmarkMerger.App.Options;assembly=PdfBookmarkMerger.App"
+                 xmlns:conv="clr-namespace:PdfBookmarkMerger.WpfApp.Converters"
+                 Title="設定"
+                 Icon="pack://application:,,,/Assets/app.ico"
+                 Width="440" SizeToContent="Height"
+                 WindowStartupLocation="CenterOwner"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="None">
+    <ui:FluentWindow.Resources>
+        <conv:ThemeModeToLabelConverter x:Key="ThemeModeToLabelConverter" />
+        <ObjectDataProvider x:Key="ThemeModeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="options:ThemeMode" />
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
+    </ui:FluentWindow.Resources>
+
+    <Grid Margin="16,40,16,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="設定" Margin="-16,-40,-16,8" VerticalAlignment="Top">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/Assets/app.ico" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,16">
+            <TextBlock Text="表示モード" Margin="0,0,0,4" />
+            <ComboBox ItemsSource="{Binding Source={StaticResource ThemeModeValues}}"
+                      SelectedItem="{Binding ThemeMode.Value, Mode=TwoWay}"
+                      Background="{DynamicResource ComboBoxDropDownBackground}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}" Padding="4,3">
+                            <TextBlock Text="{Binding Converter={StaticResource ThemeModeToLabelConverter}}"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        </Border>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,20">
+            <CheckBox Content="PDF結合時にプロパティ編集ダイアログを表示する"
+                      IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <ui:Button Content="キャンセル" Click="OnCancelClick" Margin="0,0,8,0" />
+            <ui:Button Content="OK" Appearance="Primary" Click="OnOkClick" />
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>

@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- ソリューション全体の版数。今回のリリースを初版(1.0.0)として扱う。 -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>PdfBookmarkMerger</Product>
+  </PropertyGroup>
+
+</Project>

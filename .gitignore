@@ -1,0 +1,17 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+
+## Release build output (scripts/publish-wpf-release.ps1)
+dist/
+
+## Rider / VS
+.vs/
+.idea/
+*.DotSettings.user
+
+## OS
+.DS_Store
+Thumbs.db

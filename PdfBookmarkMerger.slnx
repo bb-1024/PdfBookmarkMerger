@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PdfBookmarkMerger.App/PdfBookmarkMerger.App.csproj" />
+    <Project Path="src/PdfBookmarkMerger.Avalonia/PdfBookmarkMerger.Avalonia.csproj" />
+    <Project Path="src/PdfBookmarkMerger.Core/PdfBookmarkMerger.Core.csproj" />
+    <Project Path="src/PdfBookmarkMerger.Wpf/PdfBookmarkMerger.Wpf.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PdfBookmarkMerger.App.Tests/PdfBookmarkMerger.App.Tests.csproj" />
+    <Project Path="tests/PdfBookmarkMerger.Core.Tests/PdfBookmarkMerger.Core.Tests.csproj" />
+    <Project Path="tests/PdfBookmarkMerger.UiConverters.Tests/PdfBookmarkMerger.UiConverters.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/PdfBookmarkMerger.SampleGenerator/PdfBookmarkMerger.SampleGenerator.csproj" />
+  </Folder>
+</Solution>

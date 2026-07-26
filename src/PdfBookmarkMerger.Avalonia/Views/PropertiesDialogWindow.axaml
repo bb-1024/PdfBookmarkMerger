@@ -1,0 +1,37 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:PdfBookmarkMerger.App.ViewModels;assembly=PdfBookmarkMerger.App"
+        x:Class="PdfBookmarkMerger.AvaloniaApp.Views.PropertiesDialogWindow"
+        x:DataType="vm:PropertiesDialogViewModel"
+        Title="PDFプロパティ"
+        Icon="avares://PdfBookmarkMerger.Avalonia/Assets/app.ico"
+        Width="440" SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="20" Spacing="10">
+        <StackPanel>
+            <TextBlock Text="タイトル" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Title.Value, Mode=TwoWay}" />
+        </StackPanel>
+        <StackPanel>
+            <TextBlock Text="作成者" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Author.Value, Mode=TwoWay}" />
+        </StackPanel>
+        <StackPanel>
+            <TextBlock Text="件名" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Subject.Value, Mode=TwoWay}" />
+        </StackPanel>
+        <StackPanel>
+            <TextBlock Text="キーワード" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Keywords.Value, Mode=TwoWay}" />
+        </StackPanel>
+        <StackPanel Margin="0,0,0,8">
+            <TextBlock Text="アプリケーション" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Creator.Value, Mode=TwoWay}" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="キャンセル" Click="OnCancelClick" />
+            <Button Name="OkButton" Content="OK" IsDefault="True" Click="OnOkClick" />
+        </StackPanel>
+    </StackPanel>
+</Window>
