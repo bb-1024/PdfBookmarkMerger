@@ -15,11 +15,13 @@
         <conv:NullableDoubleToStringConverter x:Key="NullableDoubleToStringConverter" />
         <conv:ZoomPercentToStringConverter x:Key="ZoomPercentToStringConverter" />
         <conv:DepthToTitleWidthConverter x:Key="DepthToTitleWidthConverter" />
+        <conv:BusyProgressToTextConverter x:Key="BusyProgressToTextConverter" />
     </Window.Resources>
 
     <Grid RowDefinitions="*,Auto">
         <!-- 手順1: ファイル指定 -->
         <Grid Grid.Row="0" Margin="16" RowDefinitions="Auto,*,Auto"
+              IsEnabled="{Binding !IsBusy.Value}"
               IsVisible="{Binding Step.Value, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=SelectFiles}">
             <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"
                        Text="結合したいPDFファイル、またはPDFが入ったフォルダを指定してください。" />
@@ -69,6 +71,7 @@
 
         <!-- 手順2・3: しおり編集 -->
         <Grid Grid.Row="0" Margin="16" RowDefinitions="Auto,*,Auto"
+              IsEnabled="{Binding !IsBusy.Value}"
               IsVisible="{Binding Step.Value, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=EditBookmarks}">
             <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"><Run Text="しおりの内容を確認・編集してください。" /><LineBreak /><Run Text="階層等の変更はドラッグ&amp;ドロップで実行します(ドロップ先の行の上半分に合わせると子(下位レベル)、下半分に合わせると兄弟(同レベル)として挿入されます)。" /></TextBlock>
 
@@ -161,6 +164,21 @@
                 </StackPanel>
             </StackPanel>
         </Grid>
+
+        <!-- 処理中オーバーレイ: IsBusy中は手順1・2/3の全コントロールを覆い、操作を防止する。 -->
+        <Border Grid.Row="0" Background="#AA000000" IsVisible="{Binding IsBusy.Value}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="480" Spacing="6">
+                <TextBlock Text="{Binding StatusMessage.Value}" Foreground="White" FontSize="14"
+                           HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                <!--
+                    5秒以上処理が続いた場合にのみ、コードビハインド(DispatcherTimer)がIsVisibleへ切り替える。
+                    短時間で終わる処理では表示のチラつきを避けるため、既定はfalse。
+                -->
+                <TextBlock Name="BusyDetailText" Foreground="#DDDDDDDD" FontSize="12" IsVisible="False"
+                           HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                           Text="{Binding BusyProgress.Value, Converter={StaticResource BusyProgressToTextConverter}}" />
+            </StackPanel>
+        </Border>
 
         <Border Grid.Row="1" Padding="12,8" Background="#22808080">
             <Grid ColumnDefinitions="*,Auto">

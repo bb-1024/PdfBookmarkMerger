@@ -159,6 +159,48 @@ public sealed class PdfMergeServiceTests : IDisposable
         mergedChapter.Elements.GetInteger("/Count").ShouldBeGreaterThan(0);
     }
 
+    [Fact]
+    public async Task MergeAsync_ReportsProgress_OncePerFile_InOriginalFileOrder()
+    {
+        // ファイルを開く処理(フェーズ1)を並列化しても、進捗通知とページ結合順序(フェーズ2)は
+        // request.Filesの並び順どおりに、1ファイルにつき1回だけ行われることを検証する。
+        var pathA = Path.Combine(_workDirectory, "progress-a.pdf");
+        var pathB = Path.Combine(_workDirectory, "progress-b.pdf");
+        var pathC = Path.Combine(_workDirectory, "progress-c.pdf");
+        SamplePdfFactory.CreateWithoutBookmarks(pathA, pageCount: 1);
+        SamplePdfFactory.CreateWithoutBookmarks(pathB, pageCount: 1);
+        SamplePdfFactory.CreateWithoutBookmarks(pathC, pageCount: 1);
+
+        var fileA = new PdfFileEntry { FilePath = pathA };
+        var fileB = new PdfFileEntry { FilePath = pathB };
+        var fileC = new PdfFileEntry { FilePath = pathC };
+
+        var request = new PdfMergeRequest
+        {
+            Files = [fileA, fileB, fileC],
+            Bookmarks = [],
+            Properties = PdfDocumentPropertiesModel.CreateEmpty(),
+            OutputPath = Path.Combine(_workDirectory, "progress-merged.pdf"),
+        };
+
+        var reported = new List<MergeProgress>();
+        var progress = new Progress<MergeProgress>(reported.Add);
+
+        await _sut.MergeAsync(request, progress);
+
+        // Progress<T>のコールバックはSynchronizationContext経由で非同期に配送されるため、
+        // テスト用の同期コンテキストがない環境でも確実に処理されるよう少し待つ。
+        for (var i = 0; i < 50 && reported.Count < 3; i++)
+        {
+            await Task.Delay(20);
+        }
+
+        reported.Count.ShouldBe(3);
+        reported.Select(p => p.CurrentFileName).ShouldBe(["progress-a.pdf", "progress-b.pdf", "progress-c.pdf"]);
+        reported.Select(p => p.CompletedFileCount).ShouldBe([1, 2, 3]);
+        reported.ShouldAllBe(p => p.TotalFileCount == 3);
+    }
+
     private static int FindPageIndex(PdfDocument document, PdfPage? page)
     {
         page.ShouldNotBeNull();

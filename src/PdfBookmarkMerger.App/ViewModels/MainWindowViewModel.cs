@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reactive.Linq;
 using Microsoft.Extensions.Logging;
 using PdfBookmarkMerger.App.Options;
@@ -43,6 +44,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         Step = new ReactivePropertySlim<WorkflowStep>(WorkflowStep.SelectFiles).AddTo(Disposables);
         IsBusy = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         StatusMessage = new ReactivePropertySlim<string>("結合したいPDFファイルを追加してください。").AddTo(Disposables);
+        BusyProgress = new ReactivePropertySlim<BusyProgressInfo?>(null).AddTo(Disposables);
 
         var canConfirm = FileList.HasFiles.CombineLatest(IsBusy, (hasFiles, busy) => hasFiles && !busy);
         ConfirmFilesCommand = new AsyncReactiveCommand(canConfirm).AddTo(Disposables);
@@ -95,6 +97,18 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ReactivePropertySlim<string> StatusMessage { get; }
 
+    /// <summary>
+    /// IsBusy中の詳細進捗(完了/総数・処理中のファイル名)。IsBusyがfalseの間はnull。
+    /// UI側は、処理開始から5秒以上経過してから初めてこの内容を表示する運用とする(短時間処理での表示チラつき防止)。
+    /// </summary>
+    public ReactivePropertySlim<BusyProgressInfo?> BusyProgress { get; }
+
+    /// <summary>
+    /// 大量ファイル読み込み時の並列実行数の上限。CPUコア数に連動しつつ、
+    /// 極端な同時オープンによるスレッドプール枯渇・I/O競合を避けるため上限を設ける。
+    /// </summary>
+    private static readonly int MaxParallelLoad = Math.Clamp(Environment.ProcessorCount, 1, 8);
+
     public AsyncReactiveCommand ConfirmFilesCommand { get; }
 
     public AsyncReactiveCommand MergeCommand { get; }
@@ -117,23 +131,55 @@ public sealed class MainWindowViewModel : ViewModelBase
         try
         {
             var files = FileList.Files.ToList();
+            var totalCount = files.Count;
+            var completedCount = 0;
             var failedCount = 0;
+            var inFlightNames = new ConcurrentDictionary<Guid, string>();
+            BusyProgress.Value = new BusyProgressInfo(0, totalCount, []);
 
-            foreach (var file in files)
+            // 各ファイルのメタデータ読み込み(ディスクI/O・PDF構造解析)は互いに独立しているため、
+            // 上限付き並列実行で全体の待ち時間を短縮する。結果の反映(VMプロパティ更新・進捗更新)は
+            // 呼び出し元スレッドで完了順に行い、スレッドセーフティを確保する。
+            using var semaphore = new SemaphoreSlim(MaxParallelLoad);
+            var loadTasks = files.Select(async file =>
             {
+                await semaphore.WaitAsync().ConfigureAwait(false);
+                inFlightNames[file.Id] = file.FileName;
                 try
                 {
-                    var metadata = await _metadataService.ReadMetadataAsync(file.Model);
-                    file.ApplyPageCount(metadata.PageCount);
-                    _metadataByFileId[file.Id] = metadata;
+                    var metadata = await _metadataService.ReadMetadataAsync(file.Model).ConfigureAwait(false);
+                    return (File: file, Metadata: (PdfFileMetadata?)metadata, Error: (Exception?)null);
                 }
                 catch (Exception ex)
                 {
+                    return (File: file, Metadata: (PdfFileMetadata?)null, Error: (Exception?)ex);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }).ToList();
+
+            await foreach (var completedTask in Task.WhenEach(loadTasks))
+            {
+                var (file, metadata, error) = await completedTask;
+                inFlightNames.TryRemove(file.Id, out _);
+                completedCount++;
+
+                if (error is not null)
+                {
                     failedCount++;
                     file.MarkLoadFailed();
-                    _logger.LogError(ex, "PDFメタデータの読み込みに失敗しました: {File}", file.FilePath);
-                    _dialogService.ShowError("読み込みエラー", $"'{file.FileName}' の読み込みに失敗したためスキップします。\n{ex.Message}");
+                    _logger.LogError(error, "PDFメタデータの読み込みに失敗しました: {File}", file.FilePath);
+                    _dialogService.ShowError("読み込みエラー", $"'{file.FileName}' の読み込みに失敗したためスキップします。\n{error.Message}");
                 }
+                else
+                {
+                    file.ApplyPageCount(metadata!.PageCount);
+                    _metadataByFileId[file.Id] = metadata;
+                }
+
+                BusyProgress.Value = new BusyProgressInfo(completedCount, totalCount, inFlightNames.Values.ToList());
             }
 
             var orderedFiles = files.Where(f => _metadataByFileId.ContainsKey(f.Id)).Select(f => f.Model).ToList();
@@ -158,6 +204,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         finally
         {
             IsBusy.Value = false;
+            BusyProgress.Value = null;
         }
     }
 
@@ -204,6 +251,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         IsBusy.Value = true;
         StatusMessage.Value = "PDFを結合しています...";
+        BusyProgress.Value = new BusyProgressInfo(0, mergeTargetFiles.Count, []);
 
         try
         {
@@ -215,7 +263,10 @@ public sealed class MainWindowViewModel : ViewModelBase
                 OutputPath = outputPath,
             };
 
-            await _mergeService.MergeAsync(request);
+            var progress = new Progress<MergeProgress>(p =>
+                BusyProgress.Value = new BusyProgressInfo(p.CompletedFileCount, p.TotalFileCount, [p.CurrentFileName]));
+
+            await _mergeService.MergeAsync(request, progress);
 
             var outputDirectory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(outputDirectory))
@@ -242,6 +293,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         finally
         {
             IsBusy.Value = false;
+            BusyProgress.Value = null;
         }
     }
 }

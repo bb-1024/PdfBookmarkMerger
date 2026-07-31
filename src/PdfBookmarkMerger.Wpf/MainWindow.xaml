@@ -18,6 +18,8 @@
         <conv:NullableDoubleToStringConverter x:Key="NullableDoubleToStringConverter" />
         <conv:ZoomPercentToStringConverter x:Key="ZoomPercentToStringConverter" />
         <conv:DepthToTitleWidthConverter x:Key="DepthToTitleWidthConverter" />
+        <conv:InverseBooleanConverter x:Key="InverseBooleanConverter" />
+        <conv:BusyProgressToTextConverter x:Key="BusyProgressToTextConverter" />
         <ObjectDataProvider x:Key="DestinationTypeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
             <ObjectDataProvider.MethodParameters>
                 <x:Type TypeName="models:BookmarkDestinationType" />
@@ -40,6 +42,7 @@
 
         <!-- 手順1: ファイル指定 -->
         <Grid Grid.Row="1" Margin="16"
+              IsEnabled="{Binding IsBusy.Value, Converter={StaticResource InverseBooleanConverter}}"
               Visibility="{Binding Step.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=SelectFiles}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -115,6 +118,7 @@
 
         <!-- 手順2・3: しおり編集 -->
         <Grid Grid.Row="1" Margin="16"
+              IsEnabled="{Binding IsBusy.Value, Converter={StaticResource InverseBooleanConverter}}"
               Visibility="{Binding Step.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=EditBookmarks}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -232,6 +236,23 @@
                 </StackPanel>
             </StackPanel>
         </Grid>
+
+        <!-- 処理中オーバーレイ: IsBusy中は手順1・2/3の全コントロールを覆い、操作を防止する。 -->
+        <Border Grid.Row="1" Background="#AA000000"
+                Visibility="{Binding IsBusy.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=True}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="480">
+                <ui:ProgressRing IsIndeterminate="True" Width="40" Height="40" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding StatusMessage.Value}" Foreground="White" FontSize="14"
+                           HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,12,0,0" />
+                <!--
+                    5秒以上処理が続いた場合にのみ、コードビハインド(DispatcherTimer)がVisibleへ切り替える。
+                    短時間で終わる処理では表示のチラつきを避けるため、既定はCollapsed。
+                -->
+                <TextBlock x:Name="BusyDetailText" Foreground="#DDDDDDDD" FontSize="12" Visibility="Collapsed"
+                           HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,6,0,0"
+                           Text="{Binding BusyProgress.Value, Converter={StaticResource BusyProgressToTextConverter}}" />
+            </StackPanel>
+        </Border>
 
         <Border Grid.Row="2" Padding="12,8" Background="{DynamicResource ControlFillColorDefaultBrush}">
             <Grid>

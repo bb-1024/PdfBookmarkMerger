@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PdfBookmarkMerger.App.ViewModels;
 
@@ -25,6 +26,9 @@ public partial class MainWindow : Window
     private BookmarkNodeViewModel? _bookmarkPressedNode;
     private bool _bookmarkDragInProgress;
 
+    /// <summary>IsBusyが5秒以上継続した場合にのみ、詳細進捗(BusyDetailText)を表示するためのタイマー。</summary>
+    private readonly DispatcherTimer _busyDetailTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+
     public MainWindow(MainWindowViewModel viewModel)
     {
         InitializeComponent();
@@ -39,6 +43,25 @@ public partial class MainWindow : Window
                 RecomputeTitleColumnWidth();
             }
         });
+
+        _busyDetailTimer.Tick += OnBusyDetailTimerTick;
+        ViewModel.IsBusy.Subscribe(OnIsBusyChanged);
+    }
+
+    private void OnIsBusyChanged(bool isBusy)
+    {
+        BusyDetailText.IsVisible = false;
+        _busyDetailTimer.Stop();
+        if (isBusy)
+        {
+            _busyDetailTimer.Start();
+        }
+    }
+
+    private void OnBusyDetailTimerTick(object? sender, EventArgs e)
+    {
+        _busyDetailTimer.Stop();
+        BusyDetailText.IsVisible = true;
     }
 
     public MainWindowViewModel ViewModel { get; }

@@ -66,10 +66,11 @@ internal sealed class FakeMergeService : IPdfMergeService
 
     public int CallCount { get; private set; }
 
-    public Task MergeAsync(PdfMergeRequest request, CancellationToken ct = default)
+    public Task MergeAsync(PdfMergeRequest request, IProgress<MergeProgress>? progress = null, CancellationToken ct = default)
     {
         LastRequest = request;
         CallCount++;
+        progress?.Report(new MergeProgress(request.Files.Count, request.Files.Count, request.Files.LastOrDefault()?.FileName ?? string.Empty));
         return Task.CompletedTask;
     }
 }

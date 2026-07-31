@@ -7,5 +7,5 @@ namespace PdfBookmarkMerger.Core.Services;
 /// </summary>
 public interface IPdfMergeService
 {
-    Task MergeAsync(PdfMergeRequest request, CancellationToken ct = default);
+    Task MergeAsync(PdfMergeRequest request, IProgress<MergeProgress>? progress = null, CancellationToken ct = default);
 }

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using PdfBookmarkMerger.App.ViewModels;
 using PdfBookmarkMerger.WpfApp.Controls;
 
@@ -23,6 +24,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private BookmarkInsertionAdorner? _bookmarkDropAdorner;
     private PlaceholderTextAdorner? _fileListPlaceholderAdorner;
 
+    /// <summary>IsBusyが5秒以上継続した場合にのみ、詳細進捗(BusyDetailText)を表示するためのタイマー。</summary>
+    private readonly DispatcherTimer _busyDetailTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+
     private readonly record struct BookmarkDropPlan(BookmarkNodeViewModel TargetNode, bool InsertAsChild, double LineX, double LineY);
 
     public MainWindow(MainWindowViewModel viewModel)
@@ -30,6 +34,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         InitializeComponent();
         ViewModel = viewModel;
         DataContext = viewModel;
+
+        _busyDetailTimer.Tick += OnBusyDetailTimerTick;
 
         Loaded += OnMainWindowLoaded;
     }
@@ -48,6 +54,24 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 RecomputeTitleColumnWidth();
             }
         });
+
+        ViewModel.IsBusy.Subscribe(OnIsBusyChanged);
+    }
+
+    private void OnIsBusyChanged(bool isBusy)
+    {
+        BusyDetailText.Visibility = Visibility.Collapsed;
+        _busyDetailTimer.Stop();
+        if (isBusy)
+        {
+            _busyDetailTimer.Start();
+        }
+    }
+
+    private void OnBusyDetailTimerTick(object? sender, EventArgs e)
+    {
+        _busyDetailTimer.Stop();
+        BusyDetailText.Visibility = Visibility.Visible;
     }
 
     // ---- しおりツリー: タイトル列の幅をタイトル文字列の実測幅に追従させる ----

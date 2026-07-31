@@ -7,44 +7,88 @@ namespace PdfBookmarkMerger.Core.Services;
 
 public sealed class PdfMergeService(ILogger<PdfMergeService> logger) : IPdfMergeService
 {
-    public Task MergeAsync(PdfMergeRequest request, CancellationToken ct = default) =>
-        Task.Run(() =>
+    /// <summary>
+    /// 入力ファイルを開く(ディスクI/O・PDF構造解析)処理を並列化する際の最大同時実行数。
+    /// CPUコア数に連動させつつ、大量ファイル時のスレッドプール枯渇・ファイルハンドル過多を避けるため上限を設ける。
+    /// </summary>
+    private static readonly int MaxParallelOpen = Math.Clamp(Environment.ProcessorCount, 1, 8);
+
+    public Task MergeAsync(PdfMergeRequest request, IProgress<MergeProgress>? progress = null, CancellationToken ct = default) =>
+        Task.Run(async () =>
         {
-            using var output = new PdfDocument();
-            var pageMap = new Dictionary<(Guid FileId, int OriginalPageIndex), PdfPage>();
+            var totalFileCount = request.Files.Count;
 
-            foreach (var file in request.Files)
+            // フェーズ1: 各入力PDFを開く(ディスクI/O・構造解析、ファイルごとに独立)処理を並列化する。
+            // 出力側(PdfDocument output)への書き込みはスレッドセーフではないため、ここでは行わない。
+            var opened = new PdfDocument?[totalFileCount];
+            using (var semaphore = new SemaphoreSlim(MaxParallelOpen))
             {
-                ct.ThrowIfCancellationRequested();
-
-                using var input = PdfReader.Open(file.FilePath, PdfDocumentOpenMode.Import);
-                for (var i = 0; i < input.PageCount; i++)
+                var openTasks = request.Files.Select(async (file, index) =>
                 {
-                    var addedPage = output.AddPage(input.Pages[i]);
-                    pageMap[(file.Id, i)] = addedPage;
+                    await semaphore.WaitAsync(ct).ConfigureAwait(false);
+                    try
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        opened[index] = PdfReader.Open(file.FilePath, PdfDocumentOpenMode.Import);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
+                await Task.WhenAll(openTasks).ConfigureAwait(false);
+            }
+
+            try
+            {
+                using var output = new PdfDocument();
+                var pageMap = new Dictionary<(Guid FileId, int OriginalPageIndex), PdfPage>();
+
+                // フェーズ2: 開いた各PDFのページを出力へ追加する(単一スレッド、高速なメモリ内コピーが中心)。
+                for (var index = 0; index < totalFileCount; index++)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    var file = request.Files[index];
+                    var input = opened[index]!;
+
+                    for (var i = 0; i < input.PageCount; i++)
+                    {
+                        var addedPage = output.AddPage(input.Pages[i]);
+                        pageMap[(file.Id, i)] = addedPage;
+                    }
+
+                    logger.LogInformation("結合対象に追加: {File} ({Pages}ページ)", file.FileName, input.PageCount);
+                    progress?.Report(new MergeProgress(index + 1, totalFileCount, file.FileName));
                 }
 
-                logger.LogInformation("結合対象に追加: {File} ({Pages}ページ)", file.FileName, input.PageCount);
+                ApplyBookmarks(output.Outlines, request.Bookmarks, pageMap);
+
+                output.Info.Title = request.Properties.Title;
+                output.Info.Author = request.Properties.Author;
+                output.Info.Subject = request.Properties.Subject;
+                output.Info.Keywords = request.Properties.Keywords;
+                output.Info.Creator = request.Properties.Creator;
+
+                var directory = Path.GetDirectoryName(request.OutputPath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var totalPageCount = output.PageCount;
+                output.Save(request.OutputPath);
+
+                logger.LogInformation("PDF結合完了: {OutputPath} (全{Pages}ページ)", request.OutputPath, totalPageCount);
             }
-
-            ApplyBookmarks(output.Outlines, request.Bookmarks, pageMap);
-
-            output.Info.Title = request.Properties.Title;
-            output.Info.Author = request.Properties.Author;
-            output.Info.Subject = request.Properties.Subject;
-            output.Info.Keywords = request.Properties.Keywords;
-            output.Info.Creator = request.Properties.Creator;
-
-            var directory = Path.GetDirectoryName(request.OutputPath);
-            if (!string.IsNullOrEmpty(directory))
+            finally
             {
-                Directory.CreateDirectory(directory);
+                foreach (var input in opened)
+                {
+                    input?.Dispose();
+                }
             }
-
-            var totalPageCount = output.PageCount;
-            output.Save(request.OutputPath);
-
-            logger.LogInformation("PDF結合完了: {OutputPath} (全{Pages}ページ)", request.OutputPath, totalPageCount);
         }, ct);
 
     private void ApplyBookmarks(
