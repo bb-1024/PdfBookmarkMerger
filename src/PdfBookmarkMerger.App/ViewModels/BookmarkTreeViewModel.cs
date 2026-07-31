@@ -147,6 +147,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     /// <summary>
     /// 子要素のレベル上限設定ダイアログを表示し、選択された上限より深い下位要素をすべて削除する。
     /// ダイアログで表示・選択するレベルは、しおり編集ツリーの表示と対応するルートから数えた絶対レベル。
+    /// 選択肢には要素自身のレベルも含める(自身のレベルを選択した場合、子要素がすべて削除される)。
     /// </summary>
     public async Task SetChildLevelCapAsync(BookmarkNodeViewModel node)
     {
@@ -156,7 +157,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             return;
         }
 
-        var minAbsoluteLevel = node.LevelNumber + 1;
+        var minAbsoluteLevel = node.LevelNumber;
         var maxAbsoluteLevel = node.LevelNumber + maxRelativeLevel;
 
         var cap = await _dialogService.ShowLevelCapDialogAsync(minAbsoluteLevel, maxAbsoluteLevel);

@@ -84,6 +84,8 @@ internal sealed class FakeDialogService : IDialogService
 
     public int? LevelCapDialogResult { get; set; }
 
+    public (int MinLevel, int MaxLevel)? LastLevelCapDialogRange { get; private set; }
+
     public List<(string Title, string Message)> Errors { get; } = [];
 
     public List<(string Title, string Message)> Infos { get; } = [];
@@ -102,7 +104,11 @@ internal sealed class FakeDialogService : IDialogService
     public Task<PdfBookmarkMergerOptions?> ShowSettingsDialogAsync(PdfBookmarkMergerOptions current) =>
         Task.FromResult<PdfBookmarkMergerOptions?>(null);
 
-    public Task<int?> ShowLevelCapDialogAsync(int minLevel, int maxLevel) => Task.FromResult(LevelCapDialogResult);
+    public Task<int?> ShowLevelCapDialogAsync(int minLevel, int maxLevel)
+    {
+        LastLevelCapDialogRange = (minLevel, maxLevel);
+        return Task.FromResult(LevelCapDialogResult);
+    }
 
     public void ShowError(string title, string message) => Errors.Add((title, message));
 

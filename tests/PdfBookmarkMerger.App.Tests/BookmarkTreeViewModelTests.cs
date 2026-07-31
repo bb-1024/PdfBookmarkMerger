@@ -93,6 +93,34 @@ public sealed class BookmarkTreeViewModelTests
     }
 
     [Fact]
+    public async Task SetChildLevelCapAsync_OffersNodesOwnLevelAsTheMinimumSelectableOption()
+    {
+        var vm = CreateSut(out var dialog);
+        var root = vm.AddRoot();
+        vm.AddChild(root);
+        dialog.LevelCapDialogResult = root.LevelNumber;
+
+        await vm.SetChildLevelCapAsync(root);
+
+        dialog.LastLevelCapDialogRange.ShouldBe((root.LevelNumber, root.LevelNumber + 1));
+    }
+
+    [Fact]
+    public async Task SetChildLevelCapAsync_SelectingNodesOwnLevel_RemovesAllChildren()
+    {
+        var vm = CreateSut(out var dialog);
+        var root = vm.AddRoot();
+        var child = vm.AddChild(root);
+        vm.AddChild(child);
+        dialog.LevelCapDialogResult = root.LevelNumber;
+
+        await vm.SetChildLevelCapAsync(root);
+
+        root.Children.ShouldBeEmpty();
+        root.Model.Children.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void PromoteLevel_ChildNode_BecomesSiblingImmediatelyAfterOldParent()
     {
         var vm = CreateSut(out _);
