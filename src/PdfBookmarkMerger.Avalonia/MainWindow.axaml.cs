@@ -60,17 +60,9 @@ public partial class MainWindow : Window
     private void UpdateFileMoveButtonsEnabled()
     {
         var selected = FileListBox.SelectedItems!.Cast<PdfFileEntryViewModel>().ToList();
-        if (selected.Count == 0)
-        {
-            MoveFileUpButton.IsEnabled = false;
-            MoveFileDownButton.IsEnabled = false;
-            return;
-        }
-
-        var files = ViewModel.FileList.Files;
-        var indices = selected.Select(files.IndexOf).OrderBy(i => i).ToList();
-        MoveFileUpButton.IsEnabled = indices[0] > 0;
-        MoveFileDownButton.IsEnabled = indices[^1] < files.Count - 1;
+        var (canMoveUp, canMoveDown) = ViewModel.FileList.GetMoveAvailability(selected);
+        MoveFileUpButton.IsEnabled = canMoveUp;
+        MoveFileDownButton.IsEnabled = canMoveDown;
     }
 
     private void OnIsBusyChanged(bool isBusy)
@@ -243,18 +235,12 @@ public partial class MainWindow : Window
 
     private void OnMoveFileUpClick(object? sender, RoutedEventArgs e)
     {
-        if (FileListBox.SelectedItem is PdfFileEntryViewModel item)
-        {
-            ViewModel.FileList.MoveUp(item);
-        }
+        ViewModel.FileList.MoveSelectionUp(FileListBox.SelectedItems!.Cast<PdfFileEntryViewModel>().ToList());
     }
 
     private void OnMoveFileDownClick(object? sender, RoutedEventArgs e)
     {
-        if (FileListBox.SelectedItem is PdfFileEntryViewModel item)
-        {
-            ViewModel.FileList.MoveDown(item);
-        }
+        ViewModel.FileList.MoveSelectionDown(FileListBox.SelectedItems!.Cast<PdfFileEntryViewModel>().ToList());
     }
 
     // ---- しおりツリー: D&Dによる並べ替え・再親子付け ----

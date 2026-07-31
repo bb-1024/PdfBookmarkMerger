@@ -71,22 +71,75 @@ public sealed class FileListViewModel : ViewModelBase
         HasFiles.Value = Files.Count > 0;
     }
 
-    public void MoveUp(PdfFileEntryViewModel item)
+    /// <summary>
+    /// 選択中の連続した1件以上のファイルを、選択順序を保ったまま1つ上へまとめて移動する。
+    /// 選択が非連続(間に非選択ファイルを挟む)の場合、またはすでに先頭に達している場合は何もしない。
+    /// </summary>
+    public void MoveSelectionUp(IReadOnlyList<PdfFileEntryViewModel> selected)
     {
-        var index = Files.IndexOf(item);
-        if (index > 0)
+        var indices = ResolveContiguousSortedIndices(selected);
+        if (indices is null || indices[0] <= 0)
         {
-            Files.Move(index, index - 1);
+            return;
         }
+
+        // 選択ブロックの直前にある1件を、ブロックの直後へ移動する。
+        // これはブロック全体を1つ上へずらすのと等価だが、ObservableCollection.Moveの1回呼び出しで済む。
+        Files.Move(indices[0] - 1, indices[^1]);
     }
 
-    public void MoveDown(PdfFileEntryViewModel item)
+    /// <summary>
+    /// 選択中の連続した1件以上のファイルを、選択順序を保ったまま1つ下へまとめて移動する。
+    /// 選択が非連続(間に非選択ファイルを挟む)の場合、またはすでに末尾に達している場合は何もしない。
+    /// </summary>
+    public void MoveSelectionDown(IReadOnlyList<PdfFileEntryViewModel> selected)
     {
-        var index = Files.IndexOf(item);
-        if (index >= 0 && index < Files.Count - 1)
+        var indices = ResolveContiguousSortedIndices(selected);
+        if (indices is null || indices[^1] >= Files.Count - 1)
         {
-            Files.Move(index, index + 1);
+            return;
         }
+
+        // 選択ブロックの直後にある1件を、ブロックの直前へ移動する(上記の対称版)。
+        Files.Move(indices[^1] + 1, indices[0]);
+    }
+
+    /// <summary>
+    /// 現在の選択に対し、上へ/下へボタンをそれぞれ活性化してよいかを返す。
+    /// 選択が空、または非連続の場合は両方とも不可(false, false)。
+    /// </summary>
+    public (bool CanMoveUp, bool CanMoveDown) GetMoveAvailability(IReadOnlyList<PdfFileEntryViewModel> selected)
+    {
+        var indices = ResolveContiguousSortedIndices(selected);
+        return indices is null ? (false, false) : (indices[0] > 0, indices[^1] < Files.Count - 1);
+    }
+
+    /// <summary>
+    /// 選択されたファイル群がFiles内で連続した並びを構成しているかを確認し、連続していれば
+    /// 昇順インデックス一覧を返す。空選択・非連続選択・未所属の項目を含む場合はnullを返す。
+    /// </summary>
+    private List<int>? ResolveContiguousSortedIndices(IReadOnlyList<PdfFileEntryViewModel> selected)
+    {
+        if (selected.Count == 0)
+        {
+            return null;
+        }
+
+        var indices = selected.Select(Files.IndexOf).OrderBy(i => i).ToList();
+        if (indices[0] < 0)
+        {
+            return null;
+        }
+
+        for (var i = 1; i < indices.Count; i++)
+        {
+            if (indices[i] != indices[i - 1] + 1)
+            {
+                return null;
+            }
+        }
+
+        return indices;
     }
 
     /// <summary>指定インデックスへ移動する(TreeView/ListView上でのD&D並べ替え用)。</summary>
