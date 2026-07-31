@@ -59,6 +59,39 @@ public sealed class PdfMetadataServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadMetadataAsync_NeverProducesNonFiniteDestinationCoordinates()
+    {
+        // PDFsharpのPdfOutline.Left/Top/Right/Bottom/Zoomは、宛先タイプ(/FitH等)によって
+        // 該当項目が存在しない場合にNaNを返す。これをそのままBookmarkNodeへ保持すると、Undo履歴の
+        // json化(PushUndoSnapshotCore)がArgumentExceptionで失敗し、D&D・レベル変更等の編集操作が
+        // 実質フリーズしたように見える不具合が起きていた(実際は未処理例外)。ReadMetadataAsyncの
+        // 出力にNaN/Infinityが含まれないことを恒久的に検証する。
+        var filePath = Path.Combine(_workDirectory, "deep.pdf");
+        SamplePdfFactory.CreateWithDeepBookmarks(filePath, pageCount: 6, titlePrefix: "A");
+        var file = new PdfFileEntry { FilePath = filePath };
+
+        var metadata = await _sut.ReadMetadataAsync(file);
+
+        void AssertFinite(IEnumerable<BookmarkNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                foreach (var value in new[] { node.Left, node.Top, node.Right, node.Bottom, node.Zoom })
+                {
+                    if (value is { } d)
+                    {
+                        double.IsFinite(d).ShouldBeTrue($"{node.Title} に非有限値が設定されている: {d}");
+                    }
+                }
+
+                AssertFinite(node.Children);
+            }
+        }
+
+        AssertFinite(metadata.Bookmarks);
+    }
+
+    [Fact]
     public async Task ReadMetadataAsync_WithNoBookmarks_ReturnsEmptyBookmarkListAndContinuesNormally()
     {
         var filePath = Path.Combine(_workDirectory, "no-bookmarks.pdf");

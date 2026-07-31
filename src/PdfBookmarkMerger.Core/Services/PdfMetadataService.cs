@@ -78,11 +78,11 @@ public sealed class PdfMetadataService(ILogger<PdfMetadataService> logger) : IPd
                 OriginalPageIndex = pageIndex,
                 Title = outline.Title ?? string.Empty,
                 DestinationType = BookmarkDestinationTypeMapper.FromPdfSharp(outline.PageDestinationType),
-                Left = outline.Left,
-                Top = outline.Top,
-                Right = outline.Right,
-                Bottom = outline.Bottom,
-                Zoom = outline.Zoom,
+                Left = AsFiniteOrNull(outline.Left),
+                Top = AsFiniteOrNull(outline.Top),
+                Right = AsFiniteOrNull(outline.Right),
+                Bottom = AsFiniteOrNull(outline.Bottom),
+                Zoom = AsFiniteOrNull(outline.Zoom),
                 IsOpen = ReadOpened(outline),
             };
 
@@ -96,6 +96,16 @@ public sealed class PdfMetadataService(ILogger<PdfMetadataService> logger) : IPd
 
         return result;
     }
+
+    /// <summary>
+    /// PdfSharpのPdfOutline.Left/Top/Right/Bottom/Zoomは、宛先タイプ(/FitH, /FitV等)により
+    /// 該当項目が存在しない場合にNaNを返す。NaN/InfinityをそのままBookmarkNodeへ保持すると、
+    /// Undoスナップショットのjson化で例外になり、出力PDFへもそのまま書き戻されてしまうため、
+    /// 未指定を表すnullに正規化する。
+    /// </summary>
+    private static double? AsFiniteOrNull(double value) => double.IsFinite(value) ? value : null;
+
+    private static double? AsFiniteOrNull(double? value) => value is { } d ? AsFiniteOrNull(d) : null;
 
     /// <summary>
     /// ページオブジェクト(参照比較)からページ番号を引くための辞書を1度だけ構築する。
