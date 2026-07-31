@@ -133,6 +133,7 @@
                 <TreeView x:Name="BookmarkTreeView"
                           ItemsSource="{Binding BookmarkTree.RootNodes}"
                           Padding="0,0,0,32"
+                          Background="Transparent"
                           ScrollViewer.VerticalScrollBarVisibility="Visible"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
                           AllowDrop="True"

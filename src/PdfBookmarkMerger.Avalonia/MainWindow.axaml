@@ -80,6 +80,7 @@
                 <TreeView Name="BookmarkTreeView"
                           ItemsSource="{Binding BookmarkTree.RootNodes}"
                           Padding="0,0,0,32"
+                          Background="Transparent"
                           ScrollViewer.VerticalScrollBarVisibility="Visible"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
                           DragDrop.AllowDrop="True"
@@ -101,7 +102,7 @@
                     </TreeView.Styles>
                     <TreeView.ItemTemplate>
                         <TreeDataTemplate DataType="vm:BookmarkNodeViewModel" ItemsSource="{Binding Children}">
-                            <StackPanel Orientation="Horizontal" Margin="2" Spacing="6">
+                            <StackPanel Orientation="Horizontal" Margin="2" Spacing="6" Tag="{Binding}">
                                 <TextBlock Text="{Binding LevelNumber, StringFormat=Lv.{0}}"
                                            Width="34" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
                                 <TextBox Text="{Binding Title.Value}" TextChanged="OnBookmarkTitleTextChanged">

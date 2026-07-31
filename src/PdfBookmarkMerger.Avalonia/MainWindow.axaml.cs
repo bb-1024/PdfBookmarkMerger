@@ -273,6 +273,80 @@ public partial class MainWindow : Window
         var item = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true);
         _bookmarkPressedNode = item?.DataContext as BookmarkNodeViewModel;
         _bookmarkPressedArgs = _bookmarkPressedNode is not null ? e : null;
+
+        if (item is null)
+        {
+            // 行の実要素(タイトル欄等)が無い部分(レベル表示の左側の余白、結合後ページ表示の
+            // 右側の余白)をクリックした場合でも選択可能にする(強調表示の範囲自体は変更しない)。
+            SelectBookmarkRowAtY(e.GetPosition(BookmarkTreeView).Y);
+        }
+    }
+
+    /// <summary>
+    /// BookmarkTreeView内の指定Y座標(TreeView基準)に表示されている行を探し、選択状態にする。
+    /// 展開中の子ノードも再帰的に対象とする。
+    /// </summary>
+    private void SelectBookmarkRowAtY(double y)
+    {
+        if (FindTreeViewItemAtY(BookmarkTreeView, y) is { } item)
+        {
+            item.IsSelected = true;
+            item.Focus();
+        }
+    }
+
+    private TreeViewItem? FindTreeViewItemAtY(ItemsControl container, double y)
+    {
+        for (var i = 0; i < container.ItemCount; i++)
+        {
+            if (container.ContainerFromIndex(i) is not TreeViewItem item)
+            {
+                continue;
+            }
+
+            if (item.TranslatePoint(new Point(0, 0), BookmarkTreeView) is not { } topLeft)
+            {
+                continue;
+            }
+
+            var headerHeight = FindOwnHeaderPanel(item)?.Bounds.Height ?? item.Bounds.Height;
+            if (y >= topLeft.Y && y < topLeft.Y + headerHeight)
+            {
+                return item;
+            }
+
+            if (item.IsExpanded && FindTreeViewItemAtY(item, y) is { } childHit)
+            {
+                return childHit;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>TreeViewItem自身のヘッダー行(TreeDataTemplateのルートStackPanel)を探す。
+    /// 子として描画されたネストTreeViewItemの内部には descend しない。</summary>
+    private static StackPanel? FindOwnHeaderPanel(Visual root)
+    {
+        foreach (var child in root.GetVisualChildren())
+        {
+            if (child is StackPanel { Tag: BookmarkNodeViewModel } panel)
+            {
+                return panel;
+            }
+
+            if (child is TreeViewItem)
+            {
+                continue;
+            }
+
+            if (FindOwnHeaderPanel(child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private async void OnBookmarkTreePointerMoved(object? sender, PointerEventArgs e)

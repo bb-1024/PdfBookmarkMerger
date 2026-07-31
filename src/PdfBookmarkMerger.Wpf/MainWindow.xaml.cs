@@ -280,6 +280,54 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private void OnBookmarkTreePreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         _bookmarkDragStart = e.GetPosition(null);
+
+        // 行の実要素(タイトル欄・ComboBox等)が無い部分(レベル表示の左側のインデント余白、
+        // 結合後ページ表示の右側の余白)をクリックした場合、既定ではその行にヒットテストされる
+        // 要素が無く選択が行われない。ヒットしたTreeViewItemが見つからない場合は、
+        // クリックしたY座標が属する行を幾何的に探して選択状態にする(強調表示の範囲自体は変更しない)。
+        if (FindAncestor<TreeViewItem>((DependencyObject)e.OriginalSource) is null)
+        {
+            SelectBookmarkRowAtY(e.GetPosition(BookmarkTreeView).Y);
+        }
+    }
+
+    /// <summary>
+    /// BookmarkTreeView内の指定Y座標(TreeView基準)に表示されている行を探し、選択状態にする。
+    /// 展開中の子ノードも再帰的に対象とする。
+    /// </summary>
+    private void SelectBookmarkRowAtY(double y)
+    {
+        var item = FindTreeViewItemAtY(BookmarkTreeView, y);
+        if (item is not null)
+        {
+            item.IsSelected = true;
+            item.Focus();
+        }
+    }
+
+    private TreeViewItem? FindTreeViewItemAtY(ItemsControl container, double y)
+    {
+        for (var i = 0; i < container.Items.Count; i++)
+        {
+            if (container.ItemContainerGenerator.ContainerFromIndex(i) is not TreeViewItem item || item.ActualHeight <= 0)
+            {
+                continue;
+            }
+
+            var topLeft = item.TransformToAncestor(BookmarkTreeView).Transform(new Point(0, 0));
+            var headerHeight = FindOwnHeaderBorder(item)?.ActualHeight ?? item.ActualHeight;
+            if (y >= topLeft.Y && y < topLeft.Y + headerHeight)
+            {
+                return item;
+            }
+
+            if (item.IsExpanded && FindTreeViewItemAtY(item, y) is { } childHit)
+            {
+                return childHit;
+            }
+        }
+
+        return null;
     }
 
     private void OnBookmarkTreePreviewMouseMove(object sender, MouseEventArgs e)
