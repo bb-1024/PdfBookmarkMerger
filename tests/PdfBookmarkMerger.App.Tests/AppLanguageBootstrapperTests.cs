@@ -1,5 +1,8 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using PdfBookmarkMerger.App.Options;
 using PdfBookmarkMerger.App.Resources;
+using PdfBookmarkMerger.App.Services;
 using PdfBookmarkMerger.App.Tests.TestHelpers;
 using Shouldly;
 
@@ -11,7 +14,7 @@ namespace PdfBookmarkMerger.App.Tests;
 /// 「保存済みなら再判定・再保存しない」「未設定なら必ず判定・保存し、Strings.Cultureへ反映する」
 /// という契約自体は環境非依存に検証できる。
 /// </summary>
-public sealed class AppLanguageBootstrapperTests
+public sealed class AppLanguageBootstrapperTests : IDisposable
 {
     [Fact]
     public async Task ApplyAsync_WhenLanguageAlreadySet_DoesNotOverwriteSettings_AndAppliesItToStrings()
@@ -69,5 +72,64 @@ public sealed class AppLanguageBootstrapperTests
         settings.Current.LastOutputDirectory.ShouldBe(@"C:\out");
         settings.Current.ShowPropertiesDialogOnMerge.ShouldBeTrue();
         settings.Current.Language.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// 実際に発生した不具合の再現テスト: App.OnStartup/OnFrameworkInitializationCompletedと同じく、
+    /// 初回起動(Language未設定)時にAppLanguageBootstrapper.ApplyAsync(...).GetAwaiter().GetResult()を
+    /// UIスレッドで同期的にブロックして呼んでも、デッドロックせずに完了することを検証する
+    /// (実サービスのUserSettingsServiceを使う。FakeUserSettingsServiceはawaitを一切含まないため、
+    /// この種のデッドロックを再現・検出できない)。
+    /// </summary>
+    [Fact]
+    public void ApplyAsync_CalledSynchronouslyFromUiStartup_WithLanguageUnset_DoesNotDeadlock()
+    {
+        var service = new UserSettingsService(new FakeOptionsMonitor(), NullLogger<UserSettingsService>.Instance);
+        var completed = false;
+
+        var thread = new Thread(() =>
+        {
+            SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
+            AppLanguageBootstrapper.ApplyAsync(service).GetAwaiter().GetResult();
+            completed = true;
+        });
+        thread.Start();
+
+        var joinedInTime = thread.Join(TimeSpan.FromSeconds(5));
+
+        joinedInTime.ShouldBeTrue(
+            "AppLanguageBootstrapper.ApplyAsyncが5秒以内に完了しませんでした(初回起動時のデッドロック再発の疑い)。");
+        completed.ShouldBeTrue();
+
+        if (File.Exists(AppPaths.UserSettingsFilePath))
+        {
+            File.Delete(AppPaths.UserSettingsFilePath);
+        }
+    }
+
+    public void Dispose() => Strings.Culture = null;
+
+    private sealed class NonPumpingSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            // 意図的に何もしない(ブロックされたUIスレッド自身がディスパッチループも兼ねる状況を模擬)。
+        }
+    }
+
+    private sealed class FakeOptionsMonitor : IOptionsMonitor<PdfBookmarkMergerOptions>
+    {
+        public PdfBookmarkMergerOptions CurrentValue { get; } = new();
+
+        public PdfBookmarkMergerOptions Get(string? name) => CurrentValue;
+
+        public IDisposable OnChange(Action<PdfBookmarkMergerOptions, string> listener) => new NoOpDisposable();
+
+        private sealed class NoOpDisposable : IDisposable
+        {
+            public void Dispose()
+            {
+            }
+        }
     }
 }
