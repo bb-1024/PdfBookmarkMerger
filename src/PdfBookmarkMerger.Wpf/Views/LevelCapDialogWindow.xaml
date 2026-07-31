@@ -7,7 +7,8 @@
                  Width="400" SizeToContent="Height"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="None">
+                 WindowBackdropType="None"
+                 PreviewKeyDown="OnWindowPreviewKeyDown">
     <Grid Margin="16,40,16,16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

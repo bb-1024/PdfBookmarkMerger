@@ -10,7 +10,8 @@
                  Width="440" SizeToContent="Height"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="None">
+                 WindowBackdropType="None"
+                 PreviewKeyDown="OnWindowPreviewKeyDown">
     <ui:FluentWindow.Resources>
         <conv:ThemeModeToLabelConverter x:Key="ThemeModeToLabelConverter" />
         <ObjectDataProvider x:Key="ThemeModeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">

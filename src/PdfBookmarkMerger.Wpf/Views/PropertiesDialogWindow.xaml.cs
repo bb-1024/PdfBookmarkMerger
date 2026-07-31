@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using PdfBookmarkMerger.App.ViewModels;
 using Wpf.Ui.Controls;
 
@@ -27,5 +28,13 @@ public partial class PropertiesDialogWindow : FluentWindow
     {
         DialogResult = false;
         Close();
+    }
+
+    private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            OnCancelClick(sender, e);
+        }
     }
 }
