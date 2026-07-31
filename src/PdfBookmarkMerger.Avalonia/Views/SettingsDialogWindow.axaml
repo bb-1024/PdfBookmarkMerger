@@ -3,9 +3,10 @@
         xmlns:vm="clr-namespace:PdfBookmarkMerger.App.ViewModels;assembly=PdfBookmarkMerger.App"
         xmlns:conv="clr-namespace:PdfBookmarkMerger.AvaloniaApp.Converters"
         xmlns:local="clr-namespace:PdfBookmarkMerger.AvaloniaApp"
+        xmlns:resx="clr-namespace:PdfBookmarkMerger.App.Resources;assembly=PdfBookmarkMerger.App"
         x:Class="PdfBookmarkMerger.AvaloniaApp.Views.SettingsDialogWindow"
         x:DataType="vm:SettingsViewModel"
-        Title="設定"
+        Title="{x:Static resx:Strings.SettingsDialogTitle}"
         Icon="avares://PdfBookmarkMerger.Avalonia/Assets/app.ico"
         Width="440" SizeToContent="Height"
         CanResize="False"
@@ -13,11 +14,12 @@
         KeyDown="OnWindowKeyDown">
     <Window.Resources>
         <conv:ThemeModeToLabelConverter x:Key="ThemeModeToLabelConverter" />
+        <conv:AppLanguageToLabelConverter x:Key="AppLanguageToLabelConverter" />
     </Window.Resources>
 
     <StackPanel Margin="20" Spacing="10">
         <StackPanel Margin="0,0,0,8">
-            <TextBlock Text="表示モード" Margin="0,0,0,4" />
+            <TextBlock Text="{x:Static resx:Strings.ThemeModeLabel}" Margin="0,0,0,4" />
             <ComboBox ItemsSource="{x:Static local:EnumSources.ThemeModeValues}"
                       SelectedItem="{Binding ThemeMode.Value, Mode=TwoWay}"
                       HorizontalAlignment="Stretch">
@@ -29,12 +31,25 @@
             </ComboBox>
         </StackPanel>
 
-        <CheckBox Content="PDF結合時にプロパティ編集ダイアログを表示する"
+        <StackPanel Margin="0,0,0,8">
+            <TextBlock Text="{x:Static resx:Strings.LanguageLabel}" Margin="0,0,0,4" />
+            <ComboBox ItemsSource="{x:Static local:EnumSources.AppLanguageValues}"
+                      SelectedItem="{Binding Language.Value, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource AppLanguageToLabelConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </StackPanel>
+
+        <CheckBox Content="{x:Static resx:Strings.ShowPropertiesDialogCheckbox}"
                   IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" Margin="0,0,0,8" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="キャンセル" Click="OnCancelClick" />
-            <Button Content="OK" Click="OnOkClick" />
+            <Button Content="{x:Static resx:Strings.CancelButton}" Click="OnCancelClick" />
+            <Button Content="{x:Static resx:Strings.OkButton}" Click="OnOkClick" />
         </StackPanel>
     </StackPanel>
 </Window>

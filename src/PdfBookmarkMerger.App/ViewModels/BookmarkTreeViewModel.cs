@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
+using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.Services;
 using PdfBookmarkMerger.App.Undo;
 using PdfBookmarkMerger.Core.Models;
@@ -337,7 +338,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     {
         var (fileId, pageIndex) = ResolveDefaultDestination();
         PushUndoSnapshot();
-        var model = new BookmarkNode { SourceFileEntryId = fileId, OriginalPageIndex = pageIndex, Title = "新しいしおり" };
+        var model = new BookmarkNode { SourceFileEntryId = fileId, OriginalPageIndex = pageIndex, Title = Strings.NewBookmarkDefaultTitle };
         var vm = new BookmarkNodeViewModel(model, _fileNames.GetValueOrDefault(fileId, "?"), null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
         ApplyCurrentOverridesToNewNode(vm);
 
@@ -353,7 +354,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         {
             SourceFileEntryId = parent.Model.SourceFileEntryId,
             OriginalPageIndex = parent.Model.OriginalPageIndex,
-            Title = "新しいしおり",
+            Title = Strings.NewBookmarkDefaultTitle,
             MergedPageIndex = parent.Model.MergedPageIndex,
         };
         var vm = new BookmarkNodeViewModel(model, parent.SourceFileName, parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
@@ -372,7 +373,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         {
             SourceFileEntryId = reference.Model.SourceFileEntryId,
             OriginalPageIndex = reference.Model.OriginalPageIndex,
-            Title = "新しいしおり",
+            Title = Strings.NewBookmarkDefaultTitle,
             MergedPageIndex = reference.Model.MergedPageIndex,
         };
         var vm = new BookmarkNodeViewModel(model, reference.SourceFileName, reference.Parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
@@ -537,6 +538,6 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             return (_fileNames.Keys.First(), 0);
         }
 
-        throw new InvalidOperationException("結合対象ファイルがありません。");
+        throw new InvalidOperationException(Strings.NoMergeTargetFilesError);
     }
 }

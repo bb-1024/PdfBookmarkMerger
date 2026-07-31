@@ -4,6 +4,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.ViewModels;
 using PdfBookmarkMerger.WpfApp.Controls;
 
@@ -174,7 +175,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             var foreground = (Brush)FindResource("TextFillColorSecondaryBrush");
             _fileListPlaceholderAdorner = new PlaceholderTextAdorner(
-                FileListBox, "PDFファイルまたはフォルダをここにドラッグ&ドロップ", foreground);
+                FileListBox, Strings.DragDropPlaceholder, foreground);
             layer.Add(_fileListPlaceholderAdorner);
         }
     }

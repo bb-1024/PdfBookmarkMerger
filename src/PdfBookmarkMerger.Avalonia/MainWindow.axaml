@@ -3,9 +3,10 @@
         xmlns:vm="clr-namespace:PdfBookmarkMerger.App.ViewModels;assembly=PdfBookmarkMerger.App"
         xmlns:conv="clr-namespace:PdfBookmarkMerger.AvaloniaApp.Converters"
         xmlns:local="clr-namespace:PdfBookmarkMerger.AvaloniaApp"
+        xmlns:resx="clr-namespace:PdfBookmarkMerger.App.Resources;assembly=PdfBookmarkMerger.App"
         x:Class="PdfBookmarkMerger.AvaloniaApp.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="PDF結合ツール" Width="1300" Height="760"
+        Title="{x:Static resx:Strings.AppTitle}" Width="1300" Height="760"
         Icon="avares://PdfBookmarkMerger.Avalonia/Assets/app.ico"
         DragDrop.AllowDrop="True"
         DragDrop.Drop="OnWindowDrop"
@@ -16,6 +17,7 @@
         <conv:ZoomPercentToStringConverter x:Key="ZoomPercentToStringConverter" />
         <conv:DepthToTitleWidthConverter x:Key="DepthToTitleWidthConverter" />
         <conv:BusyProgressToTextConverter x:Key="BusyProgressToTextConverter" />
+        <conv:PageCountToTextConverter x:Key="PageCountToTextConverter" />
     </Window.Resources>
 
     <Grid RowDefinitions="*,Auto">
@@ -24,7 +26,7 @@
               IsEnabled="{Binding !IsBusy.Value}"
               IsVisible="{Binding Step.Value, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=SelectFiles}">
             <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"
-                       Text="結合したいPDFファイル、またはPDFが入ったフォルダを指定してください。" />
+                       Text="{x:Static resx:Strings.SelectFilesInstruction}" />
 
             <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
               <Grid>
@@ -47,12 +49,12 @@
                                     <TextBlock Text="{Binding FilePath}" Foreground="Gray" FontSize="11" VerticalAlignment="Center" />
                                 </StackPanel>
                                 <TextBlock Grid.Column="1" VerticalAlignment="Center"
-                                           Text="{Binding PageCount.Value, StringFormat={}{0}ページ}" />
+                                           Text="{Binding PageCount.Value, Converter={StaticResource PageCountToTextConverter}}" />
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
-                <TextBlock Text="PDFファイルまたはフォルダをここにドラッグ&amp;ドロップ"
+                <TextBlock Text="{x:Static resx:Strings.DragDropPlaceholder}"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            FontSize="14" IsHitTestVisible="False" Foreground="Gray"
                            IsVisible="{Binding !FileList.HasFiles.Value}" />
@@ -60,13 +62,13 @@
             </Border>
 
             <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0" Spacing="8">
-                <Button Content="設定..." Command="{Binding OpenSettingsCommand}" Margin="0,0,16,0" />
-                <Button Content="ファイルを追加..." Command="{Binding AddFilesViaDialogCommand}" />
-                <Button Content="フォルダを追加..." Command="{Binding AddFolderViaDialogCommand}" />
-                <Button Content="削除" Click="OnRemoveSelectedFileClick" />
-                <Button Name="MoveFileUpButton" Content="上へ" Click="OnMoveFileUpClick" />
-                <Button Name="MoveFileDownButton" Content="下へ" Click="OnMoveFileDownClick" Margin="0,0,16,0" />
-                <Button Content="次へ" Command="{Binding ConfirmFilesCommand}" />
+                <Button Content="{x:Static resx:Strings.SettingsButton}" Command="{Binding OpenSettingsCommand}" Margin="0,0,16,0" />
+                <Button Content="{x:Static resx:Strings.AddFilesButton}" Command="{Binding AddFilesViaDialogCommand}" />
+                <Button Content="{x:Static resx:Strings.AddFolderButton}" Command="{Binding AddFolderViaDialogCommand}" />
+                <Button Content="{x:Static resx:Strings.DeleteButton}" Click="OnRemoveSelectedFileClick" />
+                <Button Name="MoveFileUpButton" Content="{x:Static resx:Strings.MoveUpButton}" Click="OnMoveFileUpClick" />
+                <Button Name="MoveFileDownButton" Content="{x:Static resx:Strings.MoveDownButton}" Click="OnMoveFileDownClick" Margin="0,0,16,0" />
+                <Button Content="{x:Static resx:Strings.NextButton}" Command="{Binding ConfirmFilesCommand}" />
             </StackPanel>
         </Grid>
 
@@ -74,7 +76,7 @@
         <Grid Grid.Row="0" Margin="16" RowDefinitions="Auto,*,Auto"
               IsEnabled="{Binding !IsBusy.Value}"
               IsVisible="{Binding Step.Value, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=EditBookmarks}">
-            <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"><Run Text="しおりの内容を確認・編集してください。" /><LineBreak /><Run Text="階層等の変更はドラッグ&amp;ドロップで実行します(ドロップ先の行の上半分に合わせると子(下位レベル)、下半分に合わせると兄弟(同レベル)として挿入されます)。" /></TextBlock>
+            <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"><Run Text="{x:Static resx:Strings.EditBookmarksInstructionLine1}" /><LineBreak /><Run Text="{x:Static resx:Strings.EditBookmarksInstructionLine2}" /></TextBlock>
 
             <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
                 <TreeView Name="BookmarkTreeView"
@@ -118,20 +120,20 @@
                                 <ComboBox ItemsSource="{x:Static local:EnumSources.DestinationTypeValues}"
                                           SelectedItem="{Binding DestinationType.Value, Mode=TwoWay}"
                                           IsEnabled="{Binding IsDestinationTypeEditable.Value}" Width="90" />
-                                <CheckBox Content="展開表示" IsChecked="{Binding IsOpen.Value, Mode=TwoWay}"
+                                <CheckBox Content="{x:Static resx:Strings.ExpandCheckboxLabel}" IsChecked="{Binding IsOpen.Value, Mode=TwoWay}"
                                           IsEnabled="{Binding IsExpandToggleEditable.Value}" VerticalAlignment="Center" Width="90" />
-                                <TextBlock Text="Left" VerticalAlignment="Center" FontSize="10" Foreground="Gray" />
+                                <TextBlock Text="{x:Static resx:Strings.LeftLabel}" VerticalAlignment="Center" FontSize="10" Foreground="Gray" />
                                 <TextBox Text="{Binding Left.Value, Converter={StaticResource NullableDoubleToStringConverter}}"
                                          IsEnabled="{Binding IsLeftEditable.Value}" Width="48" />
-                                <TextBlock Text="Top" VerticalAlignment="Center" FontSize="10" Foreground="Gray" />
+                                <TextBlock Text="{x:Static resx:Strings.TopLabel}" VerticalAlignment="Center" FontSize="10" Foreground="Gray" />
                                 <TextBox Text="{Binding Top.Value, Converter={StaticResource NullableDoubleToStringConverter}}"
                                          IsEnabled="{Binding IsTopEditable.Value}" Width="48" />
-                                <TextBlock Text="Zoom(%)" VerticalAlignment="Center" FontSize="10" Foreground="Gray" />
+                                <TextBlock Text="{x:Static resx:Strings.ZoomLabel}" VerticalAlignment="Center" FontSize="10" Foreground="Gray" />
                                 <TextBox Text="{Binding Zoom.Value, Converter={StaticResource ZoomPercentToStringConverter}}"
                                          IsEnabled="{Binding IsZoomEditable.Value}" Width="48" />
                                 <TextBlock VerticalAlignment="Center" Foreground="Gray" FontSize="11">
                                     <TextBlock.Text>
-                                        <MultiBinding StringFormat="元: {0} p.{1} → 結合後 p.{2}">
+                                        <MultiBinding StringFormat="{x:Static resx:Strings.BookmarkOriginFormat}">
                                             <Binding Path="SourceFileName" />
                                             <Binding Path="OriginalPageNumber" />
                                             <Binding Path="MergedPageNumber" />
@@ -147,26 +149,26 @@
             <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="8">
                 <!-- 1段目: レベル上下・しおり追加(3種)・削除・レベル上限設定 -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Name="PromoteLevelButton" Content="レベルを上げる" Click="OnPromoteLevelClick" IsEnabled="False" />
-                    <Button Name="DemoteLevelButton" Content="レベルを下げる" Click="OnDemoteLevelClick" IsEnabled="False" Margin="0,0,16,0" />
-                    <Button Content="ルートに追加" Click="OnAddRootBookmarkClick" />
-                    <Button Content="子(下位レベル)として追加" Click="OnAddChildBookmarkClick" />
-                    <Button Content="兄弟(同レベル)として追加" Click="OnAddSiblingBookmarkClick" />
-                    <Button Content="削除" Click="OnDeleteBookmarkClick" Margin="0,0,16,0" />
-                    <Button Name="LevelCapButton" Content="子要素のレベル上限を設定..." Click="OnSetLevelCapClick"
+                    <Button Name="PromoteLevelButton" Content="{x:Static resx:Strings.PromoteLevelButton}" Click="OnPromoteLevelClick" IsEnabled="False" />
+                    <Button Name="DemoteLevelButton" Content="{x:Static resx:Strings.DemoteLevelButton}" Click="OnDemoteLevelClick" IsEnabled="False" Margin="0,0,16,0" />
+                    <Button Content="{x:Static resx:Strings.AddRootButton}" Click="OnAddRootBookmarkClick" />
+                    <Button Content="{x:Static resx:Strings.AddChildButton}" Click="OnAddChildBookmarkClick" />
+                    <Button Content="{x:Static resx:Strings.AddSiblingButton}" Click="OnAddSiblingBookmarkClick" />
+                    <Button Content="{x:Static resx:Strings.DeleteButton}" Click="OnDeleteBookmarkClick" Margin="0,0,16,0" />
+                    <Button Name="LevelCapButton" Content="{x:Static resx:Strings.SetLevelCapButton}" Click="OnSetLevelCapClick"
                             IsEnabled="False" />
                 </StackPanel>
                 <!-- 2段目: 設定・画面遷移・元に戻す・一律設定(2種)・結合実行 -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="設定..." Command="{Binding OpenSettingsCommand}" Margin="0,0,16,0" />
-                    <Button Content="ファイル選択画面に戻る" Command="{Binding BackToFileListCommand}" Margin="0,0,16,0" />
-                    <Button Content="元に戻す" Command="{Binding BookmarkTree.UndoCommand}" Margin="0,0,16,0" />
-                    <CheckBox Content="一律でFitに設定" IsChecked="{Binding BookmarkTree.ForceFitForAll.Value, Mode=TwoWay}"
+                    <Button Content="{x:Static resx:Strings.SettingsButton}" Command="{Binding OpenSettingsCommand}" Margin="0,0,16,0" />
+                    <Button Content="{x:Static resx:Strings.BackToFileListButton}" Command="{Binding BackToFileListCommand}" Margin="0,0,16,0" />
+                    <Button Content="{x:Static resx:Strings.UndoButton}" Command="{Binding BookmarkTree.UndoCommand}" Margin="0,0,16,0" />
+                    <CheckBox Content="{x:Static resx:Strings.ForceFitCheckbox}" IsChecked="{Binding BookmarkTree.ForceFitForAll.Value, Mode=TwoWay}"
                               VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <CheckBox Content="一律で展開表示を設定" IsThreeState="True"
+                    <CheckBox Content="{x:Static resx:Strings.GlobalExpandCheckbox}" IsThreeState="True"
                               IsChecked="{Binding BookmarkTree.GlobalExpandOverride.Value, Mode=TwoWay}"
                               VerticalAlignment="Center" Margin="0,0,16,0" />
-                    <Button Content="結合してPDFを保存..." Command="{Binding MergeCommand}" />
+                    <Button Content="{x:Static resx:Strings.MergeButton}" Command="{Binding MergeCommand}" />
                 </StackPanel>
             </StackPanel>
         </Grid>
@@ -189,7 +191,7 @@
         <Border Grid.Row="1" Padding="12,8" Background="#22808080">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" Text="{Binding StatusMessage.Value}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Text="処理中..." VerticalAlignment="Center"
+                <TextBlock Grid.Column="1" Text="{x:Static resx:Strings.StatusBarProcessingLabel}" VerticalAlignment="Center"
                            IsVisible="{Binding IsBusy.Value}" />
             </Grid>
         </Border>

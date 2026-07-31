@@ -2,7 +2,8 @@
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-                 Title="子要素のレベル上限を設定"
+                 xmlns:resx="clr-namespace:PdfBookmarkMerger.App.Resources;assembly=PdfBookmarkMerger.App"
+                 Title="{x:Static resx:Strings.LevelCapDialogTitle}"
                  Icon="pack://application:,,,/Assets/app.ico"
                  Width="400" SizeToContent="Height"
                  WindowStartupLocation="CenterOwner"
@@ -16,17 +17,15 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" Title="子要素のレベル上限を設定" Margin="-16,-40,-16,8" VerticalAlignment="Top">
+        <ui:TitleBar Grid.Row="0" Title="{x:Static resx:Strings.LevelCapDialogTitle}" Margin="-16,-40,-16,8" VerticalAlignment="Top">
             <ui:TitleBar.Icon>
                 <ui:ImageIcon Source="pack://application:,,,/Assets/app.ico" />
             </ui:TitleBar.Icon>
         </ui:TitleBar>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,20">
-            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
-                選択した項目の下位要素のうち、ここで指定したレベルより深い要素はすべて削除されます。
-            </TextBlock>
-            <TextBlock Text="レベル上限" Margin="0,0,0,4" />
+            <TextBlock Text="{x:Static resx:Strings.LevelCapDescription}" TextWrapping="Wrap" Margin="0,0,0,8" />
+            <TextBlock Text="{x:Static resx:Strings.LevelCapLabel}" Margin="0,0,0,4" />
             <ComboBox ItemsSource="{Binding AvailableLevels}"
                       SelectedItem="{Binding SelectedLevel.Value, Mode=TwoWay}"
                       Background="{DynamicResource ComboBoxDropDownBackground}">
@@ -41,8 +40,8 @@
         </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <ui:Button Content="キャンセル" Click="OnCancelClick" Margin="0,0,8,0" />
-            <ui:Button Content="OK" Appearance="Primary" Click="OnOkClick" />
+            <ui:Button Content="{x:Static resx:Strings.CancelButton}" Click="OnCancelClick" Margin="0,0,8,0" />
+            <ui:Button Content="{x:Static resx:Strings.OkButton}" Appearance="Primary" Click="OnOkClick" />
         </StackPanel>
     </Grid>
 </ui:FluentWindow>

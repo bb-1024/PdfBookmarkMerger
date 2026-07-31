@@ -18,11 +18,18 @@ public sealed class SettingsViewModel : ViewModelBase
 
         ThemeMode = new ReactivePropertySlim<ThemeMode>(initial.ThemeMode).AddTo(Disposables);
         ShowPropertiesDialogOnMerge = new ReactivePropertySlim<bool>(initial.ShowPropertiesDialogOnMerge).AddTo(Disposables);
+        Language = new ReactivePropertySlim<AppLanguage>(initial.Language ?? AppLanguage.Japanese).AddTo(Disposables);
     }
 
     public ReactivePropertySlim<ThemeMode> ThemeMode { get; }
 
     public ReactivePropertySlim<bool> ShowPropertiesDialogOnMerge { get; }
+
+    /// <summary>
+    /// 表示言語。変更は次回起動時から反映される(x:Static参照はウィンドウ構築・XAML読み込み時に
+    /// 固定されるため、実行中のウィンドウ・ダイアログの表示言語をその場で切り替えることはできない)。
+    /// </summary>
+    public ReactivePropertySlim<AppLanguage> Language { get; }
 
     public PdfBookmarkMergerOptions ToOptions() => new()
     {
@@ -31,5 +38,6 @@ public sealed class SettingsViewModel : ViewModelBase
         WindowHeight = _source.WindowHeight,
         ThemeMode = ThemeMode.Value,
         ShowPropertiesDialogOnMerge = ShowPropertiesDialogOnMerge.Value,
+        Language = Language.Value,
     };
 }

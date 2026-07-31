@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <!-- MainWindow: Step 1 (select files) -->
+  <data name="AppTitle" xml:space="preserve"><value>PDF Bookmark Merger</value></data>
+  <data name="SelectFilesInstruction" xml:space="preserve"><value>Specify the PDF files, or a folder containing PDFs, that you want to merge.</value></data>
+  <data name="PageCountFormat" xml:space="preserve"><value>{0} page(s)</value></data>
+  <data name="SettingsButton" xml:space="preserve"><value>Settings...</value></data>
+  <data name="AddFilesButton" xml:space="preserve"><value>Add Files...</value></data>
+  <data name="AddFolderButton" xml:space="preserve"><value>Add Folder...</value></data>
+  <data name="DeleteButton" xml:space="preserve"><value>Delete</value></data>
+  <data name="MoveUpButton" xml:space="preserve"><value>Move Up</value></data>
+  <data name="MoveDownButton" xml:space="preserve"><value>Move Down</value></data>
+  <data name="NextButton" xml:space="preserve"><value>Next</value></data>
+  <data name="DragDropPlaceholder" xml:space="preserve"><value>Drag &amp; drop PDF files or a folder here</value></data>
+
+  <!-- MainWindow: Steps 2-3 (edit bookmarks) -->
+  <data name="EditBookmarksInstructionLine1" xml:space="preserve"><value>Review and edit the bookmarks.</value></data>
+  <data name="EditBookmarksInstructionLine2" xml:space="preserve"><value>Change the hierarchy via drag &amp; drop (drop on the upper half of a row to insert as its child, the lower half to insert as its sibling).</value></data>
+  <data name="LevelFormat" xml:space="preserve"><value>Lv.{0}</value></data>
+  <data name="ExpandCheckboxLabel" xml:space="preserve"><value>Expanded</value></data>
+  <data name="LeftLabel" xml:space="preserve"><value>Left</value></data>
+  <data name="TopLabel" xml:space="preserve"><value>Top</value></data>
+  <data name="ZoomLabel" xml:space="preserve"><value>Zoom (%)</value></data>
+  <data name="BookmarkOriginWithActionFormat" xml:space="preserve"><value>[{0}] From: {1} p.{2} -&gt; Merged p.{3}</value></data>
+  <data name="BookmarkOriginFormat" xml:space="preserve"><value>From: {0} p.{1} -&gt; Merged p.{2}</value></data>
+  <data name="PromoteLevelButton" xml:space="preserve"><value>Promote Level</value></data>
+  <data name="DemoteLevelButton" xml:space="preserve"><value>Demote Level</value></data>
+  <data name="AddRootButton" xml:space="preserve"><value>Add as Root</value></data>
+  <data name="AddChildButton" xml:space="preserve"><value>Add as Child</value></data>
+  <data name="AddSiblingButton" xml:space="preserve"><value>Add as Sibling</value></data>
+  <data name="SetLevelCapButton" xml:space="preserve"><value>Set Child Level Limit...</value></data>
+  <data name="BackToFileListButton" xml:space="preserve"><value>Back to File Selection</value></data>
+  <data name="UndoButton" xml:space="preserve"><value>Undo</value></data>
+  <data name="ForceFitCheckbox" xml:space="preserve"><value>Force Fit for All</value></data>
+  <data name="GlobalExpandCheckbox" xml:space="preserve"><value>Force Expand for All</value></data>
+  <data name="MergeButton" xml:space="preserve"><value>Merge and Save PDF...</value></data>
+  <data name="StatusBarProcessingLabel" xml:space="preserve"><value>Processing...</value></data>
+  <data name="BusyProgressCountOnlyFormat" xml:space="preserve"><value>{0} / {1} item(s)</value></data>
+  <data name="BusyProgressWithDetailFormat" xml:space="preserve"><value>{0} / {1} item(s) (Processing: {2})</value></data>
+
+  <!-- Common buttons -->
+  <data name="CancelButton" xml:space="preserve"><value>Cancel</value></data>
+  <data name="OkButton" xml:space="preserve"><value>OK</value></data>
+
+  <!-- PropertiesDialog -->
+  <data name="PropertiesDialogTitle" xml:space="preserve"><value>PDF Properties</value></data>
+  <data name="TitleFieldLabel" xml:space="preserve"><value>Title</value></data>
+  <data name="AuthorFieldLabel" xml:space="preserve"><value>Author</value></data>
+  <data name="SubjectFieldLabel" xml:space="preserve"><value>Subject</value></data>
+  <data name="KeywordsFieldLabel" xml:space="preserve"><value>Keywords</value></data>
+  <data name="ApplicationFieldLabel" xml:space="preserve"><value>Application</value></data>
+
+  <!-- SettingsDialog -->
+  <data name="SettingsDialogTitle" xml:space="preserve"><value>Settings</value></data>
+  <data name="ThemeModeLabel" xml:space="preserve"><value>Theme</value></data>
+  <data name="LanguageLabel" xml:space="preserve"><value>Language</value></data>
+  <data name="ShowPropertiesDialogCheckbox" xml:space="preserve"><value>Show the properties dialog when merging PDFs</value></data>
+  <data name="ThemeModeLight" xml:space="preserve"><value>Light</value></data>
+  <data name="ThemeModeDark" xml:space="preserve"><value>Dark</value></data>
+  <data name="ThemeModeSystem" xml:space="preserve"><value>System (Default)</value></data>
+  <data name="LanguageJapanese" xml:space="preserve"><value>Japanese</value></data>
+  <data name="LanguageEnglish" xml:space="preserve"><value>English</value></data>
+
+  <!-- LevelCapDialog -->
+  <data name="LevelCapDialogTitle" xml:space="preserve"><value>Set Child Level Limit</value></data>
+  <data name="LevelCapDescription" xml:space="preserve"><value>All descendants of the selected item that are deeper than the level specified here will be deleted.</value></data>
+  <data name="LevelCapLabel" xml:space="preserve"><value>Level Limit</value></data>
+
+  <!-- MainWindowViewModel: status messages -->
+  <data name="StatusReady" xml:space="preserve"><value>Add the PDF files you want to merge.</value></data>
+  <data name="StatusLoading" xml:space="preserve"><value>Loading page counts and bookmark info...</value></data>
+  <data name="LoadErrorDialogTitle" xml:space="preserve"><value>Load Error</value></data>
+  <data name="LoadErrorMessageFormat" xml:space="preserve"><value>Failed to load '{0}', so it will be skipped.
+{1}</value></data>
+  <data name="StatusNoLoadableFiles" xml:space="preserve"><value>No PDF files could be loaded. Please check the files.</value></data>
+  <data name="StatusLoadedAllSucceededFormat" xml:space="preserve"><value>Loaded {0} file(s). Edit the bookmarks, then run the merge.</value></data>
+  <data name="StatusLoadedWithFailuresFormat" xml:space="preserve"><value>Loaded {0} file(s) ({1} file(s) were skipped).</value></data>
+  <data name="DefaultMergedFileName" xml:space="preserve"><value>merged-result.pdf</value></data>
+  <data name="StatusMerging" xml:space="preserve"><value>Merging PDFs...</value></data>
+  <data name="StatusMergeCompleteFormat" xml:space="preserve"><value>Merge complete: {0}</value></data>
+  <data name="MergeCompleteDialogTitle" xml:space="preserve"><value>Merge Complete</value></data>
+  <data name="MergeCompleteMessageFormat" xml:space="preserve"><value>The PDF files have been merged.
+{0}</value></data>
+  <data name="MergeErrorDialogTitle" xml:space="preserve"><value>Merge Error</value></data>
+  <data name="MergeErrorMessageFormat" xml:space="preserve"><value>Failed to merge the PDFs.
+{0}</value></data>
+
+  <!-- BookmarkTreeViewModel -->
+  <data name="NewBookmarkDefaultTitle" xml:space="preserve"><value>New Bookmark</value></data>
+  <data name="NoMergeTargetFilesError" xml:space="preserve"><value>There are no files to merge.</value></data>
+
+  <!-- Dialog service: file pickers -->
+  <data name="OpenPdfFilesDialogTitle" xml:space="preserve"><value>Select PDF Files to Merge</value></data>
+  <data name="PdfFileFilterWpf" xml:space="preserve"><value>PDF Files (*.pdf)|*.pdf</value></data>
+  <data name="PdfFileTypeName" xml:space="preserve"><value>PDF Files</value></data>
+  <data name="OpenFolderDialogTitle" xml:space="preserve"><value>Select a Folder of PDFs to Merge</value></data>
+  <data name="SaveMergedPdfDialogTitle" xml:space="preserve"><value>Save Merged PDF As</value></data>
+</root>

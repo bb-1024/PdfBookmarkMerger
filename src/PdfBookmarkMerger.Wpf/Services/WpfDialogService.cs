@@ -1,6 +1,7 @@
 using System.Windows;
 using Microsoft.Win32;
 using PdfBookmarkMerger.App.Options;
+using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.Services;
 using PdfBookmarkMerger.App.ViewModels;
 using PdfBookmarkMerger.Core.Models;
@@ -15,8 +16,8 @@ public sealed class WpfDialogService : IDialogService
     {
         var dialog = new OpenFileDialog
         {
-            Title = "結合対象PDFファイルの選択",
-            Filter = "PDFファイル (*.pdf)|*.pdf",
+            Title = Strings.OpenPdfFilesDialogTitle,
+            Filter = Strings.PdfFileFilterWpf,
             Multiselect = true,
         };
 
@@ -31,7 +32,7 @@ public sealed class WpfDialogService : IDialogService
     {
         var dialog = new OpenFolderDialog
         {
-            Title = "結合対象PDFフォルダの選択",
+            Title = Strings.OpenFolderDialogTitle,
         };
 
         var result = dialog.ShowDialog(Application.Current.MainWindow) == true ? dialog.FolderName : null;
@@ -42,8 +43,8 @@ public sealed class WpfDialogService : IDialogService
     {
         var dialog = new SaveFileDialog
         {
-            Title = "結合後PDFの保存先",
-            Filter = "PDFファイル (*.pdf)|*.pdf",
+            Title = Strings.SaveMergedPdfDialogTitle,
+            Filter = Strings.PdfFileFilterWpf,
             FileName = suggestedFileName,
             InitialDirectory = string.IsNullOrEmpty(initialDirectory) ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : initialDirectory,
             OverwritePrompt = true,
@@ -107,7 +108,7 @@ public sealed class WpfDialogService : IDialogService
             Title = title,
             Content = message,
             Owner = Application.Current.MainWindow,
-            CloseButtonText = "OK",
+            CloseButtonText = Strings.OkButton,
             IsPrimaryButtonEnabled = false,
             IsSecondaryButtonEnabled = false,
         };
@@ -122,7 +123,7 @@ public sealed class WpfDialogService : IDialogService
             Title = title,
             Content = message,
             Owner = Application.Current.MainWindow,
-            CloseButtonText = "OK",
+            CloseButtonText = Strings.OkButton,
             IsPrimaryButtonEnabled = false,
             IsSecondaryButtonEnabled = false,
         };

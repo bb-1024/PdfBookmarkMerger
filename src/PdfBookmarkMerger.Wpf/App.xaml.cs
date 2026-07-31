@@ -40,8 +40,13 @@ public partial class App : Application
 
         _host.Start();
 
-        var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         var userSettings = _host.Services.GetRequiredService<IUserSettingsService>();
+
+        // MainWindow(および内部のダイアログ)を構築する前に表示言語を確定させる必要がある
+        // (XAMLのx:Static参照は、対象クラスの構築・XAML読み込み時点の値で固定されるため)。
+        AppLanguageBootstrapper.ApplyAsync(userSettings).GetAwaiter().GetResult();
+
+        var mainWindow = _host.Services.GetRequiredService<MainWindow>();
 
         // ユーザー設定の表示モード(ライト/ダーク/システム設定)を起動時に反映する。
         ThemeApplier.Apply(mainWindow, userSettings.Current.ThemeMode);

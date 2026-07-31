@@ -1,3 +1,4 @@
+using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.Tests.TestHelpers;
 using PdfBookmarkMerger.App.ViewModels;
 using PdfBookmarkMerger.Core.Models;
@@ -16,6 +17,10 @@ public sealed class BookmarkTreeViewModelTests
 
     private static BookmarkTreeViewModel CreateSut(out FakeDialogService dialog)
     {
+        // Strings.Cultureはプロセス全体で共有される静的状態。他のテスト(StringsTests等)が
+        // 英語に切り替えたままになっていないよう、既定(日本語)へ明示的に戻してから使う。
+        Strings.Culture = null;
+
         dialog = new FakeDialogService();
         var vm = new BookmarkTreeViewModel(dialog);
         vm.Load([], new Dictionary<Guid, string> { [FileId] = "sample.pdf" });

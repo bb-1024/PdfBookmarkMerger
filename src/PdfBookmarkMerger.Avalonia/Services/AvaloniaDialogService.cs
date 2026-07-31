@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform.Storage;
 using PdfBookmarkMerger.App.Options;
+using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.Services;
 using PdfBookmarkMerger.App.ViewModels;
 using PdfBookmarkMerger.AvaloniaApp.Views;
@@ -15,7 +16,7 @@ public sealed class AvaloniaDialogService : IDialogService
     private static Window? MainWindow =>
         (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
 
-    private static readonly FilePickerFileType PdfFileType = new("PDFファイル") { Patterns = ["*.pdf"] };
+    private static FilePickerFileType PdfFileType => new(Strings.PdfFileTypeName) { Patterns = ["*.pdf"] };
 
     public async Task<IReadOnlyList<string>> ShowOpenPdfFilesDialogAsync()
     {
@@ -27,7 +28,7 @@ public sealed class AvaloniaDialogService : IDialogService
 
         var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "結合対象PDFファイルの選択",
+            Title = Strings.OpenPdfFilesDialogTitle,
             AllowMultiple = true,
             FileTypeFilter = [PdfFileType],
         });
@@ -45,7 +46,7 @@ public sealed class AvaloniaDialogService : IDialogService
 
         var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "結合対象PDFフォルダの選択",
+            Title = Strings.OpenFolderDialogTitle,
             AllowMultiple = false,
         });
 
@@ -68,7 +69,7 @@ public sealed class AvaloniaDialogService : IDialogService
 
         var file = await storageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "結合後PDFの保存先",
+            Title = Strings.SaveMergedPdfDialogTitle,
             SuggestedFileName = suggestedFileName,
             DefaultExtension = "pdf",
             FileTypeChoices = [PdfFileType],

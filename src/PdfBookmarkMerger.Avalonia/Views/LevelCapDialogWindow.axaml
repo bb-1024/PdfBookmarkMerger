@@ -1,9 +1,10 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:PdfBookmarkMerger.App.ViewModels;assembly=PdfBookmarkMerger.App"
+        xmlns:resx="clr-namespace:PdfBookmarkMerger.App.Resources;assembly=PdfBookmarkMerger.App"
         x:Class="PdfBookmarkMerger.AvaloniaApp.Views.LevelCapDialogWindow"
         x:DataType="vm:LevelCapDialogViewModel"
-        Title="子要素のレベル上限を設定"
+        Title="{x:Static resx:Strings.LevelCapDialogTitle}"
         Icon="avares://PdfBookmarkMerger.Avalonia/Assets/app.ico"
         Width="400" SizeToContent="Height"
         CanResize="False"
@@ -11,9 +12,9 @@
         KeyDown="OnWindowKeyDown">
     <StackPanel Margin="20" Spacing="10">
         <TextBlock TextWrapping="Wrap"
-                   Text="選択した項目の下位要素のうち、ここで指定したレベルより深い要素はすべて削除されます。" />
+                   Text="{x:Static resx:Strings.LevelCapDescription}" />
         <StackPanel Margin="0,0,0,8">
-            <TextBlock Text="レベル上限" Margin="0,0,0,4" />
+            <TextBlock Text="{x:Static resx:Strings.LevelCapLabel}" Margin="0,0,0,4" />
             <ComboBox ItemsSource="{Binding AvailableLevels}"
                       SelectedItem="{Binding SelectedLevel.Value, Mode=TwoWay}"
                       HorizontalAlignment="Stretch">
@@ -26,8 +27,8 @@
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="キャンセル" Click="OnCancelClick" />
-            <Button Content="OK" Click="OnOkClick" />
+            <Button Content="{x:Static resx:Strings.CancelButton}" Click="OnCancelClick" />
+            <Button Content="{x:Static resx:Strings.OkButton}" Click="OnOkClick" />
         </StackPanel>
     </StackPanel>
 </Window>

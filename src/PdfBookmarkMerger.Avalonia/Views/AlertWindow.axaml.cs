@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 
 namespace PdfBookmarkMerger.AvaloniaApp.Views;
@@ -17,4 +18,12 @@ public partial class AlertWindow : Window
     }
 
     private void OnOkClick(object? sender, RoutedEventArgs e) => Close();
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            Close();
+        }
+    }
 }

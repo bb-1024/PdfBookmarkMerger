@@ -28,4 +28,11 @@
     <InternalsVisibleTo Include="PdfBookmarkMerger.App.Tests" />
   </ItemGroup>
 
+  <!--
+    Resources/Strings.resx(日本語, 中立カルチャ)・Strings.en.resx(英語サテライト)は、
+    通常の埋め込みリソースとしてビルドされる(SDKの既定globにより自動的にEmbeddedResource化される)。
+    型安全なアクセサ(Strings.cs)は、Visual Studioのカスタムツール(ResXFileCodeGenerator)による
+    自動生成コードに相当するものを手書きしている(dotnet build単体ではその自動生成が動作しないため)。
+  -->
+
 </Project>

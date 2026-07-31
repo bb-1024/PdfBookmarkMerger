@@ -1,5 +1,6 @@
 using System.Globalization;
 using Avalonia.Data.Converters;
+using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.ViewModels;
 
 namespace PdfBookmarkMerger.AvaloniaApp.Converters;
@@ -16,8 +17,8 @@ public sealed class BusyProgressToTextConverter : IValueConverter
 
         var detail = info.CurrentFileNames.Count > 0 ? string.Join(", ", info.CurrentFileNames) : null;
         return detail is null
-            ? $"{info.CompletedCount} / {info.TotalCount} 件"
-            : $"{info.CompletedCount} / {info.TotalCount} 件 (処理中: {detail})";
+            ? string.Format(Strings.BusyProgressCountOnlyFormat, info.CompletedCount, info.TotalCount)
+            : string.Format(Strings.BusyProgressWithDetailFormat, info.CompletedCount, info.TotalCount, detail);
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>

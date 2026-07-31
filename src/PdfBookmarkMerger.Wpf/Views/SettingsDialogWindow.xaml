@@ -5,7 +5,8 @@
                  xmlns:sys="clr-namespace:System;assembly=mscorlib"
                  xmlns:options="clr-namespace:PdfBookmarkMerger.App.Options;assembly=PdfBookmarkMerger.App"
                  xmlns:conv="clr-namespace:PdfBookmarkMerger.WpfApp.Converters"
-                 Title="設定"
+                 xmlns:resx="clr-namespace:PdfBookmarkMerger.App.Resources;assembly=PdfBookmarkMerger.App"
+                 Title="{x:Static resx:Strings.SettingsDialogTitle}"
                  Icon="pack://application:,,,/Assets/app.ico"
                  Width="440" SizeToContent="Height"
                  WindowStartupLocation="CenterOwner"
@@ -14,9 +15,15 @@
                  PreviewKeyDown="OnWindowPreviewKeyDown">
     <ui:FluentWindow.Resources>
         <conv:ThemeModeToLabelConverter x:Key="ThemeModeToLabelConverter" />
+        <conv:AppLanguageToLabelConverter x:Key="AppLanguageToLabelConverter" />
         <ObjectDataProvider x:Key="ThemeModeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
             <ObjectDataProvider.MethodParameters>
                 <x:Type TypeName="options:ThemeMode" />
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
+        <ObjectDataProvider x:Key="AppLanguageValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="options:AppLanguage" />
             </ObjectDataProvider.MethodParameters>
         </ObjectDataProvider>
     </ui:FluentWindow.Resources>
@@ -27,16 +34,17 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" Title="設定" Margin="-16,-40,-16,8" VerticalAlignment="Top">
+        <ui:TitleBar Grid.Row="0" Title="{x:Static resx:Strings.SettingsDialogTitle}" Margin="-16,-40,-16,8" VerticalAlignment="Top">
             <ui:TitleBar.Icon>
                 <ui:ImageIcon Source="pack://application:,,,/Assets/app.ico" />
             </ui:TitleBar.Icon>
         </ui:TitleBar>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,16">
-            <TextBlock Text="表示モード" Margin="0,0,0,4" />
+            <TextBlock Text="{x:Static resx:Strings.ThemeModeLabel}" Margin="0,0,0,4" />
             <ComboBox ItemsSource="{Binding Source={StaticResource ThemeModeValues}}"
                       SelectedItem="{Binding ThemeMode.Value, Mode=TwoWay}"
                       Background="{DynamicResource ComboBoxDropDownBackground}">
@@ -51,14 +59,30 @@
             </ComboBox>
         </StackPanel>
 
-        <StackPanel Grid.Row="2" Margin="0,0,0,20">
-            <CheckBox Content="PDF結合時にプロパティ編集ダイアログを表示する"
+        <StackPanel Grid.Row="2" Margin="0,0,0,16">
+            <TextBlock Text="{x:Static resx:Strings.LanguageLabel}" Margin="0,0,0,4" />
+            <ComboBox ItemsSource="{Binding Source={StaticResource AppLanguageValues}}"
+                      SelectedItem="{Binding Language.Value, Mode=TwoWay}"
+                      Background="{DynamicResource ComboBoxDropDownBackground}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}" Padding="4,3">
+                            <TextBlock Text="{Binding Converter={StaticResource AppLanguageToLabelConverter}}"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        </Border>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Margin="0,0,0,20">
+            <CheckBox Content="{x:Static resx:Strings.ShowPropertiesDialogCheckbox}"
                       IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" />
         </StackPanel>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
-            <ui:Button Content="キャンセル" Click="OnCancelClick" Margin="0,0,8,0" />
-            <ui:Button Content="OK" Appearance="Primary" Click="OnOkClick" />
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <ui:Button Content="{x:Static resx:Strings.CancelButton}" Click="OnCancelClick" Margin="0,0,8,0" />
+            <ui:Button Content="{x:Static resx:Strings.OkButton}" Appearance="Primary" Click="OnOkClick" />
         </StackPanel>
     </Grid>
 </ui:FluentWindow>

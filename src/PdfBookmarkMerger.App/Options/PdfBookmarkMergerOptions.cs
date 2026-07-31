@@ -19,4 +19,11 @@ public sealed class PdfBookmarkMergerOptions
 
     /// <summary>PDF結合時にプロパティ編集ダイアログを表示するかどうか。既定は表示しない。</summary>
     public bool ShowPropertiesDialogOnMerge { get; set; }
+
+    /// <summary>
+    /// UI表示言語。nullは「未設定」を意味し、初回起動(または本設定項目導入前のバージョンからの
+    /// 移行後の初回起動)時にAppLanguageBootstrapperがシステム言語から自動判定し、
+    /// この値として保存する。以降は明示的にこの値が使われ、再判定は行わない。
+    /// </summary>
+    public AppLanguage? Language { get; set; }
 }

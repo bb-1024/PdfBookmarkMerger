@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reactive.Linq;
 using Microsoft.Extensions.Logging;
 using PdfBookmarkMerger.App.Options;
+using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.Services;
 using PdfBookmarkMerger.Core.Models;
 using PdfBookmarkMerger.Core.Services;
@@ -43,7 +44,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         Step = new ReactivePropertySlim<WorkflowStep>(WorkflowStep.SelectFiles).AddTo(Disposables);
         IsBusy = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
-        StatusMessage = new ReactivePropertySlim<string>("結合したいPDFファイルを追加してください。").AddTo(Disposables);
+        StatusMessage = new ReactivePropertySlim<string>(Strings.StatusReady).AddTo(Disposables);
         BusyProgress = new ReactivePropertySlim<BusyProgressInfo?>(null).AddTo(Disposables);
 
         var canConfirm = FileList.HasFiles.CombineLatest(IsBusy, (hasFiles, busy) => hasFiles && !busy);
@@ -125,7 +126,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     internal async Task ConfirmFilesAsync()
     {
         IsBusy.Value = true;
-        StatusMessage.Value = "ページ数・しおり情報を読み込んでいます...";
+        StatusMessage.Value = Strings.StatusLoading;
         _metadataByFileId.Clear();
 
         try
@@ -171,7 +172,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                     failedCount++;
                     file.MarkLoadFailed();
                     _logger.LogError(error, "PDFメタデータの読み込みに失敗しました: {File}", file.FilePath);
-                    _dialogService.ShowError("読み込みエラー", $"'{file.FileName}' の読み込みに失敗したためスキップします。\n{error.Message}");
+                    _dialogService.ShowError(Strings.LoadErrorDialogTitle, string.Format(Strings.LoadErrorMessageFormat, file.FileName, error.Message));
                 }
                 else
                 {
@@ -186,7 +187,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
             if (orderedFiles.Count == 0)
             {
-                StatusMessage.Value = "読み込めるPDFファイルがありませんでした。ファイルを確認してください。";
+                StatusMessage.Value = Strings.StatusNoLoadableFiles;
                 return;
             }
 
@@ -198,8 +199,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             Step.Value = WorkflowStep.EditBookmarks;
 
             StatusMessage.Value = failedCount == 0
-                ? $"{orderedFiles.Count}ファイルを読み込みました。しおりを編集し、結合を実行してください。"
-                : $"{orderedFiles.Count}ファイルを読み込みました({failedCount}ファイルはスキップされました)。";
+                ? string.Format(Strings.StatusLoadedAllSucceededFormat, orderedFiles.Count)
+                : string.Format(Strings.StatusLoadedWithFailuresFormat, orderedFiles.Count, failedCount);
         }
         finally
         {
@@ -222,7 +223,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         // 保存先の既定値: 1番目のファイルの格納フォルダ・「{1番目のファイル名}_merged.pdf」。
         var suggestedFileName = firstFile is not null
             ? $"{Path.GetFileNameWithoutExtension(firstFile.FilePath)}_merged.pdf"
-            : "結合結果.pdf";
+            : Strings.DefaultMergedFileName;
         var initialDirectory = firstFile is not null
             ? Path.GetDirectoryName(firstFile.FilePath)
             : _userSettings.Current.LastOutputDirectory;
@@ -250,7 +251,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         IsBusy.Value = true;
-        StatusMessage.Value = "PDFを結合しています...";
+        StatusMessage.Value = Strings.StatusMerging;
         BusyProgress.Value = new BusyProgressInfo(0, mergeTargetFiles.Count, []);
 
         try
@@ -278,17 +279,18 @@ public sealed class MainWindowViewModel : ViewModelBase
                     WindowHeight = _userSettings.Current.WindowHeight,
                     ThemeMode = _userSettings.Current.ThemeMode,
                     ShowPropertiesDialogOnMerge = _userSettings.Current.ShowPropertiesDialogOnMerge,
+                    Language = _userSettings.Current.Language,
                 };
                 await _userSettings.SaveAsync(updated);
             }
 
-            StatusMessage.Value = $"結合が完了しました: {outputPath}";
-            _dialogService.ShowInfo("結合完了", $"PDFファイルを結合しました。\n{outputPath}");
+            StatusMessage.Value = string.Format(Strings.StatusMergeCompleteFormat, outputPath);
+            _dialogService.ShowInfo(Strings.MergeCompleteDialogTitle, string.Format(Strings.MergeCompleteMessageFormat, outputPath));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "PDF結合に失敗しました: {OutputPath}", outputPath);
-            _dialogService.ShowError("結合エラー", $"PDFの結合に失敗しました。\n{ex.Message}");
+            _dialogService.ShowError(Strings.MergeErrorDialogTitle, string.Format(Strings.MergeErrorMessageFormat, ex.Message));
         }
         finally
         {
