@@ -463,6 +463,34 @@ public partial class MainWindow : Window
     private void OnBookmarkTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         LevelCapButton.IsEnabled = BookmarkTreeView.SelectedItem is BookmarkNodeViewModel { Children.Count: > 0 };
+        UpdateLevelButtonsEnabled();
+    }
+
+    private void UpdateLevelButtonsEnabled()
+    {
+        var node = BookmarkTreeView.SelectedItem as BookmarkNodeViewModel;
+        PromoteLevelButton.IsEnabled = node is not null && ViewModel.BookmarkTree.CanPromoteLevel(node);
+        DemoteLevelButton.IsEnabled = node is not null && ViewModel.BookmarkTree.CanDemoteLevel(node);
+    }
+
+    private void OnPromoteLevelClick(object? sender, RoutedEventArgs e)
+    {
+        if (BookmarkTreeView.SelectedItem is BookmarkNodeViewModel node)
+        {
+            ViewModel.BookmarkTree.PromoteLevel(node);
+            RecomputeTitleColumnWidth();
+            UpdateLevelButtonsEnabled();
+        }
+    }
+
+    private void OnDemoteLevelClick(object? sender, RoutedEventArgs e)
+    {
+        if (BookmarkTreeView.SelectedItem is BookmarkNodeViewModel node)
+        {
+            ViewModel.BookmarkTree.DemoteLevel(node);
+            RecomputeTitleColumnWidth();
+            UpdateLevelButtonsEnabled();
+        }
     }
 
     private async void OnSetLevelCapClick(object? sender, RoutedEventArgs e)

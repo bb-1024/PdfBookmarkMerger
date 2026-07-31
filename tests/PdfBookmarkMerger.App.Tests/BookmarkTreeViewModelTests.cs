@@ -93,6 +93,64 @@ public sealed class BookmarkTreeViewModelTests
     }
 
     [Fact]
+    public void PromoteLevel_ChildNode_BecomesSiblingImmediatelyAfterOldParent()
+    {
+        var vm = CreateSut(out _);
+        var parent = vm.AddRoot();
+        parent.Title.Value = "Parent";
+        var child = vm.AddChild(parent);
+        child.Title.Value = "Child";
+        var nextRoot = vm.AddRoot();
+        nextRoot.Title.Value = "NextRoot";
+
+        vm.PromoteLevel(child);
+
+        vm.RootNodes.Select(n => n.Title.Value).ShouldBe(["Parent", "Child", "NextRoot"]);
+        parent.Children.ShouldBeEmpty();
+        child.Parent.ShouldBeNull();
+    }
+
+    [Fact]
+    public void PromoteLevel_RootNode_IsNoOp()
+    {
+        var vm = CreateSut(out _);
+        var root = vm.AddRoot();
+
+        vm.PromoteLevel(root);
+
+        vm.RootNodes.ShouldContain(root);
+        vm.CanPromoteLevel(root).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void DemoteLevel_SecondRootNode_BecomesLastChildOfPrecedingSibling()
+    {
+        var vm = CreateSut(out _);
+        var first = vm.AddRoot();
+        first.Title.Value = "First";
+        var second = vm.AddRoot();
+        second.Title.Value = "Second";
+
+        vm.DemoteLevel(second);
+
+        vm.RootNodes.Select(n => n.Title.Value).ShouldBe(["First"]);
+        first.Children.Select(n => n.Title.Value).ShouldBe(["Second"]);
+        second.Parent.ShouldBe(first);
+    }
+
+    [Fact]
+    public void DemoteLevel_FirstNodeWithNoPrecedingSibling_IsNoOp()
+    {
+        var vm = CreateSut(out _);
+        var only = vm.AddRoot();
+
+        vm.DemoteLevel(only);
+
+        vm.RootNodes.ShouldContain(only);
+        vm.CanDemoteLevel(only).ShouldBeFalse();
+    }
+
+    [Fact]
     public void ToModel_WhenForceFitForAll_ReturnsNonDestructiveCloneWithoutStaleCoordinates()
     {
         var vm = CreateSut(out _);

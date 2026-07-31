@@ -333,6 +333,53 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         }
     }
 
+    /// <summary>ノードのレベルを1つ上げられるか(親を持つか)。ルート直下の要素は既に最上位のためfalse。</summary>
+    public bool CanPromoteLevel(BookmarkNodeViewModel node) => node.Parent is not null;
+
+    /// <summary>
+    /// ノードのレベルを1つ下げられるか。レベルを下げる操作は「直前の兄弟の末尾の子」として
+    /// 再配置することで実現するため、直前の兄弟が存在しない(先頭要素の)場合はfalse。
+    /// </summary>
+    public bool CanDemoteLevel(BookmarkNodeViewModel node)
+    {
+        var siblings = node.Parent?.Children ?? RootNodes;
+        return siblings.IndexOf(node) > 0;
+    }
+
+    /// <summary>
+    /// ノードのレベルを1つ上げる(=階層を1つ浅くする)。元の親の直後の兄弟として再配置する。
+    /// ルート直下の要素(親を持たない)の場合は何もしない。
+    /// </summary>
+    public void PromoteLevel(BookmarkNodeViewModel node)
+    {
+        if (node.Parent is not { } oldParent)
+        {
+            return;
+        }
+
+        var grandParent = oldParent.Parent;
+        var grandParentCollection = grandParent?.Children ?? RootNodes;
+        var newIndex = grandParentCollection.IndexOf(oldParent) + 1;
+        Move(node, grandParent, newIndex);
+    }
+
+    /// <summary>
+    /// ノードのレベルを1つ下げる(=階層を1つ深くする)。直前の兄弟の末尾の子として再配置する。
+    /// 直前の兄弟が存在しない(先頭要素の)場合は何もしない。
+    /// </summary>
+    public void DemoteLevel(BookmarkNodeViewModel node)
+    {
+        var siblings = node.Parent?.Children ?? RootNodes;
+        var index = siblings.IndexOf(node);
+        if (index <= 0)
+        {
+            return;
+        }
+
+        var newParent = siblings[index - 1];
+        Move(node, newParent, newParent.Children.Count);
+    }
+
     private static bool IsDescendantOf(BookmarkNodeViewModel? candidateDescendant, BookmarkNodeViewModel node)
     {
         var current = candidateDescendant;

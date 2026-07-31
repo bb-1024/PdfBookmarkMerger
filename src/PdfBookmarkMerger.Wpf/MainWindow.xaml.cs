@@ -571,6 +571,34 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private void OnBookmarkTreeSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         LevelCapButton.IsEnabled = GetSelectedBookmarkNode() is { Children.Count: > 0 };
+        UpdateLevelButtonsEnabled();
+    }
+
+    private void UpdateLevelButtonsEnabled()
+    {
+        var node = GetSelectedBookmarkNode();
+        PromoteLevelButton.IsEnabled = node is not null && ViewModel.BookmarkTree.CanPromoteLevel(node);
+        DemoteLevelButton.IsEnabled = node is not null && ViewModel.BookmarkTree.CanDemoteLevel(node);
+    }
+
+    private void OnPromoteLevelClick(object sender, RoutedEventArgs e)
+    {
+        if (GetSelectedBookmarkNode() is { } node)
+        {
+            ViewModel.BookmarkTree.PromoteLevel(node);
+            RecomputeTitleColumnWidth();
+            UpdateLevelButtonsEnabled();
+        }
+    }
+
+    private void OnDemoteLevelClick(object sender, RoutedEventArgs e)
+    {
+        if (GetSelectedBookmarkNode() is { } node)
+        {
+            ViewModel.BookmarkTree.DemoteLevel(node);
+            RecomputeTitleColumnWidth();
+            UpdateLevelButtonsEnabled();
+        }
     }
 
     private async void OnSetLevelCapClick(object sender, RoutedEventArgs e)

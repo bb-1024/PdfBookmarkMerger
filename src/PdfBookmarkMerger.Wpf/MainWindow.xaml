@@ -228,6 +228,10 @@
                 </StackPanel>
                 <!-- 2行目: ツリー編集操作・結合実行 -->
                 <StackPanel Orientation="Horizontal">
+                    <ui:Button x:Name="PromoteLevelButton" Content="レベルを上げる" Click="OnPromoteLevelClick"
+                               IsEnabled="False" Margin="0,0,8,0" />
+                    <ui:Button x:Name="DemoteLevelButton" Content="レベルを下げる" Click="OnDemoteLevelClick"
+                               IsEnabled="False" Margin="0,0,24,0" />
                     <ui:Button Content="ルートに追加" Click="OnAddRootBookmarkClick" Margin="0,0,8,0" />
                     <ui:Button Content="子(下位レベル)として追加" Click="OnAddChildBookmarkClick" Margin="0,0,8,0" />
                     <ui:Button Content="兄弟(同レベル)として追加" Click="OnAddSiblingBookmarkClick" Margin="0,0,8,0" />
