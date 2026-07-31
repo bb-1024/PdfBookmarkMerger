@@ -183,15 +183,16 @@
       <li><a href="#record">記録</a></li>
     </ol>
     <div class="toc-foot">
-      最終更新 2026-07-27<br />
+      最終更新 2026-08-01<br />
       対象: Windows(WPF-UI) / macOS(Avalonia)<br />
-      <a href="design.html">← 設計ドキュメント</a>
+      <a href="design.html">← 設計ドキュメント</a><br />
+      <a href="manual-verification-checklist.en.html">English</a>
     </div>
   </nav>
 
   <main>
     <header class="doc-head" id="purpose">
-      <div class="eyebrow">Manual Verification Checklist — v1.0.0(初版)</div>
+      <div class="eyebrow">Manual Verification Checklist — v1.1.0</div>
       <h1>UIコードビハインド 手動確認手順書</h1>
       <p class="sub">
         自動テスト化していないD&amp;D・Adorner描画・ダイアログ表示等を、リリース前に目視確認するための手順書。
@@ -261,6 +262,19 @@
             <tr><td class="num-cell">17</td><td class="area-cell">プロパティ編集ダイアログ</td><td>設定で「結合時にプロパティダイアログを表示する」をONにして結合する</td><td>先頭ファイルのプロパティが初期値として表示され、編集内容が結合後PDFに反映される</td></tr>
             <tr><td class="num-cell">18</td><td class="area-cell">設定ダイアログ・テーマ切り替え</td><td>設定ダイアログでテーマをライト/ダーク/システム設定にそれぞれ切り替える</td><td>切り替え直後に画面全体の配色が変わる。「システム設定」ではOSのテーマ変更に追従する</td></tr>
             <tr><td class="num-cell">19</td><td class="area-cell">未処理例外時のログ出力(該当版のみ)</td><td>(開発ビルドで意図的に例外を発生させられる場合)何らかの形で未処理例外を発生させる</td><td>アプリ終了前に<code class="inline">%AppData%/PdfBookmarkMerger/logs/pdfbookmarkmerger-.log</code>に<code class="inline">Fatal</code>レベルのログが記録される</td></tr>
+            <tr class="group-new"><td class="num-cell">20</td><td class="area-cell">大量しおりファイルの読込・進捗表示</td><td>しおりを大量に含む(または多数の)PDFファイルを一括で読み込み、「次へ」を実行する。5秒以上かかる規模で試す</td><td>読込中は手順1画面の全コントロールが操作不能になり、暗いオーバーレイと処理中メッセージが表示される。5秒経過後、完了/総数件数と処理中のファイル名が追加表示される。5秒未満で終わる小規模な読込では詳細表示が一切ちらつかない</td></tr>
+            <tr class="group-new"><td class="num-cell">21</td><td class="area-cell">結合実行時の進捗表示</td><td>複数ファイルを結合する際、20と同様にオーバーレイ・進捗表示を確認する</td><td>結合中も全コントロールが操作不能になり、進捗(完了/総数ファイル数・現在処理中のファイル名)が表示される</td></tr>
+            <tr class="group-new"><td class="num-cell">22</td><td class="area-cell">ファイル一覧: 上下ボタンの境界での非活性化</td><td>先頭行のみ選択して「上へ」、末尾行のみ選択して「下へ」を押す。何も選択しない状態も確認する</td><td>該当方向のボタンが非活性(押しても何も起きない)になっている。未選択時は上下ボタンとも非活性</td></tr>
+            <tr class="group-new"><td class="num-cell">23</td><td class="area-cell">ファイル一覧: 複数選択時の一括移動・非連続選択</td><td>連続する複数行を選択して上へ/下へを押す。次に、間に非選択行を挟む形で複数選択する</td><td>連続選択時は選択ブロック全体が相対順序を保ったまままとめて移動する。非連続選択時は上下ボタンとも非活性になる</td></tr>
+            <tr class="group-new"><td class="num-cell">24</td><td class="area-cell">しおりツリー: D&amp;D中の自動スクロール</td><td>しおりをドラッグしたまま、ツリー表示範囲の上端・下端付近にカーソルを置き続ける</td><td>カーソルがその位置にある間、ツリーが自動的にスクロールし続け、表示範囲外の行にもドロップできるようになる</td></tr>
+            <tr class="group-new"><td class="num-cell">25</td><td class="area-cell">しおりツリー: 余白部分クリックでの選択</td><td>レベル表示(Lv.N)の左側の余白、および結合後ページ表示の右側の余白をクリックする</td><td>クリックした行が選択状態になる(TreeView.SelectedItemが変わる)。ただし強調表示(背景色)は従来通り要素が存在する範囲のみに適用される</td></tr>
+            <tr class="group-new"><td class="num-cell">26</td><td class="area-cell">しおりツリー: レベル上げ/下げボタン</td><td>子を持つノードや複数階層のノードを選択し、「レベルを上げる」「レベルを下げる」を押す。ルート直下のノードでレベルを上げる、先頭要素でレベルを下げる操作も試す</td><td>階層が1段浅く/深くなる(兄弟関係が適切に組み替わる)。ルート直下では「レベルを上げる」が、先頭要素(直前の兄弟が無い)では「レベルを下げる」がそれぞれ非活性になっている</td></tr>
+            <tr class="group-new"><td class="num-cell">27</td><td class="area-cell">しおりツリー: レベル上限設定の選択肢に自身のレベルを含む</td><td>子を持つノードで「子要素のレベル上限を設定」を開き、選択肢の最小値(自身のレベル)を選ぶ</td><td>選択肢の一覧に自身のレベルが含まれている。それを選択してOKすると、そのノードの子要素がすべて削除される</td></tr>
+            <tr class="group-new"><td class="num-cell">28</td><td class="area-cell">しおりツリー: 元に戻す(Undo)</td><td>タイトル編集・追加・削除・移動・レベル変更・レベル上限設定を組み合わせて何回か行った後、「元に戻す」を繰り返し押す</td><td>直前の編集から順に(LIFO順で)元の状態に戻っていく。同じ入力欄への連続したタイプ入力は1回の編集としてまとめて戻る。これ以上戻せなくなると「元に戻す」ボタンが非活性になる。「一律でFitに設定」「一律で展開表示を設定」のON/OFF自体は「元に戻す」の対象に含まれない(チェックボックスを直接OFFに戻せば元の値に復元される)</td></tr>
+            <tr class="group-new"><td class="num-cell">29</td><td class="area-cell">しおりツリー: ボタン配置・初期ウインドウサイズ</td><td>しおり編集画面を開き、1段目(レベル操作・追加3種・削除・レベル上限)・2段目(設定・戻る・元に戻す・一律設定2種・保存)の並び順と、初期状態でのウインドウ内へのボタン収まり具合を確認する</td><td>指定の並び順になっている。初期ウインドウサイズ(1300×760)で、いずれの行のボタンも画面外にはみ出さずに収まっている</td></tr>
+            <tr class="group-new"><td class="num-cell">30</td><td class="area-cell">ダイアログのEscキャンセル</td><td>「子要素のレベル上限を設定」「PDFプロパティ」「アプリ設定」の各ダイアログを開き、何かフォーカスがある状態でEscキーを押す</td><td>いずれのダイアログもキャンセル扱いで閉じる(変更が破棄される)</td></tr>
+            <tr class="group-new"><td class="num-cell">31</td><td class="area-cell">表示言語の自動判定・切り替え</td><td>初回起動(設定ファイルが存在しない状態)でアプリを起動し、UI言語を確認する。次に設定ダイアログで言語を切り替えて保存し、アプリを再起動する</td><td>初回起動時、OSの表示言語が日本語ならUIが日本語、それ以外なら英語で表示される。設定ダイアログで切り替えて保存した言語は、次回起動時からUI全体(ウィンドウタイトル・ボタン・メッセージ・ダイアログ)に反映される(実行中の画面はその場では切り替わらない)</td></tr>
+            <tr class="group-new"><td class="num-cell">32</td><td class="area-cell">設定ファイルの保存先</td><td>アプリで何らかの設定を変更・保存した後、実行ファイルと同じフォルダを確認する。<code class="inline">%AppData%/PdfBookmarkMerger/</code>も確認する</td><td>実行ファイルと同じフォルダに<code class="inline">settings.json</code>が作成・更新されている。<code class="inline">%AppData%/PdfBookmarkMerger/</code>には設定ファイルが作成されず、<code class="inline">logs/</code>フォルダのみが存在する</td></tr>
           </tbody>
         </table>
       </div>
@@ -284,7 +298,7 @@
     </section>
 
     <footer class="doc-foot">
-      PdfBookmarkMerger UIコードビハインド 手動確認手順書 / <a href="design.html">設計ドキュメント</a> ・ <a href="detailed-design.html">詳細設計ドキュメント</a>
+      PdfBookmarkMerger UIコードビハインド 手動確認手順書 / <a href="design.html">設計ドキュメント</a> ・ <a href="detailed-design.html">詳細設計ドキュメント</a> ・ <a href="manual-verification-checklist.en.html">English</a>
     </footer>
   </main>
 </div>

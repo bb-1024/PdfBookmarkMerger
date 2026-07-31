@@ -529,14 +529,15 @@
       <li><a href="#related-docs">関連ドキュメント</a></li>
     </ol>
     <div class="toc-foot">
-      .NET 10 ・ 最終更新 2026-07-27<br />
-      対象: Windows(WPF-UI) / macOS(Avalonia)
+      .NET 10 ・ 最終更新 2026-08-01<br />
+      対象: Windows(WPF-UI) / macOS(Avalonia)<br />
+      <a href="design.en.html">English</a>
     </div>
   </nav>
 
   <main>
     <header class="doc-head" id="overview">
-      <div class="eyebrow">Design Document — v1.0.0(初版)</div>
+      <div class="eyebrow">Design Document — v1.1.0</div>
       <h1>複数PDFファイル結合ツール「PdfBookmarkMerger」設計ドキュメント</h1>
       <p class="sub">
         複数のPDFファイルをドラッグ&amp;ドロップで結合し、各ファイルのしおり(Outline)を
@@ -672,9 +673,13 @@ src/
     Services/              <span class="c"># IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService,</span>
                            <span class="c"># BookmarkOffsetCalculator, MissingBookmarkFallback, BookmarkDestinationTypeMapper</span>
   PdfBookmarkMerger.App/           <span class="c"># 共有ViewModel層(ReactiveProperty) — RootNamespace: PdfBookmarkMerger.App</span>
-    Options/               <span class="c"># PdfBookmarkMergerOptions, ThemeMode</span>
+    Options/               <span class="c"># PdfBookmarkMergerOptions, ThemeMode, AppLanguage</span>
+    Resources/              <span class="c"># Strings.resx(日本語,既定)/Strings.en.resx(英語)、手書きのStrings.csアクセサ</span>
     Services/              <span class="c"># IUserSettingsService/UserSettingsService, IDialogService(実装は各ヘッド)</span>
+    Undo/                   <span class="c"># UndoHistory&lt;T&gt;(RAM上限付きスナップショット履歴)</span>
     ViewModels/             <span class="c"># MainWindowViewModel, FileListViewModel, BookmarkTreeViewModel, BookmarkNodeViewModel, ...</span>
+    AppLanguageBootstrapper.cs <span class="c"># 起動時の表示言語確定(設定済みならそれを使用、未設定なら自動判定・保存)</span>
+    AppPaths.cs             <span class="c"># 設定ファイル(実行ファイルと同じフォルダ)・ログ(AppData)の保存先解決</span>
     PdfBookmarkMergerHostFactory.cs <span class="c"># Generic Host共通ブートストラップ + 未処理例外ログ共通処理</span>
   PdfBookmarkMerger.Wpf/           <span class="c"># Windows版 — RootNamespace: PdfBookmarkMerger.WpfApp</span>
   PdfBookmarkMerger.Avalonia/      <span class="c"># macOS版 — RootNamespace: PdfBookmarkMerger.AvaloniaApp</span>
@@ -808,9 +813,9 @@ Directory.Build.props                   <span class="c"># ソリューション�
         <table>
           <thead><tr><th class="mono">クラス</th><th>役割</th></tr></thead>
           <tbody>
-            <tr><td class="mono">MainWindowViewModel</td><td>手順1〜4の全体フローを統括する状態機械。<code class="inline">WorkflowStep</code>(SelectFiles / EditBookmarks)を持ち、<code class="inline">CombineLatest</code>で各コマンドのCanExecuteを組み立てる</td></tr>
-            <tr><td class="mono">FileListViewModel</td><td>結合対象ファイル一覧。追加・削除・並べ替え(<code class="inline">MoveUp/MoveDown/MoveTo</code>)</td></tr>
-            <tr><td class="mono">BookmarkTreeViewModel</td><td>しおり編集ツリー。<code class="inline">AddRoot/AddChild/AddSiblingAfter/Remove/Move</code>。<code class="inline">Move</code>は自分自身の子孫への移動を<code class="inline">IsDescendantOf</code>で防止</td></tr>
+            <tr><td class="mono">MainWindowViewModel</td><td>手順1〜4の全体フローを統括する状態機械。<code class="inline">WorkflowStep</code>(SelectFiles / EditBookmarks)を持ち、<code class="inline">CombineLatest</code>で各コマンドのCanExecuteを組み立てる。<code class="inline">BusyProgress</code>(<code class="inline">BusyProgressInfo?</code>)で読込・結合の進捗を公開する</td></tr>
+            <tr><td class="mono">FileListViewModel</td><td>結合対象ファイル一覧。追加・削除、単一/複数選択ブロックの一括並べ替え(<code class="inline">MoveSelectionUp/MoveSelectionDown/MoveTo/GetMoveAvailability</code>)</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModel</td><td>しおり編集ツリー。<code class="inline">AddRoot/AddChild/AddSiblingAfter/Remove/Move/PromoteLevel/DemoteLevel</code>。<code class="inline">Move</code>は自分自身の子孫への移動を<code class="inline">IsDescendantOf</code>で防止。構造的な変更・プロパティ編集の直前にJSONスナップショットを<code class="inline">UndoHistory&lt;string&gt;</code>へ積み、<code class="inline">UndoCommand</code>で復元する(<a href="#undo">詳細</a>)</td></tr>
             <tr><td class="mono">BookmarkNodeViewModel</td><td>しおり1ノード分の編集可能プロパティ(Title/DestinationType/IsOpen/Left/Top/Right/Bottom/Zoom)</td></tr>
             <tr><td class="mono">PdfFileEntryViewModel</td><td>ファイル一覧1行分のViewModel。<code class="inline">LoadFailed</code>(メタデータ読込失敗フラグ)を持つ</td></tr>
             <tr><td class="mono">PropertiesDialogViewModel / SettingsViewModel / LevelCapDialogViewModel</td><td>各ダイアログ用の小さなViewModel</td></tr>
@@ -834,14 +839,45 @@ Directory.Build.props                   <span class="c"># ソリューション�
         </p>
       </div>
 
+      <div class="card" id="undo">
+        <h4>元に戻す(Undo)の実装 <span class="badge ok">v1.1.0</span></h4>
+        <p>
+          <code class="inline">BookmarkTreeViewModel</code>は、構造的な操作(追加・削除・移動・レベル変更・
+          レベル上限の切り詰め)の直前と、ノードのプロパティ編集(タイトル・表示方法・座標・開閉状態)の直前に、
+          ツリー全体(<code class="inline">List&lt;BookmarkNode&gt;</code>)をJSONへシリアライズしたスナップショットを
+          <code class="inline">UndoHistory&lt;string&gt;</code>へ積む。プロパティ編集は、同一ノード・同一プロパティへの
+          800ms以内の連続変更(テキスト入力中の1文字ごとの変更等)を1回の編集としてコアレスする。
+          履歴の合計サイズ(各スナップショットのUTF-8バイト数の総和)が既定100MBを超えると、
+          最新の1件を除き最も古い履歴から順に破棄する(<code class="inline">UndoHistory&lt;T&gt;.Push</code>)。
+          「一律でFitに設定」「一律で展開表示を設定」は表示上の一時的な上書き(元の値は自動的に復元される)であり、
+          Undo対象の「編集内容」ではないため、これらの適用中は<code class="inline">_suppressUndoSnapshots</code>で
+          履歴への積み増しを抑止する。
+        </p>
+        <p>
+          実装過程で2件の不具合を発見・修正した。(1) <code class="inline">ReactivePropertySlim.Subscribe</code>は
+          購読直後に現在値を1回リプレイする(BehaviorSubject相当)ため、素朴に実装するとノード生成のたびに
+          実際の変更なしでスナップショットが積まれ、<code class="inline">Undo</code>自体がツリーを再構築するため
+          無限に履歴が増殖する不具合になっていた。<code class="inline">Skip(1)</code>で初回リプレイを除外して解決した。
+          (2) <code class="inline">BookmarkNode.Children</code>は<code class="inline">setter</code>を持たない
+          読み取り専用プロパティのため、System.Text.Jsonは既定では逆シリアル化時にこのプロパティを無視し、
+          子孫がすべて失われる(<code class="inline">Undo</code>後に子ノードが消える)不具合があった。
+          <code class="inline">[JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]</code>属性を
+          明示することで解決した(直接のJSONラウンドトリップ検証で発見。既存のMove/Undoテストはいずれも
+          フラットな構造しか検証していなかったため検出できていなかった)。
+        </p>
+      </div>
+
       <h3>設定の保存(Configuration / Options)</h3>
       <p>
-        <code class="inline">PdfBookmarkMergerOptions</code>(<code class="inline">LastOutputDirectory</code> / ウィンドウサイズ)は、
-        起動時に <code class="inline">appsettings.json</code>(既定値)と
-        <code class="inline">%AppData%/PdfBookmarkMerger/settings.json</code>(ユーザー設定、<code class="inline">reloadOnChange: true</code>)の
-        2段階でConfigurationに読み込み、<code class="inline">IOptionsMonitor&lt;PdfBookmarkMergerOptions&gt;</code> 経由でViewModelへ供給する。
+        <code class="inline">PdfBookmarkMergerOptions</code>(<code class="inline">LastOutputDirectory</code> / ウィンドウサイズ /
+        <code class="inline">Language</code> 等)は、起動時に <code class="inline">appsettings.json</code>(既定値)と
+        <code class="inline">settings.json</code>(ユーザー設定、実行ファイルと同じフォルダ、
+        <code class="inline">reloadOnChange: true</code>)の2段階でConfigurationに読み込み、
+        <code class="inline">IOptionsMonitor&lt;PdfBookmarkMergerOptions&gt;</code> 経由でViewModelへ供給する。
         設定変更(結合保存時の出力先フォルダ記憶など)は <code class="inline">IUserSettingsService.SaveAsync</code> が
         JSONファイルへ書き戻し、ファイル監視によってConfigurationとOptionsが自動的に再読み込みされる。
+        設定ファイルの保存先はv1.1.0で<code class="inline">%AppData%/PdfBookmarkMerger/</code>から
+        実行ファイルと同じフォルダへ変更した(<a href="#settings-logging">詳細</a>)。
       </p>
     </section>
 
@@ -868,20 +904,57 @@ Directory.Build.props                   <span class="c"># ソリューション�
         <li><strong>しおり編集</strong> — ツリー上でタイトル・表示方法・座標・開閉状態を編集、D&amp;Dで並べ替え/再親子付け、追加・削除</li>
         <li><strong>結合・保存</strong> — 保存先ダイアログ → プロパティダイアログ(既定値は先頭ファイルのプロパティ) → 結合実行</li>
       </ol>
+
+      <h3>v1.1.0での機能追加</h3>
+      <p>
+        初版(v1.0.0)以降のリファインメントとして、以下12項目を実装した。いずれもWPF-UI版・Avalonia版の
+        両フロントエンドに同等に適用している。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th style="width:40px">#</th><th>内容</th><th>実装</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">1</td><td>大量しおりファイルの読込・結合を並列化し、5秒超の処理では進捗(完了/総数・処理中ファイル名)を表示</td><td class="mono">MainWindowViewModel.ConfirmFilesAsync(Task.WhenEach+SemaphoreSlim), PdfMergeService(並列オープン→逐次結合), BusyProgressInfo/MergeProgress</td></tr>
+            <tr><td class="mono">2・3</td><td>ファイル選択画面の上下ボタンを境界で非活性化し、複数選択時は選択ブロックをまとめて移動</td><td class="mono">FileListViewModel.MoveSelectionUp/Down/GetMoveAvailability</td></tr>
+            <tr><td class="mono">4</td><td>しおりツリーD&amp;D中、上下端付近で自動スクロール</td><td class="mono">MainWindow(.xaml/.axaml).cs の UpdateBookmarkAutoScroll + DispatcherTimer</td></tr>
+            <tr><td class="mono">5</td><td>行の余白部分(インデント左側・列右側)をクリックしても選択可能に(強調表示範囲は変更なし)</td><td class="mono">TreeView Background="Transparent" + Y座標ベースのフォールバック選択(FindTreeViewItemAtY)</td></tr>
+            <tr><td class="mono">6</td><td>選択要素のレベルを1段上げ/下げるボタン</td><td class="mono">BookmarkTreeViewModel.PromoteLevel/DemoteLevel/CanPromoteLevel/CanDemoteLevel(内部的にMoveへ委譲)</td></tr>
+            <tr><td class="mono">7</td><td>レベル上限設定ダイアログの選択肢に要素自身のレベルを含める(選択時は子要素を全削除)</td><td class="mono">BookmarkTreeViewModel.SetChildLevelCapAsync(minAbsoluteLevel = node.LevelNumber)</td></tr>
+            <tr><td class="mono">8</td><td>元に戻す(Undo)。使用RAMに応じて履歴を自動的に古いものから破棄</td><td class="mono">UndoHistory&lt;T&gt;(JSONスナップショット・既定100MB上限)、BookmarkTreeViewModel.PushUndoSnapshot(同一プロパティへの連続変更は800ms以内でコアレス)</td></tr>
+            <tr><td class="mono">9</td><td>しおり編集画面のボタン並び順を再配置、初期ウインドウサイズを拡大</td><td class="mono">MainWindow(.xaml/.axaml) 1段目=レベル操作/追加/削除/レベル上限、2段目=設定/戻る/元に戻す/一律設定/保存。Width/Height: 1100×720 → 1300×760</td></tr>
+            <tr><td class="mono">10</td><td>3ダイアログ(レベル上限・プロパティ・設定)をEscキーでキャンセル可能に</td><td class="mono">WPF: Window.PreviewKeyDown、Avalonia: Window.KeyDown(いずれもEscape押下でCancel相当の処理を実行)</td></tr>
+            <tr><td class="mono">11</td><td>日本語・英語のUI表示切替。初回起動時はシステム言語から自動判定(日本語以外は英語、判定不能時は日本語)し、以後は設定ダイアログで変更可能</td><td class="mono">Resources/Strings.resx(日本語, 既定)・Strings.en.resx(英語サテライト)、AppLanguageBootstrapper、Options.Language</td></tr>
+            <tr><td class="mono">12</td><td>設定ファイルの保存先をレジストリではなく実行ファイルと同じフォルダに変更(ポータブル化)</td><td class="mono">AppPaths.AppDirectory(= AppContext.BaseDirectory)、AppPaths.UserSettingsFilePath</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13px;color:var(--ink-soft);">
+        言語設定の変更は次回起動時から反映される(XAMLの<code class="inline">x:Static</code>参照はウィンドウ構築・
+        XAML読み込み時点の値で固定されるため、実行中の画面を動的に再描画する仕組みは持たない)。
+      </p>
     </section>
 
     <section id="settings-logging">
       <h2><span class="num">08</span>設定・ロギング・例外処理</h2>
       <div class="grid-2">
         <div class="card">
-          <h4>設定ファイル</h4>
-          <p class="mono" style="font-size:12.5px;">appsettings.json(同梱既定値)<br />%AppData%/PdfBookmarkMerger/settings.json(ユーザー設定)</p>
-          <p>両OSとも <code class="inline">Environment.SpecialFolder.ApplicationData</code> で解決するため、同一ロジックをWindows/macOSで共用できる。</p>
+          <h4>設定ファイル <span class="badge ok">v1.1.0でパス変更</span></h4>
+          <p class="mono" style="font-size:12.5px;">appsettings.json(同梱既定値、実行ファイルと同じフォルダ)<br />settings.json(ユーザー設定、実行ファイルと同じフォルダ)</p>
+          <p>
+            <code class="inline">AppPaths.AppDirectory</code>(= <code class="inline">AppContext.BaseDirectory</code>)で
+            解決する。レジストリは使用しない。zipを展開したフォルダや任意の場所にそのまま配置して使える
+            ポータブルな構成を意図しており、設定ファイルは実行ファイルを移動・コピーすると一緒についてくる。
+          </p>
         </div>
         <div class="card">
           <h4>ログ出力</h4>
           <p class="mono" style="font-size:12.5px;">%AppData%/PdfBookmarkMerger/logs/pdfbookmarkmerger-.log(日次ローリング, 14世代保持) + コンソール</p>
-          <p>Serilog の <code class="inline">MinimumLevel</code> はappsettings.jsonの<code class="inline">Serilog</code>セクション(Serilog.Settings.Configuration)から上書き可能。</p>
+          <p>
+            ログは実行ファイルの配置場所が読み取り専用の可能性を考慮し、書き込みが保証されるユーザーごとの
+            AppDataフォルダに保存する(<code class="inline">AppPaths.AppDataDirectory</code>、こちらはv1.1.0でも変更なし)。
+            Serilog の <code class="inline">MinimumLevel</code> はappsettings.jsonの<code class="inline">Serilog</code>セクション
+            (Serilog.Settings.Configuration)から上書き可能。
+          </p>
         </div>
       </div>
 
@@ -900,10 +973,12 @@ Directory.Build.props                   <span class="c"># ソリューション�
   }
 }</pre>
       <p>
-        <code class="inline">%AppData%/PdfBookmarkMerger/settings.json</code>(ユーザー設定)は同じ
+        <code class="inline">settings.json</code>(ユーザー設定、実行ファイルと同じフォルダ)は同じ
         <code class="inline">"PdfBookmarkMerger"</code>セクション構造を持ち、<code class="inline">Configuration</code>の
         2段目として上書きマージされる(初回起動時は存在せず、最初の結合成功時や設定変更時に
-        <code class="inline">UserSettingsService.SaveAsync</code>が新規作成する)。
+        <code class="inline">UserSettingsService.SaveAsync</code>が新規作成する)。<code class="inline">Language</code>フィールドは
+        初回起動時に<code class="inline">AppLanguageBootstrapper</code>が自動判定した結果を書き込む
+        (<a href="#platform-notes">詳細</a>)。
       </p>
 
       <h3>ユーザー設定の書き込み(アトミック化)</h3>
@@ -971,6 +1046,31 @@ Directory.Build.props                   <span class="c"># ソリューション�
       </div>
 
       <div class="card">
+        <h4>日英i18nの実装方式(x:Static + 手書きStrings.cs) <span class="badge ok">v1.1.0</span></h4>
+        <p>
+          <code class="inline">Resources/Strings.resx</code>(日本語・中立カルチャ)と
+          <code class="inline">Strings.en.resx</code>(英語サテライト)を<code class="inline">PdfBookmarkMerger.App</code>に
+          配置し、XAML側は<code class="inline">{x:Static resx:Strings.SomeKey}</code>で、C#側は
+          <code class="inline">Strings.SomeKey</code>で直接参照する(WPF/Avalonia双方の<code class="inline">x:Static</code>拡張が
+          同じ書き方で使えるため、UI層のコードはほぼ同一になる)。<code class="inline">dotnet build</code>は
+          Visual Studioのカスタムツール(ResXFileCodeGenerator)によるコード自動生成を行わないため
+          (実測で確認済み: <code class="inline">.resx</code>は埋め込みリソースとしてコンパイルされるが
+          <code class="inline">Strings.Designer.cs</code>は生成されない)、生成されるはずのコードに相当するものを
+          <code class="inline">Strings.cs</code>として手書きしている。
+        </p>
+        <p>
+          表示言語は<code class="inline">Strings.Culture</code>(静的プロパティ)で制御する。
+          <code class="inline">CultureInfo.CurrentUICulture</code>を書き換える方式ではなく、
+          <code class="inline">ResourceManager.GetString(name, Culture)</code>に明示的にカルチャを渡す方式を採るため、
+          数値・日付書式など他のロケール依存処理に影響しない。<code class="inline">AppLanguageBootstrapper.ApplyAsync</code>が
+          <code class="inline">MainWindow</code>構築より前(<code class="inline">x:Static</code>参照はXAML読み込み時点で
+          値が固定されるため)に、設定済みの<code class="inline">Language</code>があればそれを、無ければ
+          <code class="inline">CultureInfo.InstalledUICulture</code>から日本語/英語を判定し(判定不能・例外時は日本語)、
+          判定結果を<code class="inline">UserSettingsService.SaveAsync</code>で永続化したうえで<code class="inline">Strings.Culture</code>に反映する。
+        </p>
+      </div>
+
+      <div class="card">
         <h4>2つのUIヘッドの並行保守について</h4>
         <p>
           Converter・ThemeApplier・ダイアログサービスはWPF/Avaloniaでそれぞれ独立して実装しており、
@@ -995,8 +1095,8 @@ Directory.Build.props                   <span class="c"># ソリューション�
         <table>
           <thead><tr><th class="mono">プロジェクト</th><th>対象レイヤー</th><th>件数</th></tr></thead>
           <tbody>
-            <tr><td class="mono">PdfBookmarkMerger.Core.Tests</td><td>Core(PDF入出力・結合ロジック)。<code class="inline">SamplePdfFactory</code>がPDFsharpでサンプルPDFをその場で生成</td><td>14</td></tr>
-            <tr><td class="mono">PdfBookmarkMerger.App.Tests</td><td>App層ViewModel。<code class="inline">TestHelpers/FakeServices.cs</code>のフェイク実装(モックライブラリ不使用)でDIを差し替える</td><td>7</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.Core.Tests</td><td>Core(PDF入出力・結合ロジック)。<code class="inline">SamplePdfFactory</code>がPDFsharpでサンプルPDFをその場で生成</td><td>15</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.App.Tests</td><td>App層ViewModel。<code class="inline">TestHelpers/FakeServices.cs</code>のフェイク実装(モックライブラリ不使用)でDIを差し替える</td><td>46</td></tr>
             <tr><td class="mono">PdfBookmarkMerger.UiConverters.Tests</td><td>WPF/Avalonia双方のConverterクラスを実際に参照・実行するゴールデンテスト(net10.0-windows)</td><td>25</td></tr>
           </tbody>
         </table>
@@ -1022,13 +1122,17 @@ Directory.Build.props                   <span class="c"># ソリューション�
             <tr><td class="mono">PdfMergeServiceTests</td><td>しおり付き2ファイル+しおりなし1ファイルを結合し、結合結果を再オープンしてページ数・しおり階層・ジャンプ先ページ・プロパティを検証(統合テスト)</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>フォルダ直下のみ展開・子フォルダ除外、非PDF無視、存在しないパスの無視</td></tr>
             <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと</td></tr>
-            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め(自身のレベル選択時の全削除を含む)、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)、PromoteLevel/DemoteLevel境界条件、Undo(構造操作・プロパティ編集のコアレス・LIFO順の複数回Undo)</td></tr>
+            <tr><td class="mono">FileListViewModelTests</td><td>複数選択ブロックの一括上下移動、境界・非連続選択でのボタン活性状態(<code class="inline">GetMoveAvailability</code>)</td></tr>
+            <tr><td class="mono">UndoHistoryTests</td><td>LIFO順の取り出し、合計サイズ上限超過時の最古エントリからの破棄、最新1件は上限超過でも保持</td></tr>
+            <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Strings.Cultureの切替による日英リソース解決、未設定時の自動判定・一度だけの永続化、既存設定値の保持</td></tr>
+            <tr><td class="mono">AppPathsTests</td><td>設定ファイルパスが実行ファイルと同じフォルダ(AppData配下でないこと)を指すこと、ログパスはAppData配下のまま</td></tr>
             <tr><td class="mono">ConverterParityTests</td><td>Zoom%変換・座標文字列変換・テーマラベルはWPF/Avalonia間で結果が一致すること。<code class="inline">DepthToTitleWidthConverter</code>は両実装が<em>それぞれ自身の</em>インデント定数(19px/16px)通りに計算していること(<a href="#platform-notes">詳細</a>)</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p><span class="badge ok">結果</span> 全46テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
+      <p><span class="badge ok">結果</span> 全86テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
     </section>
 
     <section id="windows-release-build">
@@ -1127,14 +1231,15 @@ pwsh ./scripts/publish-wpf-release.ps1 -RuntimeIdentifier win-arm64 -Configurati
         <div class="card">
           <h4>詳細設計ドキュメント</h4>
           <p>クラス図(SVG)・各クラスのメンバー/メソッド詳細・主要アルゴリズムの解説。</p>
-          <p><a href="detailed-design.html">detailed-design.html</a></p>
+          <p><a href="detailed-design.html">detailed-design.html</a> / <a href="detailed-design.en.html">English</a></p>
         </div>
         <div class="card">
           <h4>UIコードビハインド 手動確認手順書</h4>
           <p>自動テスト化していないD&amp;D・ダイアログ・テーマ切替等の目視確認チェックリスト。</p>
-          <p><a href="manual-verification-checklist.html">manual-verification-checklist.html</a></p>
+          <p><a href="manual-verification-checklist.html">manual-verification-checklist.html</a> / <a href="manual-verification-checklist.en.html">English</a></p>
         </div>
       </div>
+      <p style="margin-top:14px;">本ドキュメントの英語版: <a href="design.en.html">design.en.html</a></p>
     </section>
 
     <footer class="doc-foot">

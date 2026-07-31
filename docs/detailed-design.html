@@ -253,15 +253,16 @@
       <li><a href="#file-map">ファイルマップ</a></li>
     </ol>
     <div class="toc-foot">
-      .NET 10 ・ 最終更新 2026-07-27<br />
+      .NET 10 ・ 最終更新 2026-08-01<br />
       <a href="design.html">← 設計ドキュメント</a><br />
-      <a href="manual-verification-checklist.html">手動確認手順書 →</a>
+      <a href="manual-verification-checklist.html">手動確認手順書 →</a><br />
+      <a href="detailed-design.en.html">English</a>
     </div>
   </nav>
 
   <main>
     <header class="doc-head" id="overview">
-      <div class="eyebrow">Detailed Design Document — v1.0.0(初版)</div>
+      <div class="eyebrow">Detailed Design Document — v1.1.0</div>
       <h1>PdfBookmarkMerger 詳細設計ドキュメント</h1>
       <p class="sub">
         <a href="design.html">設計ドキュメント</a>で述べたアーキテクチャ方針を前提に、実際のクラス構成・関数(メソッド)の
@@ -584,6 +585,10 @@
         WPF・Avalonia間で完全に共有されるReactiveProperty MVVM層。全クラスは<code class="inline">ViewModelBase</code>を
         継承するが、図が煩雑になるため継承矢印は<code class="inline">MainWindowViewModel</code>のみ代表して描画する。
         3つのダイアログ用ViewModel(<code class="inline">PropertiesDialogViewModel</code>等)は構造が単純なため下段にまとめて示す。
+        本図は初版(v1.0.0)時点のメンバー構成を示す。v1.1.0で追加されたメンバー
+        (<code class="inline">BusyProgress</code>、<code class="inline">MoveSelectionUp/Down</code>、
+        <code class="inline">PromoteLevel/DemoteLevel</code>、<code class="inline">CanUndo/UndoCommand</code>等)の
+        詳細は<a href="#ref-viewmodels">関数リファレンス</a>を参照。
       </p>
       <div class="uml-legend">
         <div><span class="swatch"></span>継承 / has-a(コレクション・プロパティ)</div>
@@ -1203,8 +1208,12 @@
               <td class="wrap-mono">ConfirmFilesAsync() <span class="badge info">internal</span></td>
               <td class="mono">Task</td>
               <td>
-                手順1→2の遷移処理。<code class="inline">IsBusy</code>を立て、<code class="inline">FileList.Files</code>の
-                各ファイルについて<code class="inline">IPdfMetadataService.ReadMetadataAsync</code>を呼ぶ。
+                手順1→2の遷移処理。<code class="inline">IsBusy</code>を立て、<code class="inline">SemaphoreSlim</code>で
+                同時実行数を<code class="inline">Environment.ProcessorCount</code>(上限8)に制限しつつ、
+                <code class="inline">FileList.Files</code>の各ファイルの<code class="inline">IPdfMetadataService.ReadMetadataAsync</code>を
+                並列実行する(<strong>v1.1.0</strong>。旧実装は<code class="inline">foreach</code>による逐次awaitで、
+                大量ファイル時にUIが長時間応答しない原因だった)。<code class="inline">Task.WhenEach</code>で完了順に結果を処理し、
+                そのつど<code class="inline">BusyProgress</code>(完了数/総数/処理中ファイル名)を更新する。
                 失敗したファイルは<code class="inline">file.MarkLoadFailed()</code>でフラグを立て、
                 エラーダイアログを表示してスキップ(処理は継続)。成功したファイルのみ
                 <code class="inline">orderedFiles</code>としてまとめ、<strong>1件も無ければ</strong>
@@ -1224,9 +1233,11 @@
                 (フィルタしないと、しおりに含まれないファイルが結合には混入し、結合失敗やページオフセットのずれを招く)。
                 先頭ファイルのプロパティを既定値として保存先ダイアログ→(設定が有効な場合)プロパティダイアログを表示し、
                 いずれかでキャンセルされたら何もせず終了。<code class="inline">PdfMergeRequest</code>を組み立てて
-                <code class="inline">IPdfMergeService.MergeAsync</code>を呼び、成功時は出力フォルダを
-                <code class="inline">LastOutputDirectory</code>としてユーザー設定に保存。例外は
-                <code class="inline">catch</code>してエラーダイアログに変換する。
+                <code class="inline">IProgress&lt;MergeProgress&gt;</code>(<strong>v1.1.0</strong>)経由で進捗を<code class="inline">BusyProgress</code>へ
+                反映しながら<code class="inline">IPdfMergeService.MergeAsync</code>を呼び、成功時は出力フォルダ・現在の
+                <code class="inline">Language</code>を含めて<code class="inline">LastOutputDirectory</code>等をユーザー設定に保存
+                (保存時に<code class="inline">Language</code>を引き継ぎ忘れると設定した言語が失われる不具合があったため注意)。
+                例外は<code class="inline">catch</code>してエラーダイアログに変換する。
               </td>
             </tr>
           </tbody>
@@ -1236,6 +1247,9 @@
         コンストラクタでは<code class="inline">ReactivePropertySlim</code>/<code class="inline">AsyncReactiveCommand</code>を
         使い、<code class="inline">CombineLatest</code>で各コマンドの<code class="inline">CanExecute</code>を組み立てる
         (例: <code class="inline">MergeCommand</code>は<code class="inline">Step==EditBookmarks &amp;&amp; !IsBusy</code>の間のみ実行可)。
+        <code class="inline">BusyProgress</code>(<code class="inline">ReactivePropertySlim&lt;BusyProgressInfo?&gt;</code>、<strong>v1.1.0</strong>)は
+        <code class="inline">IsBusy</code>の間の詳細進捗を公開する。UI側は処理開始から5秒経過後にのみこの内容を表示する
+        (<code class="inline">DispatcherTimer</code>、短時間処理での表示チラつき防止)。
       </p>
 
       <h3>FileListViewModel <span class="tag">ViewModels/FileListViewModel.cs</span></h3>
@@ -1245,7 +1259,10 @@
           <tbody>
             <tr><td class="wrap-mono">AddPaths(IEnumerable&lt;string&gt; paths)</td><td><code class="inline">IPdfFileCollectorService.ExpandToPdfFilePaths</code>でPDFパス一覧に展開し、各パスを<code class="inline">PdfFileEntryViewModel</code>として<code class="inline">Files</code>に追加。追加直後に<code class="inline">LoadPageCountAsync</code>を<strong>fire-and-forget</strong>で開始し、ページ数を非同期表示する</td></tr>
             <tr><td class="wrap-mono">- LoadPageCountAsync(item)</td><td><code class="inline">IPdfMetadataService.ReadPageCountAsync</code>を呼び、失敗時は警告ログのみ(UIに反映しない=ページ数欄が空のまま)</td></tr>
-            <tr><td class="wrap-mono">Remove(item) / MoveUp(item) / MoveDown(item)</td><td><code class="inline">ObservableCollection</code>の<code class="inline">Remove</code>/<code class="inline">Move</code>をラップ。範囲外操作は無視</td></tr>
+            <tr><td class="wrap-mono">Remove(item)</td><td><code class="inline">ObservableCollection.Remove</code>をラップ</td></tr>
+            <tr><td class="wrap-mono">MoveSelectionUp(selected) / MoveSelectionDown(selected) <span class="badge info">v1.1.0</span></td><td>選択中の連続したファイル群をまとめて1つ上/下へ移動する。内部で選択ブロックの直前/直後にある1件だけを反対側へ<code class="inline">Files.Move</code>することで、ブロック全体のシフトと等価な結果を1回のMove呼び出しで実現する。選択が非連続、または既に端に達している場合は何もしない</td></tr>
+            <tr><td class="wrap-mono">GetMoveAvailability(selected) <span class="badge info">v1.1.0</span></td><td><code class="inline">(bool CanMoveUp, bool CanMoveDown)</code>を返す。選択が空または非連続なら両方false。上へ/下へボタンの<code class="inline">IsEnabled</code>はこの戻り値をそのまま使う</td></tr>
+            <tr><td class="wrap-mono">- ResolveContiguousSortedIndices(selected) <span class="badge info">v1.1.0</span></td><td>選択ファイル群が<code class="inline">Files</code>内で連続した並びを構成するか確認し、連続していれば昇順インデックス一覧を返す(非連続・空選択はnull)。MoveSelectionUp/Down・GetMoveAvailabilityが共通で使う</td></tr>
             <tr><td class="wrap-mono">MoveTo(item, newIndex)</td><td>TreeView/ListView上のD&amp;D並べ替え用。<code class="inline">newIndex</code>を<code class="inline">Math.Clamp</code>で範囲内に補正してから移動</td></tr>
           </tbody>
         </table>
@@ -1256,17 +1273,25 @@
         <table>
           <thead><tr><th class="wrap-mono">メソッド</th><th>振る舞い</th></tr></thead>
           <tbody>
-            <tr><td class="wrap-mono">Load(rootBookmarks, fileNames)</td><td><code class="inline">_rootModel</code>・上書き状態キャッシュをクリアして再構築。<code class="inline">RootNodes</code>を<code class="inline">BookmarkNodeViewModel</code>でラップし直す</td></tr>
-            <tr><td class="wrap-mono">AddRoot() / AddChild(parent) / AddSiblingAfter(reference)</td><td>新規<code class="inline">BookmarkNode</code>(タイトル「新しいしおり」)を作成し、ビュー側コレクションと<code class="inline">_rootModel</code>/親の<code class="inline">Model.Children</code>の両方に整合させて挿入。挿入直後に一律設定(ForceFitForAll/GlobalExpandOverride)を新ノードへ即時適用</td></tr>
-            <tr><td class="wrap-mono">Remove(node)</td><td>親の子コレクション(またはRootNodes)とモデル側の両方から削除</td></tr>
-            <tr><td class="wrap-mono">Move(node, newParent, newIndex)</td><td>D&amp;D並べ替え・再親子付けの本体。<a href="#algo-move">アルゴリズム解説</a>参照</td></tr>
-            <tr><td class="wrap-mono">SetChildLevelCapAsync(node)</td><td><code class="inline">ComputeMaxDescendantLevel</code>で子孫の最大相対レベルを求め、0(子が無い)なら何もしない。<code class="inline">IDialogService.ShowLevelCapDialogAsync</code>で絶対レベルを選ばせ、<code class="inline">TruncateBelowLevel</code>で反映</td></tr>
+            <tr><td class="wrap-mono">Load(rootBookmarks, fileNames)</td><td><code class="inline">_rootModel</code>・上書き状態キャッシュをクリアして再構築(<code class="inline">RebuildTree</code>に委譲)。<strong>新規ドキュメントの読込</strong>を意味するため、Undo履歴も<code class="inline">Clear()</code>する(<code class="inline">Undo()</code>自身が内部で呼ぶ<code class="inline">RebuildTree</code>とは異なり、履歴は保持したままにする必要がある点に注意)</td></tr>
+            <tr><td class="wrap-mono">AddRoot() / AddChild(parent) / AddSiblingAfter(reference)</td><td>新規<code class="inline">BookmarkNode</code>(タイトル「新しいしおり」)を作成し、ビュー側コレクションと<code class="inline">_rootModel</code>/親の<code class="inline">Model.Children</code>の両方に整合させて挿入。挿入直前にUndoスナップショットを積み、挿入直後に一律設定(ForceFitForAll/GlobalExpandOverride)を新ノードへ即時適用(この適用自体は<code class="inline">_suppressUndoSnapshots</code>で履歴に積まない)</td></tr>
+            <tr><td class="wrap-mono">Remove(node)</td><td>親の子コレクション(またはRootNodes)とモデル側の両方から削除。直前にUndoスナップショットを積む</td></tr>
+            <tr><td class="wrap-mono">Move(node, newParent, newIndex)</td><td>D&amp;D並べ替え・再親子付けの本体。実際に移動が発生する場合(自分自身の子孫への移動でない場合)のみ直前にUndoスナップショットを積む。<a href="#algo-move">アルゴリズム解説</a>参照</td></tr>
+            <tr><td class="wrap-mono">PromoteLevel(node) / DemoteLevel(node) <span class="badge info">v1.1.0</span></td><td><code class="inline">Move</code>への薄いラッパー。PromoteLevelは元の親の直後の兄弟として再配置(=階層を1つ浅くする)、DemoteLevelは直前の兄弟の末尾の子として再配置(=階層を1つ深くする)。<code class="inline">CanPromoteLevel(node)</code>は親を持つか、<code class="inline">CanDemoteLevel(node)</code>は直前の兄弟が存在するかを返し、対応するボタンの活性状態に使う</td></tr>
+            <tr><td class="wrap-mono">SetChildLevelCapAsync(node)</td><td><code class="inline">ComputeMaxDescendantLevel</code>で子孫の最大相対レベルを求め、0(子が無い)なら何もしない。<code class="inline">IDialogService.ShowLevelCapDialogAsync</code>で絶対レベルを選ばせる際の下限は<code class="inline">node.LevelNumber</code>(<strong>v1.1.0</strong>で<code class="inline">+1</code>から変更。自身のレベルを選択すると子要素が全削除される)。選択後、直前にUndoスナップショットを積んでから<code class="inline">TruncateBelowLevel</code>で反映</td></tr>
             <tr><td class="wrap-mono">- TruncateBelowLevel(node, remainingLevels)</td><td><code class="inline">remainingLevels&lt;=0</code>ならその場で<code class="inline">Children</code>(ビュー・モデル双方)を<code class="inline">Clear()</code>。そうでなければ子へ再帰</td></tr>
             <tr><td class="wrap-mono">ToModel()</td><td><code class="inline">ForceFitForAll</code>がオフなら<code class="inline">_rootModel</code>をそのまま返す。オンなら<code class="inline">CloneWithFit</code>で全ノードを複製し<code class="inline">DestinationType=Fit</code>・座標系プロパティ全て<code class="inline">null</code>にした非破壊な複製ツリーを返す(元データは変更しない)</td></tr>
-            <tr><td class="wrap-mono">- ApplyForceFitOverride(forced) / ApplyGlobalExpandOverride(overrideValue)</td><td>オンにする際は各ノードの元の値を<code class="inline">_preOverrideDestinationType</code>/<code class="inline">_preOverrideExpandState</code>にキャッシュしてから上書き。オフに戻す際はキャッシュから復元して削除</td></tr>
+            <tr><td class="wrap-mono">- ApplyForceFitOverride(forced) / ApplyGlobalExpandOverride(overrideValue)</td><td>オンにする際は各ノードの元の値を<code class="inline">_preOverrideDestinationType</code>/<code class="inline">_preOverrideExpandState</code>にキャッシュしてから上書き。オフに戻す際はキャッシュから復元して削除。この上書き処理自体はUndo対象ではないため<code class="inline">_suppressUndoSnapshots</code>で抑止する</td></tr>
+            <tr><td class="wrap-mono">CanUndo <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> / UndoCommand <span class="badge info">v1.1.0</span></td><td>「元に戻す」ボタンの<code class="inline">IsEnabled</code>・<code class="inline">Command</code>に直接バインドする</td></tr>
+            <tr><td class="wrap-mono">- PushUndoSnapshot() / PushUndoSnapshot(coalesceKey) <span class="badge info">v1.1.0</span></td><td><code class="inline">_rootModel</code>をJSON化して<code class="inline">UndoHistory&lt;string&gt;</code>へ積む。引数無し版は構造操作用(常に1件積む)、<code class="inline">coalesceKey</code>版はプロパティ編集用(同一キーへの800ms以内の連続呼び出しはコアレスして積まない)。<code class="inline">BookmarkNodeViewModel</code>のプロパティ変更コールバックとして渡される</td></tr>
+            <tr><td class="wrap-mono">- Undo() <span class="badge info">v1.1.0</span></td><td><code class="inline">UndoHistory.TryPop</code>で直近のJSONスナップショットを取り出し、デシリアライズして<code class="inline">RebuildTree</code>に渡す(Undo履歴自体はClearしない)</td></tr>
           </tbody>
         </table>
       </div>
+      <p style="font-size: 13.5px; color: var(--ink-soft);">
+        Undoの詳細な設計判断・発見した2件の不具合(<code class="inline">ReactivePropertySlim.Subscribe</code>の初回リプレイ、
+        <code class="inline">BookmarkNode.Children</code>のJSON逆シリアル化)は<a href="design.html#undo">設計ドキュメント</a>を参照。
+      </p>
 
       <h3>BookmarkNodeViewModel <span class="tag">ViewModels/BookmarkNodeViewModel.cs</span></h3>
       <p>
@@ -1402,6 +1427,40 @@
         Avalonia版は単純に<code class="inline">TextBlock</code>を<code class="inline">IsHitTestVisible="False"</code>・
         <code class="inline">IsVisible="{Binding !FileList.HasFiles.Value}"</code>でXAML上に重ねるだけで済んでいる
         (Avalonia側にAdornerLayerに相当する薄い仕組みが無いため、素朴なオーバーレイで代替している)。
+      </p>
+
+      <h3>しおりツリーのコードビハインド追加分 <span class="badge info">v1.1.0</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>責務</th><th>主なメソッド</th></tr></thead>
+          <tbody>
+            <tr><td>D&amp;D中の自動スクロール(#4)</td><td class="mono">UpdateBookmarkAutoScroll / StartBookmarkAutoScroll / StopBookmarkAutoScroll(DispatcherTimerで一定間隔ごとにスクロール)</td></tr>
+            <tr><td>行の余白部分クリックでの選択(#5)</td><td class="mono">SelectBookmarkRowAtY / FindTreeViewItemAtY(Y座標から該当行のTreeViewItemを幾何的に特定して選択)</td></tr>
+            <tr><td>レベル上下ボタンの中継・活性状態更新</td><td class="mono">OnPromoteLevelClick / OnDemoteLevelClick / UpdateLevelButtonsEnabled</td></tr>
+            <tr><td>ファイル一覧の上下ボタン活性状態更新(#2・#3)</td><td class="mono">UpdateFileMoveButtonsEnabled(<code class="inline">FileListViewModel.GetMoveAvailability</code>をそのまま反映)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>i18n: Strings / AppLanguageBootstrapper <span class="badge info">v1.1.0</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="wrap-mono">クラス・メンバー</th><th>振る舞い</th></tr></thead>
+          <tbody>
+            <tr><td class="wrap-mono">Strings <span class="tag">App/Resources/Strings.cs</span></td><td>Resources/Strings.resx(日本語・中立)/Strings.en.resx(英語サテライト)への型安全アクセサ。各キーにつき<code class="inline">public static string Xxx =&gt; Get(nameof(Xxx))</code>形式のプロパティを持つ。<code class="inline">dotnet build</code>単体ではVisual Studioのコード自動生成(ResXFileCodeGenerator)が動作しないため手書き</td></tr>
+            <tr><td class="wrap-mono">Strings.Culture <span class="mono">static CultureInfo?</span></td><td>非nullの間、<code class="inline">ResourceManager.GetString(name, Culture)</code>がこのカルチャを強制使用する(<code class="inline">CurrentUICulture</code>は書き換えない。数値・日付書式等、他のロケール依存処理に影響を与えないため)</td></tr>
+            <tr><td class="wrap-mono">AppLanguageBootstrapper.ApplyAsync(userSettings, ct)</td><td>設定済みの<code class="inline">Options.Language</code>があればそれを使う。未設定なら<code class="inline">CultureInfo.InstalledUICulture</code>の下2文字が"ja"かどうかで判定(例外時は日本語)し、結果を<code class="inline">SaveAsync</code>で永続化してから<code class="inline">Strings.Culture</code>に反映する。WPF/Avalonia双方の<code class="inline">App</code>で、<code class="inline">MainWindow</code>をDI解決する<strong>前</strong>に呼ぶ必要がある(x:Static参照はXAML読み込み時点で値が固定されるため)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>AppPaths <span class="tag">App/AppPaths.cs</span> <span class="badge info">v1.1.0でパス変更</span></h3>
+      <p>
+        <code class="inline">UserSettingsFilePath</code>は<code class="inline">AppDirectory</code>
+        (= <code class="inline">AppContext.BaseDirectory</code>、実行ファイルと同じフォルダ)を基準にする
+        (旧実装は<code class="inline">%AppData%/PdfBookmarkMerger/</code>だった)。<code class="inline">LogDirectory</code>は
+        従来通り<code class="inline">AppDataDirectory</code>(<code class="inline">Environment.SpecialFolder.ApplicationData</code>)を
+        基準にする(実行ファイルの配置場所が読み取り専用の可能性を考慮し、ログは書き込み保証のある場所に残す)。
       </p>
     </section>
 
@@ -1567,10 +1626,12 @@ private const double IndentPerLevel = 16;</span></pre>
 2. OnStartup / OnFrameworkInitializationCompleted
      PdfBookmarkMergerHostFactory.Build(args, configureUiServices) を呼ぶ
        a. AppPaths.AppDataDirectory / LogDirectory を作成
-       b. Configuration: appsettings.json → %AppData%/PdfBookmarkMerger/settings.json (reloadOnChange: true)
+       b. Configuration: appsettings.json → settings.json(いずれも実行ファイルと同じフォルダ、reloadOnChange: true)
        c. Serilog: Console + File(日次ローリング, 14世代保持) を Log.Logger に設定
        d. DI: AddPdfBookmarkMergerCore() + AddPdfBookmarkMergerApp() + configureUiServices(IDialogService実装, MainWindow)
      host.Start()
+     AppLanguageBootstrapper.ApplyAsync(userSettings) で表示言語を確定 (v1.1.0、MainWindow解決より前に実行必須)
+     MainWindow を解決(DI構築、ここでXAMLのx:Static参照が確定する)
      ThemeApplier.Apply(...) でユーザー設定の表示モードを起動時に反映
      MainWindow を表示
 
@@ -1694,8 +1755,10 @@ private const double IndentPerLevel = 16;</span></pre>
             <tr><td class="mono">BookmarkOffsetCalculator, MissingBookmarkFallback, BookmarkDestinationTypeMapper</td><td class="mono">src/PdfBookmarkMerger.Core/Services/*.cs</td></tr>
             <tr><td class="mono">ViewModelBase, MainWindowViewModel, FileListViewModel, BookmarkTreeViewModel, BookmarkNodeViewModel, PdfFileEntryViewModel, PropertiesDialogViewModel, SettingsViewModel, LevelCapDialogViewModel, WorkflowStep</td><td class="mono">src/PdfBookmarkMerger.App/ViewModels/*.cs</td></tr>
             <tr><td class="mono">IDialogService, IUserSettingsService, UserSettingsService</td><td class="mono">src/PdfBookmarkMerger.App/Services/*.cs</td></tr>
-            <tr><td class="mono">PdfBookmarkMergerOptions, ThemeMode</td><td class="mono">src/PdfBookmarkMerger.App/Options/*.cs</td></tr>
-            <tr><td class="mono">PdfBookmarkMergerHostFactory, AppPaths</td><td class="mono">src/PdfBookmarkMerger.App/*.cs</td></tr>
+            <tr><td class="mono">PdfBookmarkMergerOptions, ThemeMode, AppLanguage</td><td class="mono">src/PdfBookmarkMerger.App/Options/*.cs</td></tr>
+            <tr><td class="mono">Strings, Strings.resx, Strings.en.resx</td><td class="mono">src/PdfBookmarkMerger.App/Resources/*</td></tr>
+            <tr><td class="mono">UndoHistory&lt;T&gt;</td><td class="mono">src/PdfBookmarkMerger.App/Undo/UndoHistory.cs</td></tr>
+            <tr><td class="mono">PdfBookmarkMergerHostFactory, AppPaths, AppLanguageBootstrapper</td><td class="mono">src/PdfBookmarkMerger.App/*.cs</td></tr>
             <tr><td class="mono">WpfDialogService, ThemeApplier (Wpf), MainWindow (Wpf)</td><td class="mono">src/PdfBookmarkMerger.Wpf/{Services/,}*.cs, MainWindow.xaml(.cs)</td></tr>
             <tr><td class="mono">AvaloniaDialogService, ThemeApplier (Avalonia), MainWindow (Avalonia)</td><td class="mono">src/PdfBookmarkMerger.Avalonia/{Services/,}*.cs, MainWindow.axaml(.cs)</td></tr>
             <tr><td class="mono">Converters (Wpf / Avalonia)</td><td class="mono">src/PdfBookmarkMerger.{Wpf,Avalonia}/Converters/*.cs</td></tr>
@@ -1708,7 +1771,7 @@ private const double IndentPerLevel = 16;</span></pre>
     </section>
 
     <footer class="doc-foot">
-      PdfBookmarkMerger 詳細設計ドキュメント / <a href="design.html">設計ドキュメント</a> ・ <a href="manual-verification-checklist.html">UIコードビハインド手動確認手順書</a>
+      PdfBookmarkMerger 詳細設計ドキュメント / <a href="design.html">設計ドキュメント</a> ・ <a href="manual-verification-checklist.html">UIコードビハインド手動確認手順書</a> ・ <a href="detailed-design.en.html">English</a>
     </footer>
   </main>
 </div>
