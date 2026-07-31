@@ -17,26 +17,35 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
         string sourceFileName,
         BookmarkNodeViewModel? parent,
         IObservable<bool> forceFitForAll,
-        IObservable<bool?> globalExpandOverride)
+        IObservable<bool?> globalExpandOverride,
+        Action<string>? requestUndoSnapshot = null)
     {
         Model = model;
         SourceFileName = sourceFileName;
         Parent = parent;
 
+        // 各プロパティの変更前(=まだmodelへ反映される前)にUndoスナップショットを要求する。
+        // 同一ノード・同一プロパティへの短時間内の連続変更(テキスト入力中の1文字ごとの変更等)は、
+        // 呼び出し先(BookmarkTreeViewModel)側で1回の編集としてまとめられる。
+        void RequestUndoSnapshot(string propertyName) => requestUndoSnapshot?.Invoke($"{model.Id}:{propertyName}");
+
+        // ReactivePropertySlim.Subscribeは購読直後に現在値を1回リプレイする(BehaviorSubject相当)ため、
+        // Skip(1)で構築時の初回リプレイを除外しないと、ノード生成のたびに実際の変更なしでUndo履歴が
+        // 積まれてしまう(Undo自体がツリーを再構築するため、無限にUndo履歴が増殖する不具合になる)。
         Title = new ReactivePropertySlim<string>(model.Title).AddTo(Disposables);
-        Title.Subscribe(v => model.Title = v).AddTo(Disposables);
+        Title.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Title)); model.Title = v; }).AddTo(Disposables);
 
         IsOpen = new ReactivePropertySlim<bool>(model.IsOpen).AddTo(Disposables);
-        IsOpen.Subscribe(v => model.IsOpen = v).AddTo(Disposables);
+        IsOpen.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(IsOpen)); model.IsOpen = v; }).AddTo(Disposables);
 
         DestinationType = new ReactivePropertySlim<BookmarkDestinationType>(model.DestinationType).AddTo(Disposables);
-        DestinationType.Subscribe(v => model.DestinationType = v).AddTo(Disposables);
+        DestinationType.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(DestinationType)); model.DestinationType = v; }).AddTo(Disposables);
 
         Left = new ReactivePropertySlim<double?>(model.Left).AddTo(Disposables);
-        Left.Subscribe(v => model.Left = v).AddTo(Disposables);
+        Left.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Left)); model.Left = v; }).AddTo(Disposables);
 
         Top = new ReactivePropertySlim<double?>(model.Top).AddTo(Disposables);
-        Top.Subscribe(v => model.Top = v).AddTo(Disposables);
+        Top.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Top)); model.Top = v; }).AddTo(Disposables);
 
         Right = new ReactivePropertySlim<double?>(model.Right).AddTo(Disposables);
         Right.Subscribe(v => model.Right = v).AddTo(Disposables);
@@ -45,7 +54,7 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
         Bottom.Subscribe(v => model.Bottom = v).AddTo(Disposables);
 
         Zoom = new ReactivePropertySlim<double?>(model.Zoom).AddTo(Disposables);
-        Zoom.Subscribe(v => model.Zoom = v).AddTo(Disposables);
+        Zoom.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Zoom)); model.Zoom = v; }).AddTo(Disposables);
 
         IsExpanded = new ReactivePropertySlim<bool>(true).AddTo(Disposables);
 
@@ -64,7 +73,7 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
             .ToReadOnlyReactivePropertySlim().AddTo(Disposables);
 
         Children = new ObservableCollection<BookmarkNodeViewModel>(
-            model.Children.Select(c => new BookmarkNodeViewModel(c, sourceFileName, this, forceFitForAll, globalExpandOverride)));
+            model.Children.Select(c => new BookmarkNodeViewModel(c, sourceFileName, this, forceFitForAll, globalExpandOverride, requestUndoSnapshot)));
 
         // 最下位(子を持たない)要素は展開/折りたたみの区別に意味がないため編集不可にする。
         // 「一律で展開表示を設定」がON/OFF(非null)の間も、個別の展開表示チェックボックスは編集不可にする。

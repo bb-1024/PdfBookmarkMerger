@@ -1,5 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Text;
+using System.Text.Json;
 using PdfBookmarkMerger.App.Services;
+using PdfBookmarkMerger.App.Undo;
 using PdfBookmarkMerger.Core.Models;
 using Reactive.Bindings;
 using Reactive.Bindings.Extensions;
@@ -12,9 +15,22 @@ namespace PdfBookmarkMerger.App.ViewModels;
 /// </summary>
 public sealed class BookmarkTreeViewModel : ViewModelBase
 {
+    /// <summary>同一ノード・同一プロパティへの連続変更を1回の編集とみなす時間幅。
+    /// テキスト入力中の1文字ごとにUndo履歴が積み上がるのを防ぐ。</summary>
+    private static readonly TimeSpan SnapshotCoalesceWindow = TimeSpan.FromMilliseconds(800);
+
     private readonly IDialogService _dialogService;
     private readonly Dictionary<Guid, bool> _preOverrideExpandState = [];
     private readonly Dictionary<Guid, BookmarkDestinationType> _preOverrideDestinationType = [];
+    private readonly UndoHistory<string> _undoHistory = new();
+    private readonly Dictionary<string, DateTime> _lastSnapshotPushAt = [];
+
+    /// <summary>
+    /// trueの間、PushUndoSnapshotを呼んでも履歴を積まない。新規追加ノードへ「一律で...設定」の
+    /// 現在値を即座に適用する処理(ApplyGlobalExpandOverrideToNewNode等)は、追加操作自体の
+    /// Undoスナップショットに含まれるべきであり、独立した2件目の履歴として積むべきではないため。
+    /// </summary>
+    private bool _suppressUndoSnapshots;
 
     private List<BookmarkNode> _rootModel = [];
     private IReadOnlyDictionary<Guid, string> _fileNames = new Dictionary<Guid, string>();
@@ -28,6 +44,10 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         GlobalExpandOverride = new ReactivePropertySlim<bool?>(null).AddTo(Disposables);
         GlobalExpandOverride.Subscribe(ApplyGlobalExpandOverride).AddTo(Disposables);
         TitleColumnBaseWidth = new ReactivePropertySlim<double>(DefaultTitleColumnBaseWidth).AddTo(Disposables);
+
+        CanUndo = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
+        UndoCommand = new ReactiveCommand(CanUndo).AddTo(Disposables);
+        UndoCommand.Subscribe(Undo).AddTo(Disposables);
     }
 
     /// <summary>タイトル列の既定幅(px)。実際の幅はUI側でタイトル文字列の実測幅に応じて拡張される。</summary>
@@ -53,9 +73,27 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     /// </summary>
     public ReactivePropertySlim<bool?> GlobalExpandOverride { get; }
 
+    /// <summary>元に戻せる履歴が存在するか。「元に戻す」ボタンのIsEnabledに直接バインドする。</summary>
+    public ReactivePropertySlim<bool> CanUndo { get; }
+
+    public ReactiveCommand UndoCommand { get; }
+
+    /// <summary>
+    /// 新規ドキュメントの読み込み。前のドキュメントのUndo履歴は引き継がない(クリアする)。
+    /// </summary>
     public void Load(IReadOnlyList<BookmarkNode> rootBookmarks, IReadOnlyDictionary<Guid, string> fileNames)
     {
         _fileNames = fileNames;
+        RebuildTree(rootBookmarks);
+        _undoHistory.Clear();
+        _lastSnapshotPushAt.Clear();
+        CanUndo.Value = false;
+    }
+
+    /// <summary>RootNodes/_rootModelを指定内容で再構築する。Load(新規読込)とUndo(履歴復元)の両方から使う、
+    /// Undo履歴自体には触れない下位処理。</summary>
+    private void RebuildTree(IReadOnlyList<BookmarkNode> rootBookmarks)
+    {
         _rootModel = rootBookmarks.ToList();
         _preOverrideExpandState.Clear();
         _preOverrideDestinationType.Clear();
@@ -64,8 +102,56 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         foreach (var node in _rootModel)
         {
             var name = _fileNames.GetValueOrDefault(node.SourceFileEntryId, "?");
-            RootNodes.Add(new BookmarkNodeViewModel(node, name, null, ForceFitForAll, GlobalExpandOverride));
+            RootNodes.Add(new BookmarkNodeViewModel(node, name, null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot));
         }
+    }
+
+    /// <summary>
+    /// 直前の状態をUndo履歴へ積む(構造的な操作の直前に呼ぶ、コアレス無し=常に1件積む)。
+    /// </summary>
+    private void PushUndoSnapshot() => PushUndoSnapshotCore(null);
+
+    /// <summary>
+    /// 直前の状態をUndo履歴へ積む(BookmarkNodeViewModelのプロパティ変更用)。
+    /// 同一coalesceKeyからの連続呼び出しがSnapshotCoalesceWindow以内であれば、1回の編集とみなし
+    /// 履歴を積み増さない。
+    /// </summary>
+    private void PushUndoSnapshot(string coalesceKey) => PushUndoSnapshotCore(coalesceKey);
+
+    private void PushUndoSnapshotCore(string? coalesceKey)
+    {
+        if (_suppressUndoSnapshots)
+        {
+            return;
+        }
+
+        if (coalesceKey is not null)
+        {
+            var now = DateTime.UtcNow;
+            if (_lastSnapshotPushAt.TryGetValue(coalesceKey, out var last) && now - last < SnapshotCoalesceWindow)
+            {
+                _lastSnapshotPushAt[coalesceKey] = now;
+                return;
+            }
+
+            _lastSnapshotPushAt[coalesceKey] = now;
+        }
+
+        var json = JsonSerializer.Serialize(_rootModel);
+        _undoHistory.Push(json, Encoding.UTF8.GetByteCount(json));
+        CanUndo.Value = true;
+    }
+
+    private void Undo()
+    {
+        if (!_undoHistory.TryPop(out var json))
+        {
+            return;
+        }
+
+        var restored = JsonSerializer.Deserialize<List<BookmarkNode>>(json) ?? [];
+        RebuildTree(restored);
+        CanUndo.Value = _undoHistory.CanUndo;
     }
 
     private void ApplyGlobalExpandOverride(bool? overrideValue)
@@ -89,7 +175,17 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             }
         }
 
-        Walk(RootNodes);
+        // 「一律で展開表示を設定」は表示上の一時的な上書き(元の値はキャッシュ済みで自動復元される)であり、
+        // Undo対象の「編集内容」ではない。ノード数分の履歴が一括で積まれるのを防ぐため抑止する。
+        _suppressUndoSnapshots = true;
+        try
+        {
+            Walk(RootNodes);
+        }
+        finally
+        {
+            _suppressUndoSnapshots = false;
+        }
     }
 
     /// <summary>新規追加ノードにも、現在有効な一律展開表示設定を即座に適用する。</summary>
@@ -127,7 +223,17 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             }
         }
 
-        Walk(RootNodes);
+        // 「一律でFitに設定」も表示上の一時的な上書きであり、Undo対象の「編集内容」ではない。
+        // ノード数分の履歴が一括で積まれるのを防ぐため抑止する。
+        _suppressUndoSnapshots = true;
+        try
+        {
+            Walk(RootNodes);
+        }
+        finally
+        {
+            _suppressUndoSnapshots = false;
+        }
     }
 
     /// <summary>新規追加ノードにも、現在有効な一律Fit設定を即座に適用する。</summary>
@@ -137,6 +243,25 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         {
             _preOverrideDestinationType.TryAdd(vm.Model.Id, vm.DestinationType.Value);
             vm.DestinationType.Value = BookmarkDestinationType.Fit;
+        }
+    }
+
+    /// <summary>
+    /// 新規追加ノードへ「一律で...設定」の現在値を適用する(2つの上記メソッドをまとめて呼ぶ)。
+    /// この適用自体は追加操作の一部として扱うため、Undoスナップショットは積まない
+    /// (追加操作そのものの直前スナップショットに1つの編集としてまとめる)。
+    /// </summary>
+    private void ApplyCurrentOverridesToNewNode(BookmarkNodeViewModel vm)
+    {
+        _suppressUndoSnapshots = true;
+        try
+        {
+            ApplyGlobalExpandOverrideToNewNode(vm);
+            ApplyForceFitOverrideToNewNode(vm);
+        }
+        finally
+        {
+            _suppressUndoSnapshots = false;
         }
     }
 
@@ -166,6 +291,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             return;
         }
 
+        PushUndoSnapshot();
         TruncateBelowLevel(node, absoluteLevel - node.LevelNumber);
         node.SyncChildOrderToModel();
     }
@@ -210,10 +336,10 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     public BookmarkNodeViewModel AddRoot()
     {
         var (fileId, pageIndex) = ResolveDefaultDestination();
+        PushUndoSnapshot();
         var model = new BookmarkNode { SourceFileEntryId = fileId, OriginalPageIndex = pageIndex, Title = "新しいしおり" };
-        var vm = new BookmarkNodeViewModel(model, _fileNames.GetValueOrDefault(fileId, "?"), null, ForceFitForAll, GlobalExpandOverride);
-        ApplyGlobalExpandOverrideToNewNode(vm);
-        ApplyForceFitOverrideToNewNode(vm);
+        var vm = new BookmarkNodeViewModel(model, _fileNames.GetValueOrDefault(fileId, "?"), null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
+        ApplyCurrentOverridesToNewNode(vm);
 
         RootNodes.Add(vm);
         _rootModel.Add(model);
@@ -222,6 +348,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
     public BookmarkNodeViewModel AddChild(BookmarkNodeViewModel parent)
     {
+        PushUndoSnapshot();
         var model = new BookmarkNode
         {
             SourceFileEntryId = parent.Model.SourceFileEntryId,
@@ -229,9 +356,8 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             Title = "新しいしおり",
             MergedPageIndex = parent.Model.MergedPageIndex,
         };
-        var vm = new BookmarkNodeViewModel(model, parent.SourceFileName, parent, ForceFitForAll, GlobalExpandOverride);
-        ApplyGlobalExpandOverrideToNewNode(vm);
-        ApplyForceFitOverrideToNewNode(vm);
+        var vm = new BookmarkNodeViewModel(model, parent.SourceFileName, parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
+        ApplyCurrentOverridesToNewNode(vm);
 
         parent.Children.Add(vm);
         parent.IsExpanded.Value = true;
@@ -241,6 +367,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
     public BookmarkNodeViewModel AddSiblingAfter(BookmarkNodeViewModel reference)
     {
+        PushUndoSnapshot();
         var model = new BookmarkNode
         {
             SourceFileEntryId = reference.Model.SourceFileEntryId,
@@ -248,9 +375,8 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             Title = "新しいしおり",
             MergedPageIndex = reference.Model.MergedPageIndex,
         };
-        var vm = new BookmarkNodeViewModel(model, reference.SourceFileName, reference.Parent, ForceFitForAll, GlobalExpandOverride);
-        ApplyGlobalExpandOverrideToNewNode(vm);
-        ApplyForceFitOverrideToNewNode(vm);
+        var vm = new BookmarkNodeViewModel(model, reference.SourceFileName, reference.Parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
+        ApplyCurrentOverridesToNewNode(vm);
 
         var siblings = reference.Parent?.Children ?? RootNodes;
         var index = siblings.IndexOf(reference);
@@ -271,6 +397,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
     public void Remove(BookmarkNodeViewModel node)
     {
+        PushUndoSnapshot();
         var collection = node.Parent?.Children ?? RootNodes;
         collection.Remove(node);
 
@@ -292,6 +419,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             return;
         }
 
+        PushUndoSnapshot();
         var oldParent = node.Parent;
         var oldCollection = oldParent?.Children ?? RootNodes;
         var newCollectionBeforeRemoval = newParent?.Children ?? RootNodes;

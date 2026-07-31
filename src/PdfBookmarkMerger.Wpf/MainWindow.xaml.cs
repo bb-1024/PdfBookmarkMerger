@@ -68,6 +68,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         ViewModel.FileList.Files.CollectionChanged += (_, _) => UpdateFileMoveButtonsEnabled();
         UpdateFileMoveButtonsEnabled();
+
+        // Undo(元に戻す)はRootNodes全体を作り直すため、タイトル列幅もあわせて再計算する。
+        // VM側のUndoCommand.Subscribe(Undo)(RootNodes再構築)が先に完了してから呼ばれる。
+        ViewModel.BookmarkTree.UndoCommand.Subscribe(RecomputeTitleColumnWidth);
     }
 
     private void OnFileListSelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();

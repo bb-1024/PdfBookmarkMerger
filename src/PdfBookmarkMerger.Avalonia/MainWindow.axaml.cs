@@ -57,6 +57,10 @@ public partial class MainWindow : Window
         _busyDetailTimer.Tick += OnBusyDetailTimerTick;
         ViewModel.IsBusy.Subscribe(OnIsBusyChanged);
 
+        // Undo(元に戻す)はRootNodes全体を作り直すため、タイトル列幅もあわせて再計算する。
+        // VM側のUndoCommand.Subscribe(Undo)(RootNodes再構築)が先に完了してから呼ばれる。
+        ViewModel.BookmarkTree.UndoCommand.Subscribe(RecomputeTitleColumnWidth);
+
         _bookmarkAutoScrollTimer.Tick += (_, _) =>
         {
             if (_bookmarkTreeScrollViewer is not { } scrollViewer)

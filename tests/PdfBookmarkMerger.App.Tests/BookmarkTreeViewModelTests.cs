@@ -179,6 +179,124 @@ public sealed class BookmarkTreeViewModelTests
     }
 
     [Fact]
+    public void CanUndo_WithNoEdits_IsFalse()
+    {
+        var vm = CreateSut(out _);
+
+        vm.CanUndo.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Undo_AfterAddRoot_RemovesTheAddedNodeAndDisablesFurtherUndo()
+    {
+        var vm = CreateSut(out _);
+        vm.AddRoot();
+        vm.CanUndo.Value.ShouldBeTrue();
+
+        vm.UndoCommand.Execute();
+
+        vm.RootNodes.ShouldBeEmpty();
+        vm.CanUndo.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Undo_AfterRemove_RestoresTheRemovedNode()
+    {
+        var vm = CreateSut(out _);
+        var node = vm.AddRoot();
+        vm.Remove(node);
+        vm.RootNodes.ShouldBeEmpty();
+
+        vm.UndoCommand.Execute();
+
+        vm.RootNodes.Count.ShouldBe(1);
+        vm.RootNodes[0].Title.Value.ShouldBe("新しいしおり");
+    }
+
+    [Fact]
+    public void Undo_AfterMove_RestoresThePreviousParentAndPosition()
+    {
+        var vm = CreateSut(out _);
+        var parent1 = vm.AddRoot();
+        var child = vm.AddChild(parent1);
+        var parent2 = vm.AddRoot();
+        vm.Move(child, parent2, 0);
+
+        vm.UndoCommand.Execute();
+
+        // Move前はRootNodes=[parent1(childを持つ), parent2]の順だった。
+        vm.RootNodes.Count.ShouldBe(2);
+        vm.RootNodes[0].Children.ShouldHaveSingleItem();
+        vm.RootNodes[1].Children.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Undo_MultipleTimes_RevertsEachAddInReverseOrder()
+    {
+        var vm = CreateSut(out _);
+        vm.AddRoot();
+        vm.AddRoot();
+        vm.RootNodes.Count.ShouldBe(2);
+
+        vm.UndoCommand.Execute();
+        vm.RootNodes.Count.ShouldBe(1);
+
+        vm.UndoCommand.Execute();
+        vm.RootNodes.ShouldBeEmpty();
+        vm.CanUndo.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Undo_WithNoHistory_IsNoOp()
+    {
+        var vm = CreateSut(out _);
+        vm.AddRoot();
+
+        vm.UndoCommand.Execute();
+        // これ以上戻せない状態でもう一度実行しても例外を投げず、状態はそのまま。
+        vm.UndoCommand.Execute();
+
+        vm.RootNodes.ShouldBeEmpty();
+        vm.CanUndo.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void RapidSuccessiveEditsToSameNodeProperty_CoalesceIntoASingleUndoStep()
+    {
+        var vm = CreateSut(out _);
+        var node = vm.AddRoot();
+
+        // 短時間内の連続したTitle変更(テキスト入力を想定)は、まとめて1回の編集として扱われる。
+        node.Title.Value = "A";
+        node.Title.Value = "AB";
+        node.Title.Value = "ABC";
+
+        vm.UndoCommand.Execute();
+        vm.RootNodes.Count.ShouldBe(1);
+        vm.RootNodes[0].Title.Value.ShouldBe("新しいしおり");
+
+        vm.UndoCommand.Execute();
+        vm.RootNodes.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void EditsToDifferentProperties_AreNotCoalescedTogether()
+    {
+        var vm = CreateSut(out _);
+        var node = vm.AddRoot();
+
+        node.Title.Value = "Changed Title";
+        node.IsOpen.Value = true;
+
+        vm.UndoCommand.Execute();
+        vm.RootNodes[0].Title.Value.ShouldBe("Changed Title");
+        vm.RootNodes[0].IsOpen.Value.ShouldBeFalse();
+
+        vm.UndoCommand.Execute();
+        vm.RootNodes[0].Title.Value.ShouldBe("新しいしおり");
+    }
+
+    [Fact]
     public void ToModel_WhenForceFitForAll_ReturnsNonDestructiveCloneWithoutStaleCoordinates()
     {
         var vm = CreateSut(out _);

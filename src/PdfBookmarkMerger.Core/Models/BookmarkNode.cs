@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PdfBookmarkMerger.Core.Models;
 
 /// <summary>
@@ -39,6 +41,12 @@ public sealed class BookmarkNode
     /// <summary>PdfSharpが生成できるActionは常にGoToのみ。将来の拡張に備え保持する。</summary>
     public string ActionType => "GoTo";
 
+    /// <summary>
+    /// setterを持たないため、既定ではSystem.Text.Jsonの逆シリアル化時に無視され空のまま残ってしまう
+    /// (Populateを明示しないと読み取り専用コレクションへは値を書き込まない仕様のため)。
+    /// Undo用スナップショット(JSONラウンドトリップ)で子孫が失われないよう明示的に指定する。
+    /// </summary>
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public List<BookmarkNode> Children { get; } = [];
 
     /// <summary>自身と子孫すべての深いコピーを返す(Idは複製ごとに新規採番される)。</summary>
