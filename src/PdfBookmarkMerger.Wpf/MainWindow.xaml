@@ -6,7 +6,7 @@
         xmlns:models="clr-namespace:PdfBookmarkMerger.Core.Models;assembly=PdfBookmarkMerger.Core"
         xmlns:conv="clr-namespace:PdfBookmarkMerger.WpfApp.Converters"
         xmlns:vm="clr-namespace:PdfBookmarkMerger.App.ViewModels;assembly=PdfBookmarkMerger.App"
-        Title="PDF結合ツール" Height="720" Width="1100"
+        Title="PDF結合ツール" Height="760" Width="1300"
         Icon="pack://application:,,,/Assets/app.ico"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="None"
@@ -216,19 +216,8 @@
             </Border>
 
             <StackPanel Grid.Row="2" Margin="0,12,0,0">
-                <!-- 1行目: 画面遷移・一律設定 -->
+                <!-- 1段目: レベル上下・しおり追加(3種)・削除・レベル上限設定 -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <ui:Button Content="設定..." Command="{Binding OpenSettingsCommand}" Margin="0,0,24,0" />
-                    <ui:Button Content="戻る" Command="{Binding BackToFileListCommand}" Margin="0,0,24,0" />
-                    <ui:Button Content="元に戻す" Command="{Binding BookmarkTree.UndoCommand}" Margin="0,0,24,0" />
-                    <CheckBox Content="一律でFitに設定" IsChecked="{Binding BookmarkTree.ForceFitForAll.Value, Mode=TwoWay}"
-                              VerticalAlignment="Center" Margin="0,0,16,0" />
-                    <CheckBox Content="一律で展開表示を設定" IsThreeState="True"
-                              IsChecked="{Binding BookmarkTree.GlobalExpandOverride.Value, Mode=TwoWay}"
-                              VerticalAlignment="Center" />
-                </StackPanel>
-                <!-- 2行目: ツリー編集操作・結合実行 -->
-                <StackPanel Orientation="Horizontal">
                     <ui:Button x:Name="PromoteLevelButton" Content="レベルを上げる" Click="OnPromoteLevelClick"
                                IsEnabled="False" Margin="0,0,8,0" />
                     <ui:Button x:Name="DemoteLevelButton" Content="レベルを下げる" Click="OnDemoteLevelClick"
@@ -236,9 +225,20 @@
                     <ui:Button Content="ルートに追加" Click="OnAddRootBookmarkClick" Margin="0,0,8,0" />
                     <ui:Button Content="子(下位レベル)として追加" Click="OnAddChildBookmarkClick" Margin="0,0,8,0" />
                     <ui:Button Content="兄弟(同レベル)として追加" Click="OnAddSiblingBookmarkClick" Margin="0,0,8,0" />
-                    <ui:Button Content="削除" Click="OnDeleteBookmarkClick" Margin="0,0,8,0" />
+                    <ui:Button Content="削除" Click="OnDeleteBookmarkClick" Margin="0,0,24,0" />
                     <ui:Button x:Name="LevelCapButton" Content="子要素のレベル上限を設定..." Click="OnSetLevelCapClick"
-                               IsEnabled="False" Margin="0,0,24,0" />
+                               IsEnabled="False" />
+                </StackPanel>
+                <!-- 2段目: 設定・画面遷移・元に戻す・一律設定(2種)・結合実行 -->
+                <StackPanel Orientation="Horizontal">
+                    <ui:Button Content="設定..." Command="{Binding OpenSettingsCommand}" Margin="0,0,24,0" />
+                    <ui:Button Content="ファイル選択画面に戻る" Command="{Binding BackToFileListCommand}" Margin="0,0,24,0" />
+                    <ui:Button Content="元に戻す" Command="{Binding BookmarkTree.UndoCommand}" Margin="0,0,24,0" />
+                    <CheckBox Content="一律でFitに設定" IsChecked="{Binding BookmarkTree.ForceFitForAll.Value, Mode=TwoWay}"
+                              VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <CheckBox Content="一律で展開表示を設定" IsThreeState="True"
+                              IsChecked="{Binding BookmarkTree.GlobalExpandOverride.Value, Mode=TwoWay}"
+                              VerticalAlignment="Center" Margin="0,0,24,0" />
                     <ui:Button Content="結合してPDFを保存..." Appearance="Primary" Command="{Binding MergeCommand}" />
                 </StackPanel>
             </StackPanel>
