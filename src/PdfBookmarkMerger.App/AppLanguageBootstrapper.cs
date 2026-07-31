@@ -31,6 +31,13 @@ public static class AppLanguageBootstrapper
         Strings.Culture = ToCultureInfo(language.Value);
     }
 
+    /// <summary>
+    /// 設定ダイアログでの言語変更を、その場でStrings.Cultureへ反映する。x:Static参照は
+    /// ウィンドウ構築時点の値で固定されるため、呼び出し側はこの後にウィンドウを再構築する必要がある
+    /// (WpfDialogService/AvaloniaDialogServiceのShowSettingsDialogAsync参照)。
+    /// </summary>
+    public static void ApplyImmediate(AppLanguage language) => Strings.Culture = ToCultureInfo(language);
+
     private static AppLanguage DetectSystemLanguage()
     {
         try
