@@ -37,7 +37,8 @@
                          DragDrop.Drop="OnFileListDrop"
                          DragDrop.DragOver="OnFileListDragOver"
                          PointerPressed="OnFileListPointerPressed"
-                         PointerMoved="OnFileListPointerMoved">
+                         PointerMoved="OnFileListPointerMoved"
+                         SelectionChanged="OnFileListSelectionChanged">
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="vm:PdfFileEntryViewModel">
                             <Grid ColumnDefinitions="*,Auto" Margin="4">
@@ -63,8 +64,8 @@
                 <Button Content="ファイルを追加..." Command="{Binding AddFilesViaDialogCommand}" />
                 <Button Content="フォルダを追加..." Command="{Binding AddFolderViaDialogCommand}" />
                 <Button Content="削除" Click="OnRemoveSelectedFileClick" />
-                <Button Content="上へ" Click="OnMoveFileUpClick" />
-                <Button Content="下へ" Click="OnMoveFileDownClick" Margin="0,0,16,0" />
+                <Button Name="MoveFileUpButton" Content="上へ" Click="OnMoveFileUpClick" />
+                <Button Name="MoveFileDownButton" Content="下へ" Click="OnMoveFileDownClick" Margin="0,0,16,0" />
                 <Button Content="次へ" Command="{Binding ConfirmFilesCommand}" />
             </StackPanel>
         </Grid>

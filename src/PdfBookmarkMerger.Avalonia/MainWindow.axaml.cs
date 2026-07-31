@@ -46,6 +46,31 @@ public partial class MainWindow : Window
 
         _busyDetailTimer.Tick += OnBusyDetailTimerTick;
         ViewModel.IsBusy.Subscribe(OnIsBusyChanged);
+
+        ViewModel.FileList.Files.CollectionChanged += (_, _) => UpdateFileMoveButtonsEnabled();
+        UpdateFileMoveButtonsEnabled();
+    }
+
+    private void OnFileListSelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();
+
+    /// <summary>
+    /// 選択中のファイルがリストの最上部/最下部にあり、それ以上その方向へ移動できない場合に、
+    /// 対応する「上へ」「下へ」ボタンを非活性化する。何も選択されていない場合は両方とも非活性化する。
+    /// </summary>
+    private void UpdateFileMoveButtonsEnabled()
+    {
+        var selected = FileListBox.SelectedItems!.Cast<PdfFileEntryViewModel>().ToList();
+        if (selected.Count == 0)
+        {
+            MoveFileUpButton.IsEnabled = false;
+            MoveFileDownButton.IsEnabled = false;
+            return;
+        }
+
+        var files = ViewModel.FileList.Files;
+        var indices = selected.Select(files.IndexOf).OrderBy(i => i).ToList();
+        MoveFileUpButton.IsEnabled = indices[0] > 0;
+        MoveFileDownButton.IsEnabled = indices[^1] < files.Count - 1;
     }
 
     private void OnIsBusyChanged(bool isBusy)
