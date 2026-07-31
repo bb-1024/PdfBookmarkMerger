@@ -483,7 +483,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     /// </summary>
     private BookmarkDropPlan? ResolveBookmarkDropPlan(DragEventArgs e)
     {
-        var targetItem = FindAncestor<TreeViewItem>((DependencyObject)e.OriginalSource);
+        // e.OriginalSourceによるヒットテストだと、行内の実要素(タイトル欄・ComboBox等)が無い部分
+        // (レベル表示の左側の余白、結合後ページ表示の右側の余白)にカーソルがある場合にヒットする要素が無く、
+        // ドロップ対象が見つからなくなる。OnBookmarkTreePreviewMouseLeftButtonDown(行選択)と同様、
+        // カーソルのY座標から幾何的に行を探すことで、行の全幅でドロップを受け付けるようにする。
+        var targetItem = FindTreeViewItemAtY(BookmarkTreeView, e.GetPosition(BookmarkTreeView).Y);
         if (targetItem?.DataContext is not BookmarkNodeViewModel targetNode)
         {
             return null;

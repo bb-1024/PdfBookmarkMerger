@@ -79,6 +79,7 @@
             <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"><Run Text="{x:Static resx:Strings.EditBookmarksInstructionLine1}" /><LineBreak /><Run Text="{x:Static resx:Strings.EditBookmarksInstructionLine2}" /></TextBlock>
 
             <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
+              <Grid>
                 <TreeView Name="BookmarkTreeView"
                           ItemsSource="{Binding BookmarkTree.RootNodes}"
                           Padding="0,0,0,32"
@@ -144,6 +145,18 @@
                         </TreeDataTemplate>
                     </TreeView.ItemTemplate>
                 </TreeView>
+
+                <!--
+                    しおりD&amp;D中のドロップ位置インジケータ(挿入先を示す横線+丸)。TreeViewの上に重ねた
+                    ヒットテスト無効なCanvasへ描画する(WPF版のBookmarkInsertionAdornerに相当)。
+                    子/兄弟いずれとして挿入されるかを、対象行の上半分/下半分どちらにカーソルがあるかで
+                    視覚的に区別する。
+                -->
+                <Canvas Name="BookmarkDropIndicatorCanvas" IsHitTestVisible="False">
+                    <Line Name="BookmarkDropIndicatorLine" Stroke="DodgerBlue" StrokeThickness="2" IsVisible="False" />
+                    <Ellipse Name="BookmarkDropIndicatorDot" Fill="DodgerBlue" Width="7" Height="7" IsVisible="False" />
+                </Canvas>
+              </Grid>
             </Border>
 
             <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="8">

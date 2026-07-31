@@ -1,6 +1,7 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -17,6 +18,11 @@ public partial class MainWindow : Window
 
     private static readonly DataFormat<BookmarkNodeViewModel> BookmarkDragFormat =
         DataFormat.CreateInProcessFormat<BookmarkNodeViewModel>("PdfBookmarkMerger.BookmarkNode");
+
+    /// <summary>しおり行のドロップ判定で、子として挿入する場合のインジケータ線のインデント量(px)。</summary>
+    private const double BookmarkChildIndent = 19;
+
+    private readonly record struct BookmarkDropPlan(BookmarkNodeViewModel TargetNode, bool InsertAsChild, double LineX, double LineY);
 
     private PointerPressedEventArgs? _filePressedArgs;
     private PdfFileEntryViewModel? _filePressedEntry;
@@ -390,10 +396,88 @@ public partial class MainWindow : Window
             e.DragEffects = DragDropEffects.Move;
         }
 
+        if (ResolveBookmarkDropPlan(e) is { } plan)
+        {
+            ShowBookmarkDropIndicator(plan.LineX, plan.LineY);
+        }
+        else
+        {
+            RemoveBookmarkDropIndicator();
+        }
+
         UpdateBookmarkAutoScroll(e);
     }
 
-    private void OnBookmarkTreeDragLeave(object? sender, RoutedEventArgs e) => StopBookmarkAutoScroll();
+    private void OnBookmarkTreeDragLeave(object? sender, RoutedEventArgs e)
+    {
+        RemoveBookmarkDropIndicator();
+        StopBookmarkAutoScroll();
+    }
+
+    /// <summary>
+    /// ドラッグ中のカーソル位置から、ドロップ対象ノードと挿入方法(子/兄弟)、
+    /// および挿入位置インジケータの描画座標を求める。対象行の外側(空白領域)の場合はnull。
+    /// e.Sourceによるヒットテストだと、行内の実要素(タイトル欄等)が無い部分(レベル表示の左側の余白、
+    /// 結合後ページ表示の右側の余白)にカーソルがある場合にヒットする要素が無く、ドロップ対象が
+    /// 見つからなくなる。SelectBookmarkRowAtYと同様、カーソルのY座標から幾何的に行を探すことで、
+    /// 行の全幅でドロップを受け付けるようにする。
+    /// </summary>
+    private BookmarkDropPlan? ResolveBookmarkDropPlan(DragEventArgs e)
+    {
+        var pointInTree = e.GetPosition(BookmarkTreeView);
+        var targetItem = FindTreeViewItemAtY(BookmarkTreeView, pointInTree.Y);
+        if (targetItem?.DataContext is not BookmarkNodeViewModel targetNode)
+        {
+            return null;
+        }
+
+        var headerPanel = FindOwnHeaderPanel(targetItem);
+        if (headerPanel is null || headerPanel.Bounds.Height <= 0)
+        {
+            return null;
+        }
+
+        var headerTopLeft = headerPanel.TranslatePoint(new Point(0, 0), BookmarkTreeView) ?? default;
+        var mouseWithinHeader = e.GetPosition(headerPanel);
+        var insertAsChild = mouseWithinHeader.Y < headerPanel.Bounds.Height / 2;
+
+        double lineX;
+        double lineY;
+        if (insertAsChild)
+        {
+            // 子として挿入: そのノードの一段深い位置、ヘッダー直下(=先頭の子の位置)に線を引く。
+            lineX = headerTopLeft.X + BookmarkChildIndent;
+            lineY = headerTopLeft.Y + headerPanel.Bounds.Height;
+        }
+        else
+        {
+            // 兄弟として挿入: そのノードと同じ深さで、展開中の子要素を含めた行全体の下端に線を引く。
+            var itemTopLeft = targetItem.TranslatePoint(new Point(0, 0), BookmarkTreeView) ?? default;
+            lineX = headerTopLeft.X;
+            lineY = itemTopLeft.Y + targetItem.Bounds.Height;
+        }
+
+        return new BookmarkDropPlan(targetNode, insertAsChild, lineX, lineY);
+    }
+
+    private void ShowBookmarkDropIndicator(double x, double y)
+    {
+        var width = Math.Max(0, BookmarkTreeView.Bounds.Width - x);
+
+        BookmarkDropIndicatorLine.StartPoint = new Point(x, y);
+        BookmarkDropIndicatorLine.EndPoint = new Point(x + width, y);
+        BookmarkDropIndicatorLine.IsVisible = true;
+
+        Canvas.SetLeft(BookmarkDropIndicatorDot, x - BookmarkDropIndicatorDot.Width / 2);
+        Canvas.SetTop(BookmarkDropIndicatorDot, y - BookmarkDropIndicatorDot.Height / 2);
+        BookmarkDropIndicatorDot.IsVisible = true;
+    }
+
+    private void RemoveBookmarkDropIndicator()
+    {
+        BookmarkDropIndicatorLine.IsVisible = false;
+        BookmarkDropIndicatorDot.IsVisible = false;
+    }
 
     /// <summary>
     /// ドラッグ中のカーソルがツリー表示範囲の上端/下端付近(AutoScrollEdgeMargin以内)にある間、
@@ -441,6 +525,7 @@ public partial class MainWindow : Window
 
     private void OnBookmarkTreeDrop(object? sender, DragEventArgs e)
     {
+        RemoveBookmarkDropIndicator();
         StopBookmarkAutoScroll();
 
         var dragged = e.DataTransfer.TryGetValue(BookmarkDragFormat);
@@ -449,15 +534,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        var targetItem = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true);
-        var targetNode = targetItem?.DataContext as BookmarkNodeViewModel;
-
-        if (targetNode is not null)
+        if (ResolveBookmarkDropPlan(e) is { } plan)
         {
-            ViewModel.BookmarkTree.Move(dragged, targetNode, targetNode.Children.Count);
+            if (plan.InsertAsChild)
+            {
+                // 行の上半分にドロップ: そのノードの子(先頭)としてぶら下げる。
+                ViewModel.BookmarkTree.Move(dragged, plan.TargetNode, 0);
+            }
+            else
+            {
+                // 行の下半分にドロップ: そのノードと並列(直後の兄弟)として挿入する。
+                var newParent = plan.TargetNode.Parent;
+                var siblings = newParent?.Children ?? ViewModel.BookmarkTree.RootNodes;
+                var newIndex = siblings.IndexOf(plan.TargetNode) + 1;
+                ViewModel.BookmarkTree.Move(dragged, newParent, newIndex);
+            }
         }
         else
         {
+            // 何もない場所へのドロップはルート末尾へ移動する。
             ViewModel.BookmarkTree.Move(dragged, null, ViewModel.BookmarkTree.RootNodes.Count);
         }
 
