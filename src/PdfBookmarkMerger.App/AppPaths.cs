@@ -1,22 +1,29 @@
 namespace PdfBookmarkMerger.App;
 
 /// <summary>
-/// 設定ファイル・ログの保存先。
-/// 設定ファイル(settings.json)は、レジストリを使わずアプリの実行ファイルと同じフォルダに保存する
-/// (zipを展開したフォルダや任意の場所にそのまま配置して使えるよう、ポータブルな構成にするため)。
-/// ログは、実行ファイルの配置場所が読み取り専用の可能性を考慮し、書き込みが保証される
-/// ユーザーごとのAppDataフォルダに保存する(Windows/macOS双方でGetFolderPath(ApplicationData)を
-/// 用いることで、WPF版・Avalonia版のどちらでも同じロジックで解決できるようにしている)。
+/// 設定ファイル・ログの保存先。レジストリは一切使わず、いずれもユーザーごとのAppDataフォルダ配下
+/// (%AppData%/PdfBookmarkMerger)にまとめて保存する。実行ファイルの配置場所が読み取り専用の
+/// 可能性を考慮し、書き込みが保証される場所に統一している。Windows/macOS双方で
+/// GetFolderPath(ApplicationData)を用いることで、WPF版・Avalonia版のどちらでも同じロジックで
+/// 解決できるようにしている。
 /// </summary>
 public static class AppPaths
 {
-    /// <summary>実行ファイル(exe)が配置されているフォルダ。設定ファイルの保存先。</summary>
-    public static string AppDirectory { get; } = AppContext.BaseDirectory;
+    /// <summary>
+    /// テストがこのフォルダを差し替えるための環境変数。設定ファイル・ログの保存先が実ユーザーの
+    /// AppDataフォルダに一本化されたため、これが無いと単体テストが実際の設定ファイルを上書き・削除
+    /// してしまう。通常の実行時はこの環境変数を設定しないため、既定のAppDataフォルダのまま動作する。
+    /// キャッシュせず参照のたびに評価することで、他のテストが先にAppPathsへアクセスしていても
+    /// (静的フィールドの初回評価タイミングに関わらず)テストごとに確実に差し替えられるようにしている。
+    /// </summary>
+    private const string OverrideEnvironmentVariable = "PDFBOOKMARKMERGER_APPDATA_DIR";
 
-    public static string UserSettingsFilePath => Path.Combine(AppDirectory, "settings.json");
+    public static string AppDataDirectory =>
+        Environment.GetEnvironmentVariable(OverrideEnvironmentVariable) is { Length: > 0 } overridden
+            ? overridden
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PdfBookmarkMerger");
 
-    public static string AppDataDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PdfBookmarkMerger");
+    public static string UserSettingsFilePath => Path.Combine(AppDataDirectory, "settings.json");
 
     public static string LogDirectory => Path.Combine(AppDataDirectory, "logs");
 }

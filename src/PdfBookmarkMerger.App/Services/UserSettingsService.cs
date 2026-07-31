@@ -15,7 +15,7 @@ public sealed class UserSettingsService(
 
     public async Task SaveAsync(PdfBookmarkMergerOptions options, CancellationToken ct = default)
     {
-        Directory.CreateDirectory(AppPaths.AppDirectory);
+        Directory.CreateDirectory(AppPaths.AppDataDirectory);
 
         var document = new Dictionary<string, PdfBookmarkMergerOptions>
         {

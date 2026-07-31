@@ -19,7 +19,14 @@ namespace PdfBookmarkMerger.App.Tests;
 /// </summary>
 public sealed class UserSettingsServiceTests : IDisposable
 {
-    private readonly string _settingsPath = AppPaths.UserSettingsFilePath;
+    // AppPaths.AppDataDirectoryは実ユーザーのAppDataフォルダを指すため、環境変数で一時フォルダに
+    // 差し替えてから使う。差し替えないと、このテストが実際のsettings.jsonを上書き・削除してしまう。
+    private readonly string _tempDirectory = Path.Combine(Path.GetTempPath(), "PdfBookmarkMergerTests_" + Guid.NewGuid());
+
+    public UserSettingsServiceTests()
+    {
+        Environment.SetEnvironmentVariable("PDFBOOKMARKMERGER_APPDATA_DIR", _tempDirectory);
+    }
 
     [Fact]
     public void SaveAsync_CalledSynchronouslyUnderABlockedUiLikeSynchronizationContext_DoesNotDeadlock()
@@ -49,15 +56,11 @@ public sealed class UserSettingsServiceTests : IDisposable
 
     public void Dispose()
     {
-        if (File.Exists(_settingsPath))
-        {
-            File.Delete(_settingsPath);
-        }
+        Environment.SetEnvironmentVariable("PDFBOOKMARKMERGER_APPDATA_DIR", null);
 
-        var tmpPath = _settingsPath + ".tmp";
-        if (File.Exists(tmpPath))
+        if (Directory.Exists(_tempDirectory))
         {
-            File.Delete(tmpPath);
+            Directory.Delete(_tempDirectory, recursive: true);
         }
     }
 

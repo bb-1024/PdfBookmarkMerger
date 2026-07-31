@@ -84,26 +84,36 @@ public sealed class AppLanguageBootstrapperTests : IDisposable
     [Fact]
     public void ApplyAsync_CalledSynchronouslyFromUiStartup_WithLanguageUnset_DoesNotDeadlock()
     {
-        var service = new UserSettingsService(new FakeOptionsMonitor(), NullLogger<UserSettingsService>.Instance);
-        var completed = false;
-
-        var thread = new Thread(() =>
+        // AppPaths.AppDataDirectoryは実ユーザーのAppDataフォルダを指すため、環境変数で一時フォルダに
+        // 差し替えてから使う。差し替えないと、このテストが実際のsettings.jsonを上書き・削除してしまう。
+        var tempDirectory = Path.Combine(Path.GetTempPath(), "PdfBookmarkMergerTests_" + Guid.NewGuid());
+        Environment.SetEnvironmentVariable("PDFBOOKMARKMERGER_APPDATA_DIR", tempDirectory);
+        try
         {
-            SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
-            AppLanguageBootstrapper.ApplyAsync(service).GetAwaiter().GetResult();
-            completed = true;
-        });
-        thread.Start();
+            var service = new UserSettingsService(new FakeOptionsMonitor(), NullLogger<UserSettingsService>.Instance);
+            var completed = false;
 
-        var joinedInTime = thread.Join(TimeSpan.FromSeconds(5));
+            var thread = new Thread(() =>
+            {
+                SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
+                AppLanguageBootstrapper.ApplyAsync(service).GetAwaiter().GetResult();
+                completed = true;
+            });
+            thread.Start();
 
-        joinedInTime.ShouldBeTrue(
-            "AppLanguageBootstrapper.ApplyAsyncが5秒以内に完了しませんでした(初回起動時のデッドロック再発の疑い)。");
-        completed.ShouldBeTrue();
+            var joinedInTime = thread.Join(TimeSpan.FromSeconds(5));
 
-        if (File.Exists(AppPaths.UserSettingsFilePath))
+            joinedInTime.ShouldBeTrue(
+                "AppLanguageBootstrapper.ApplyAsyncが5秒以内に完了しませんでした(初回起動時のデッドロック再発の疑い)。");
+            completed.ShouldBeTrue();
+        }
+        finally
         {
-            File.Delete(AppPaths.UserSettingsFilePath);
+            Environment.SetEnvironmentVariable("PDFBOOKMARKMERGER_APPDATA_DIR", null);
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
         }
     }
 
