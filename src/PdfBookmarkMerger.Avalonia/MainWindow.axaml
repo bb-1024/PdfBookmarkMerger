@@ -85,6 +85,7 @@
                           DragDrop.AllowDrop="True"
                           DragDrop.Drop="OnBookmarkTreeDrop"
                           DragDrop.DragOver="OnBookmarkTreeDragOver"
+                          DragDrop.DragLeave="OnBookmarkTreeDragLeave"
                           PointerPressed="OnBookmarkTreePointerPressed"
                           PointerMoved="OnBookmarkTreePointerMoved"
                           SelectionChanged="OnBookmarkTreeSelectionChanged">

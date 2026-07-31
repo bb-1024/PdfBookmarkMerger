@@ -29,6 +29,16 @@ public partial class MainWindow : Window
     /// <summary>IsBusyが5秒以上継続した場合にのみ、詳細進捗(BusyDetailText)を表示するためのタイマー。</summary>
     private readonly DispatcherTimer _busyDetailTimer = new() { Interval = TimeSpan.FromSeconds(5) };
 
+    /// <summary>D&D中、この余白(px)以内にカーソルが入るとツリーの自動スクロールを開始する。</summary>
+    private const double AutoScrollEdgeMargin = 32;
+
+    /// <summary>自動スクロールの1ティックあたりの移動量(px)。</summary>
+    private const double AutoScrollStep = 18;
+
+    private ScrollViewer? _bookmarkTreeScrollViewer;
+    private readonly DispatcherTimer _bookmarkAutoScrollTimer = new() { Interval = TimeSpan.FromMilliseconds(40) };
+    private double _bookmarkAutoScrollStep;
+
     public MainWindow(MainWindowViewModel viewModel)
     {
         InitializeComponent();
@@ -46,6 +56,19 @@ public partial class MainWindow : Window
 
         _busyDetailTimer.Tick += OnBusyDetailTimerTick;
         ViewModel.IsBusy.Subscribe(OnIsBusyChanged);
+
+        _bookmarkAutoScrollTimer.Tick += (_, _) =>
+        {
+            if (_bookmarkTreeScrollViewer is not { } scrollViewer)
+            {
+                return;
+            }
+
+            var offset = scrollViewer.Offset;
+            var maxY = Math.Max(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+            var newY = Math.Clamp(offset.Y + _bookmarkAutoScrollStep, 0, maxY);
+            scrollViewer.Offset = new Vector(offset.X, newY);
+        };
 
         ViewModel.FileList.Files.CollectionChanged += (_, _) => UpdateFileMoveButtonsEnabled();
         UpdateFileMoveButtonsEnabled();
@@ -288,10 +311,60 @@ public partial class MainWindow : Window
         {
             e.DragEffects = DragDropEffects.Move;
         }
+
+        UpdateBookmarkAutoScroll(e);
     }
+
+    private void OnBookmarkTreeDragLeave(object? sender, RoutedEventArgs e) => StopBookmarkAutoScroll();
+
+    /// <summary>
+    /// ドラッグ中のカーソルがツリー表示範囲の上端/下端付近(AutoScrollEdgeMargin以内)にある間、
+    /// タイマーで少しずつスクロールし続ける。ツリー描画範囲外へドラッグを続けられるようにするための対応。
+    /// </summary>
+    private void UpdateBookmarkAutoScroll(DragEventArgs e)
+    {
+        _bookmarkTreeScrollViewer ??= BookmarkTreeView.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (_bookmarkTreeScrollViewer is null)
+        {
+            return;
+        }
+
+        var position = e.GetPosition(BookmarkTreeView);
+        var height = BookmarkTreeView.Bounds.Height;
+
+        if (position.Y < 0 || position.Y > height)
+        {
+            StopBookmarkAutoScroll();
+        }
+        else if (position.Y < AutoScrollEdgeMargin)
+        {
+            StartBookmarkAutoScroll(-AutoScrollStep);
+        }
+        else if (position.Y > height - AutoScrollEdgeMargin)
+        {
+            StartBookmarkAutoScroll(AutoScrollStep);
+        }
+        else
+        {
+            StopBookmarkAutoScroll();
+        }
+    }
+
+    private void StartBookmarkAutoScroll(double step)
+    {
+        _bookmarkAutoScrollStep = step;
+        if (!_bookmarkAutoScrollTimer.IsEnabled)
+        {
+            _bookmarkAutoScrollTimer.Start();
+        }
+    }
+
+    private void StopBookmarkAutoScroll() => _bookmarkAutoScrollTimer.Stop();
 
     private void OnBookmarkTreeDrop(object? sender, DragEventArgs e)
     {
+        StopBookmarkAutoScroll();
+
         var dragged = e.DataTransfer.TryGetValue(BookmarkDragFormat);
         if (dragged is null)
         {

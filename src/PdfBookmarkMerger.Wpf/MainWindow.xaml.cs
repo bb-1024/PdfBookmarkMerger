@@ -20,9 +20,18 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private Point _fileDragStart;
     private Point _bookmarkDragStart;
 
+    /// <summary>D&D中、この余白(px)以内にカーソルが入るとツリーの自動スクロールを開始する。</summary>
+    private const double AutoScrollEdgeMargin = 32;
+
+    /// <summary>自動スクロールの1ティックあたりの移動量(px)。</summary>
+    private const double AutoScrollStep = 18;
+
     private AdornerLayer? _bookmarkAdornerLayer;
     private BookmarkInsertionAdorner? _bookmarkDropAdorner;
     private PlaceholderTextAdorner? _fileListPlaceholderAdorner;
+    private ScrollViewer? _bookmarkTreeScrollViewer;
+    private DispatcherTimer? _bookmarkAutoScrollTimer;
+    private double _bookmarkAutoScrollStep;
 
     /// <summary>IsBusyが5秒以上継続した場合にのみ、詳細進捗(BusyDetailText)を表示するためのタイマー。</summary>
     private readonly DispatcherTimer _busyDetailTimer = new() { Interval = TimeSpan.FromSeconds(5) };
@@ -317,13 +326,72 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             RemoveBookmarkDropIndicator();
         }
+
+        UpdateBookmarkAutoScroll(e);
     }
 
-    private void OnBookmarkTreeDragLeave(object sender, DragEventArgs e) => RemoveBookmarkDropIndicator();
+    private void OnBookmarkTreeDragLeave(object sender, DragEventArgs e)
+    {
+        RemoveBookmarkDropIndicator();
+        StopBookmarkAutoScroll();
+    }
+
+    /// <summary>
+    /// ドラッグ中のカーソルがツリー表示範囲の上端/下端付近(AutoScrollEdgeMargin以内)にある間、
+    /// タイマーで少しずつスクロールし続ける。カーソルがドロップ先の行を外れても、
+    /// ツリー描画範囲外(スクロール可能な余地がある方向)へドラッグを続けられるようにするための対応。
+    /// </summary>
+    private void UpdateBookmarkAutoScroll(DragEventArgs e)
+    {
+        _bookmarkTreeScrollViewer ??= FindDescendant<ScrollViewer>(BookmarkTreeView);
+        if (_bookmarkTreeScrollViewer is null)
+        {
+            return;
+        }
+
+        var position = e.GetPosition(BookmarkTreeView);
+        var height = BookmarkTreeView.ActualHeight;
+
+        if (position.Y < 0 || position.Y > height)
+        {
+            StopBookmarkAutoScroll();
+        }
+        else if (position.Y < AutoScrollEdgeMargin)
+        {
+            StartBookmarkAutoScroll(-AutoScrollStep);
+        }
+        else if (position.Y > height - AutoScrollEdgeMargin)
+        {
+            StartBookmarkAutoScroll(AutoScrollStep);
+        }
+        else
+        {
+            StopBookmarkAutoScroll();
+        }
+    }
+
+    private void StartBookmarkAutoScroll(double step)
+    {
+        _bookmarkAutoScrollStep = step;
+        if (_bookmarkAutoScrollTimer is null)
+        {
+            _bookmarkAutoScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+            _bookmarkAutoScrollTimer.Tick += (_, _) =>
+                _bookmarkTreeScrollViewer?.ScrollToVerticalOffset(_bookmarkTreeScrollViewer.VerticalOffset + _bookmarkAutoScrollStep);
+        }
+
+        if (!_bookmarkAutoScrollTimer.IsEnabled)
+        {
+            _bookmarkAutoScrollTimer.Start();
+        }
+    }
+
+    private void StopBookmarkAutoScroll() => _bookmarkAutoScrollTimer?.Stop();
 
     private void OnBookmarkTreeDrop(object sender, DragEventArgs e)
     {
         RemoveBookmarkDropIndicator();
+        StopBookmarkAutoScroll();
 
         if (e.Data.GetData(BookmarkDragFormat) is not BookmarkNodeViewModel dragged)
         {
@@ -512,6 +580,26 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
 
             current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            var found = FindDescendant<T>(child);
+            if (found is not null)
+            {
+                return found;
+            }
         }
 
         return null;
