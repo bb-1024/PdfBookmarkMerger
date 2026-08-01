@@ -18,30 +18,34 @@ public sealed class PdfMergeService(ILogger<PdfMergeService> logger) : IPdfMerge
         {
             var totalFileCount = request.Files.Count;
 
-            // フェーズ1: 各入力PDFを開く(ディスクI/O・構造解析、ファイルごとに独立)処理を並列化する。
-            // 出力側(PdfDocument output)への書き込みはスレッドセーフではないため、ここでは行わない。
+            // フェーズ1で一部のファイルだけ開けた状態(パスワード保護・破損・他プロセスによるロック等で
+            // 途中のファイルがPdfReader.Openに失敗、またはキャンセルされた)でも、既に開けた分は
+            // 必ずDisposeする(ファイルハンドルがプロセス終了までロックされたままになるのを防ぐ)ため、
+            // フェーズ1・フェーズ2の両方を同じtry/finallyで囲む。
             var opened = new PdfDocument?[totalFileCount];
-            using (var semaphore = new SemaphoreSlim(MaxParallelOpen))
-            {
-                var openTasks = request.Files.Select(async (file, index) =>
-                {
-                    await semaphore.WaitAsync(ct).ConfigureAwait(false);
-                    try
-                    {
-                        ct.ThrowIfCancellationRequested();
-                        opened[index] = PdfReader.Open(file.FilePath, PdfDocumentOpenMode.Import);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                });
-
-                await Task.WhenAll(openTasks).ConfigureAwait(false);
-            }
-
             try
             {
+                // フェーズ1: 各入力PDFを開く(ディスクI/O・構造解析、ファイルごとに独立)処理を並列化する。
+                // 出力側(PdfDocument output)への書き込みはスレッドセーフではないため、ここでは行わない。
+                using (var semaphore = new SemaphoreSlim(MaxParallelOpen))
+                {
+                    var openTasks = request.Files.Select(async (file, index) =>
+                    {
+                        await semaphore.WaitAsync(ct).ConfigureAwait(false);
+                        try
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            opened[index] = PdfReader.Open(file.FilePath, PdfDocumentOpenMode.Import);
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    });
+
+                    await Task.WhenAll(openTasks).ConfigureAwait(false);
+                }
+
                 using var output = new PdfDocument();
                 var pageMap = new Dictionary<(Guid FileId, int OriginalPageIndex), PdfPage>();
 
