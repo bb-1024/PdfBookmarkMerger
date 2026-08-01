@@ -48,10 +48,10 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
         Top.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Top)); model.Top = v; }).AddTo(Disposables);
 
         Right = new ReactivePropertySlim<double?>(model.Right).AddTo(Disposables);
-        Right.Subscribe(v => model.Right = v).AddTo(Disposables);
+        Right.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Right)); model.Right = v; }).AddTo(Disposables);
 
         Bottom = new ReactivePropertySlim<double?>(model.Bottom).AddTo(Disposables);
-        Bottom.Subscribe(v => model.Bottom = v).AddTo(Disposables);
+        Bottom.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Bottom)); model.Bottom = v; }).AddTo(Disposables);
 
         Zoom = new ReactivePropertySlim<double?>(model.Zoom).AddTo(Disposables);
         Zoom.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Zoom)); model.Zoom = v; }).AddTo(Disposables);
