@@ -82,6 +82,14 @@ public partial class MainWindow : Window
 
         ViewModel.FileList.Files.CollectionChanged += (_, _) => UpdateFileMoveButtonsEnabled();
         UpdateFileMoveButtonsEnabled();
+
+        // ListBox/TreeView自身の選択処理(SelectingItemsControlの既定の内部処理)がPointerPressedを
+        // Bubbleフェーズで先取りしてHandled=trueにするため、通常のXAMLイベント購読(Bubble)では
+        // D&D開始検知用のハンドラに一切イベントが届かない。WPF版がPreviewMouseLeftButtonDown
+        // (Tunnelフェーズ)を使っているのと同様、Tunnelフェーズで明示的に購読することで、
+        // 既定の選択処理より先に(確実に)イベントを受け取れるようにする。
+        FileListBox.AddHandler(PointerPressedEvent, OnFileListPointerPressed, RoutingStrategies.Tunnel);
+        BookmarkTreeView.AddHandler(PointerPressedEvent, OnBookmarkTreePointerPressed, RoutingStrategies.Tunnel);
     }
 
     private void OnFileListSelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();

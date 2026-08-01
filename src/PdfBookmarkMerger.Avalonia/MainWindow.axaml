@@ -38,7 +38,6 @@
                          DragDrop.AllowDrop="True"
                          DragDrop.Drop="OnFileListDrop"
                          DragDrop.DragOver="OnFileListDragOver"
-                         PointerPressed="OnFileListPointerPressed"
                          PointerMoved="OnFileListPointerMoved"
                          SelectionChanged="OnFileListSelectionChanged">
                     <ListBox.ItemTemplate>
@@ -90,7 +89,6 @@
                           DragDrop.Drop="OnBookmarkTreeDrop"
                           DragDrop.DragOver="OnBookmarkTreeDragOver"
                           DragDrop.DragLeave="OnBookmarkTreeDragLeave"
-                          PointerPressed="OnBookmarkTreePointerPressed"
                           PointerMoved="OnBookmarkTreePointerMoved"
                           SelectionChanged="OnBookmarkTreeSelectionChanged">
                     <TreeView.Styles>
