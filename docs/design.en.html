@@ -643,6 +643,9 @@
           The <code class="inline">flush</code> argument lets the caller explicitly indicate "whether the process
           is about to terminate on this path"; note that setting it to true by mistake for a handler that keeps
           running afterward (unobserved task exceptions) causes all subsequent log entries to be silently dropped.
+          To make up for the missing UI-thread-specific hook, v1.1.0 additionally wraps the entire
+          <code class="inline">StartWithClassicDesktopLifetime</code> call in <code class="inline">Program.Main</code>
+          for the Avalonia build in a try/catch (<a href="#settings-logging">details</a>).
         </p>
       </div>
     </section>
@@ -687,7 +690,7 @@ src/
     Undo/                   <span class="c"># UndoHistory&lt;T&gt; (snapshot history with a RAM cap)</span>
     ViewModels/             <span class="c"># MainWindowViewModel, FileListViewModel, BookmarkTreeViewModel, BookmarkNodeViewModel, ...</span>
     AppLanguageBootstrapper.cs <span class="c"># Resolves the display language at startup (uses the configured value if set, otherwise auto-detects and saves it)</span>
-    AppPaths.cs             <span class="c"># Resolves where the settings file (same folder as the executable) and logs (AppData) are stored</span>
+    AppPaths.cs             <span class="c"># Resolves where the settings file and logs are stored (both under %AppData%/PdfBookmarkMerger/)</span>
     PdfBookmarkMergerHostFactory.cs <span class="c"># Shared Generic Host bootstrap + shared unhandled-exception logging</span>
   PdfBookmarkMerger.Wpf/           <span class="c"># Windows build — RootNamespace: PdfBookmarkMerger.WpfApp</span>
   PdfBookmarkMerger.Avalonia/      <span class="c"># macOS build — RootNamespace: PdfBookmarkMerger.AvaloniaApp</span>
@@ -897,13 +900,15 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         <code class="inline">PdfBookmarkMergerOptions</code> (<code class="inline">LastOutputDirectory</code> /
         window size / <code class="inline">Language</code>, etc.) is loaded into Configuration at startup in two
         layers — <code class="inline">appsettings.json</code> (defaults) and <code class="inline">settings.json</code>
-        (user settings, in the same folder as the executable, with <code class="inline">reloadOnChange: true</code>)
+        (user settings, under <code class="inline">%AppData%/PdfBookmarkMerger/</code>, with
+        <code class="inline">reloadOnChange: true</code>)
         — and supplied to the ViewModels via <code class="inline">IOptionsMonitor&lt;PdfBookmarkMergerOptions&gt;</code>.
         Setting changes (such as remembering the output folder used on a merge/save) are written back to the JSON
         file by <code class="inline">IUserSettingsService.SaveAsync</code>, and file-watching automatically
-        triggers Configuration and Options to reload. The location where the settings file is saved was changed in
-        v1.1.0 from <code class="inline">%AppData%/PdfBookmarkMerger/</code> to the same folder as the executable
-        (<a href="#settings-logging">details</a>).
+        triggers Configuration and Options to reload. Partway through v1.1.0 development the settings file was
+        briefly moved to the same folder as the executable (to make the app portable), but since the executable's
+        location may be read-only, it was ultimately unified with the log folder under
+        <code class="inline">%AppData%/PdfBookmarkMerger/</code> (<a href="#settings-logging">details</a>).
       </p>
     </section>
 
@@ -933,7 +938,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
 
       <h3>Feature Additions in v1.1.0</h3>
       <p>
-        As refinements since the initial release (v1.0.0), the following 12 items were implemented. Each was
+        As refinements since the initial release (v1.0.0), the following 15 items were implemented. Each was
         applied equally to both the WPF-UI and Avalonia front ends.
       </p>
       <div class="table-wrap">
@@ -943,21 +948,28 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
             <tr><td class="mono">1</td><td>Parallelized loading/merging of files with large numbers of bookmarks, showing progress (completed/total, name of file being processed) for operations taking over 5 seconds</td><td class="mono">MainWindowViewModel.ConfirmFilesAsync (Task.WhenEach+SemaphoreSlim), PdfMergeService (parallel open → sequential merge), BusyProgressInfo/MergeProgress</td></tr>
             <tr><td class="mono">2・3</td><td>Disable the Move Up/Down buttons on the file selection screen at the boundaries, and move the entire selected block together on a multi-selection</td><td class="mono">FileListViewModel.MoveSelectionUp/Down/GetMoveAvailability</td></tr>
             <tr><td class="mono">4</td><td>Auto-scroll near the top/bottom edges while dragging within the bookmark tree</td><td class="mono">UpdateBookmarkAutoScroll in MainWindow(.xaml/.axaml).cs + DispatcherTimer</td></tr>
-            <tr><td class="mono">5</td><td>Make clicking a row's margin area (left of the indent, right of the columns) select the row too (the highlighted range itself is unchanged)</td><td class="mono">TreeView Background="Transparent" + Y-coordinate-based fallback selection (FindTreeViewItemAtY)</td></tr>
+            <tr><td class="mono">5</td><td>Make clicking a row's margin area (left of the indent, right of the columns) select the row too, and accept D&amp;D drops over the same margin area (the highlighted range itself is unchanged)</td><td class="mono">TreeView Background="Transparent" + Y-coordinate-based fallback selection/drop resolution (FindTreeViewItemAtY, ResolveBookmarkDropPlan)</td></tr>
             <tr><td class="mono">6</td><td>Buttons to promote/demote the selected element by one level</td><td class="mono">BookmarkTreeViewModel.PromoteLevel/DemoteLevel/CanPromoteLevel/CanDemoteLevel (internally delegates to Move)</td></tr>
             <tr><td class="mono">7</td><td>Include the node's own level among the options in the level-cap dialog (selecting it deletes all of its children)</td><td class="mono">BookmarkTreeViewModel.SetChildLevelCapAsync (minAbsoluteLevel = node.LevelNumber)</td></tr>
             <tr><td class="mono">8</td><td>Undo. Automatically discards the oldest history entries based on RAM usage</td><td class="mono">UndoHistory&lt;T&gt; (JSON snapshots, default 100MB cap), BookmarkTreeViewModel.PushUndoSnapshot (consecutive changes to the same property coalesced within 800ms)</td></tr>
             <tr><td class="mono">9</td><td>Rearranged the button order on the bookmark editing screen; enlarged the initial window size</td><td class="mono">MainWindow(.xaml/.axaml): row 1 = level operations/add/delete/level cap, row 2 = settings/back/undo/uniform settings/save. Width/Height: 1100×720 → 1300×760</td></tr>
             <tr><td class="mono">10</td><td>Made all 3 dialogs (level cap, properties, settings) cancelable with the Esc key</td><td class="mono">WPF: Window.PreviewKeyDown, Avalonia: Window.KeyDown (both run the Cancel-equivalent action on Escape)</td></tr>
-            <tr><td class="mono">11</td><td>Japanese/English UI language switching. Auto-detected from the system language on first launch (anything other than Japanese falls back to English; Japanese if detection fails), changeable afterward via the settings dialog</td><td class="mono">Resources/Strings.resx (Japanese, default) / Strings.en.resx (English satellite), AppLanguageBootstrapper, Options.Language</td></tr>
-            <tr><td class="mono">12</td><td>Changed the settings-file save location from the registry to the same folder as the executable (making it portable)</td><td class="mono">AppPaths.AppDirectory (= AppContext.BaseDirectory), AppPaths.UserSettingsFilePath</td></tr>
+            <tr><td class="mono">11</td><td>Japanese/English UI language switching. Auto-detected from the system language on first launch (anything other than Japanese falls back to English; Japanese if detection fails), changeable afterward via the settings dialog. Like theme mode, takes effect immediately on OK</td><td class="mono">Resources/Strings.resx (Japanese, default) / Strings.en.resx (English satellite), AppLanguageBootstrapper, Options.Language</td></tr>
+            <tr><td class="mono">12</td><td>Changed the settings-file save location from the registry to <code class="inline">%AppData%/PdfBookmarkMerger/</code> (same folder as the logs)</td><td class="mono">AppPaths.AppDataDirectory, AppPaths.UserSettingsFilePath</td></tr>
+            <tr><td class="mono">13</td><td>Show and accept the bookmark-tree D&amp;D drop indicator even when the cursor is over a row's empty margin (left of the level indicator, right of the columns). The Avalonia build had a bug where dragging never started at all, because TreeView/ListBox's built-in click-to-select handling consumed PointerPressed first; fixed by subscribing on the Tunnel routing phase instead</td><td class="mono">ResolveBookmarkDropPlan in MainWindow(.xaml/.axaml).cs, FileListBox/BookmarkTreeView.AddHandler(..., RoutingStrategies.Tunnel) (Avalonia only)</td></tr>
+            <tr><td class="mono">14</td><td>Fixed a deadlock that could occur right after first launch, and a freeze while editing bookmarks (when switching the display method to a Fit variant left a coordinate as NaN)</td><td class="mono">Startup sequencing around PdfBookmarkMergerHostFactory, BookmarkNodeViewModel's coordinate update logic</td></tr>
+            <tr><td class="mono">15</td><td>Reliability fixes found during a pre-release review: the old MainWindow's ViewModel subscriptions weren't disposed when the window was rebuilt for a language change; a partially-failed parallel PDF open left the other, already-opened input files' handles undisposed; and WPF's SystemThemeWatcher was re-registered every time the settings dialog was confirmed</td><td class="mono">CompositeDisposable in MainWindow(.xaml/.axaml).cs, PdfMergeService, ThemeApplier/WpfDialogService</td></tr>
           </tbody>
         </table>
       </div>
       <p style="font-size:13px;color:var(--ink-soft);">
-        A language-setting change takes effect starting from the next launch (since XAML's
-        <code class="inline">x:Static</code> references are fixed to their value at window construction/XAML
-        load time, there is no mechanism to dynamically redraw a screen that is already running).
+        A language-setting change now takes effect the moment OK is pressed in the settings dialog. Since XAML's
+        <code class="inline">x:Static</code> references are fixed to their value at window construction/XAML load
+        time, there is still no mechanism to dynamically redraw a screen that is already running — instead, a new
+        window is constructed carrying over the same <code class="inline">MainWindowViewModel</code> (loaded files,
+        the bookmark tree being edited, etc.) and swapped in
+        (<code class="inline">WpfDialogService</code>/<code class="inline">AvaloniaDialogService</code>'s
+        <code class="inline">ReplaceMainWindowForLanguageChange</code>).
       </p>
     </section>
 
@@ -965,23 +977,26 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
       <h2><span class="num">08</span>Configuration, Logging, and Exception Handling</h2>
       <div class="grid-2">
         <div class="card">
-          <h4>Configuration Files <span class="badge ok">Path changed in v1.1.0</span></h4>
-          <p class="mono" style="font-size:12.5px;">appsettings.json (bundled defaults, same folder as the executable)<br />settings.json (user settings, same folder as the executable)</p>
+          <h4>Configuration Files <span class="badge ok">Unified with the log location in v1.1.0</span></h4>
+          <p class="mono" style="font-size:12.5px;">appsettings.json (bundled defaults, same folder as the executable)<br />settings.json (user settings, %AppData%/PdfBookmarkMerger/)</p>
           <p>
-            Resolved via <code class="inline">AppPaths.AppDirectory</code> (=
-            <code class="inline">AppContext.BaseDirectory</code>). The registry is not used. This is intended to
-            support a portable setup that works straight out of an extracted zip folder or from any arbitrary
-            location — the settings file travels along with the executable when it is moved or copied.
+            Resolved via <code class="inline">AppPaths.AppDataDirectory</code> (under
+            <code class="inline">Environment.GetFolderPath(SpecialFolder.ApplicationData)</code>). The registry is
+            not used. Partway through v1.1.0 development, a portable setup was tried where the settings file lived
+            next to the executable so it would travel with it when moved or copied. Since the executable's location
+            (e.g. under <code class="inline">Program Files</code>) may be read-only, it was ultimately unified with
+            the log folder under the per-user AppData folder instead, where writes are guaranteed to succeed.
           </p>
         </div>
         <div class="card">
           <h4>Log Output</h4>
-          <p class="mono" style="font-size:12.5px;">%AppData%/PdfBookmarkMerger/logs/pdfbookmarkmerger-.log (daily rolling, 14 generations retained) + console</p>
+          <p class="mono" style="font-size:12.5px;">%AppData%/PdfBookmarkMerger/logs/pdfbookmarkmerger-.log (daily rolling, 14 generations retained) + console (Debug builds only)</p>
           <p>
-            Since the executable's location may be read-only, logs are stored in the per-user AppData folder,
-            where writes are guaranteed to succeed (<code class="inline">AppPaths.AppDataDirectory</code>, which
-            is unchanged in v1.1.0). Serilog's <code class="inline">MinimumLevel</code> can be overridden from the
-            <code class="inline">Serilog</code> section of appsettings.json (Serilog.Settings.Configuration).
+            Stored under the same <code class="inline">AppPaths.AppDataDirectory</code> as the settings file
+            (unchanged location since v1.0.0). Serilog's <code class="inline">MinimumLevel</code> can be overridden
+            from the <code class="inline">Serilog</code> section of appsettings.json
+            (Serilog.Settings.Configuration). Console output is a development-time convenience and is excluded
+            from Release builds.
           </p>
         </div>
       </div>
@@ -1001,7 +1016,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
   }
 }</pre>
       <p>
-        <code class="inline">settings.json</code> (user settings, same folder as the executable) has the same
+        <code class="inline">settings.json</code> (user settings, under <code class="inline">%AppData%/PdfBookmarkMerger/</code>) has the same
         <code class="inline">"PdfBookmarkMerger"</code> section structure and is merged in as the second,
         overriding layer of <code class="inline">Configuration</code> (it does not exist on first launch; it is
         created by <code class="inline">UserSettingsService.SaveAsync</code> on the first successful merge or the
@@ -1166,7 +1181,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
             <tr><td class="mono">FileListViewModelTests</td><td>Batch move up/down of a multi-selection block, and button-enabled state at the boundaries and for a non-contiguous selection (<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO-order retrieval, discarding the oldest entries once the total size cap is exceeded, and always keeping the most recent entry even when the cap is exceeded</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Resolving Japanese/English resources by switching Strings.Culture, auto-detection and one-time persistence when unset, and preserving an existing configured value</td></tr>
-            <tr><td class="mono">AppPathsTests</td><td>That the settings-file path points to the same folder as the executable (not under AppData), while the log path remains under AppData</td></tr>
+            <tr><td class="mono">AppPathsTests</td><td>That both the settings-file path and the log path resolve under the per-user AppData folder (not the executable's location)</td></tr>
             <tr><td class="mono">ConverterParityTests</td><td>That the Zoom% conversion, coordinate string conversion, and theme labels produce matching results between WPF and Avalonia. That <code class="inline">DepthToTitleWidthConverter</code> computes correctly for each implementation according to <em>its own</em> indent constant (19px/16px) (<a href="#platform-notes">details</a>)</td></tr>
           </tbody>
         </table>

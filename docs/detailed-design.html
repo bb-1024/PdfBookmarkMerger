@@ -1104,13 +1104,23 @@
               <td class="wrap-mono">MergeAsync(PdfMergeRequest request, CancellationToken ct)</td>
               <td class="mono">Task</td>
               <td>
-                <code class="inline">Task.Run</code>内で: ①出力用の空<code class="inline">PdfDocument</code>を作成。
-                ②<code class="inline">request.Files</code>を順に開き、<code class="inline">output.AddPage(page)</code>で1ページずつ取り込みながら
-                <code class="inline">(FileEntry.Id, 元ページ番号) → 出力先PdfPage</code>の対応表(<code class="inline">pageMap</code>)を構築。
-                ③<code class="inline">ApplyBookmarks</code>で<code class="inline">request.Bookmarks</code>を再帰的に辿り、<code class="inline">pageMap</code>で
-                ジャンプ先ページを解決して出力ドキュメントの<code class="inline">Outlines</code>を再構築。
-                ④プロパティを設定し保存。ファイルパスではなく<code class="inline">Guid</code>のファイルIDをキーにするため、
+                <code class="inline">Task.Run</code>内で2フェーズに分けて実行する(v1.1.0で並列化・#1対応)。
+                <strong>フェーズ1(並列)</strong>: <code class="inline">SemaphoreSlim(MaxParallelOpen)</code>で同時実行数を
+                CPUコア数に応じて1〜8に制限しつつ、<code class="inline">request.Files</code>を<code class="inline">PdfReader.Open</code>で
+                並列に開き<code class="inline">opened[]</code>配列へ格納する(出力側<code class="inline">PdfDocument</code>への
+                書き込みはスレッドセーフでないため、ここでは行わない)。
+                <strong>フェーズ2(単一スレッド)</strong>: <code class="inline">opened[]</code>を順に
+                <code class="inline">output.AddPage(page)</code>で1ページずつ取り込みながら
+                <code class="inline">(FileEntry.Id, 元ページ番号) → 出力先PdfPage</code>の対応表(<code class="inline">pageMap</code>)を構築し、
+                <code class="inline">ApplyBookmarks</code>で<code class="inline">request.Bookmarks</code>を再帰的に辿って
+                <code class="inline">pageMap</code>でジャンプ先ページを解決、出力ドキュメントの<code class="inline">Outlines</code>を再構築。
+                最後にプロパティを設定し保存。ファイルパスではなく<code class="inline">Guid</code>のファイルIDをキーにするため、
                 同一PDFファイルを複数回結合対象に追加しても正しく動作する。
+                <code class="inline">opened[]</code>の各<code class="inline">PdfDocument</code>は、フェーズ1・フェーズ2の両方を
+                囲む単一の<code class="inline">try/finally</code>でDisposeする(リリース前レビューで修正: 以前はフェーズ2の
+                <code class="inline">try/finally</code>にしか入っておらず、フェーズ1で1件でも
+                <code class="inline">PdfReader.Open</code>が失敗すると、既に開けた他の正常なファイルがDisposeされず
+                ファイルハンドルがプロセス終了までロックされたままになっていた)。
               </td>
             </tr>
             <tr>
@@ -1372,10 +1382,17 @@
             <tr>
               <td class="mono">ThemeApplier (Wpf)<br /><span class="mono" style="font-size:11px;color:var(--ink-faint);">Apply(Window, ThemeMode)</span></td>
               <td>
-                <code class="inline">System</code>指定時は<code class="inline">SystemThemeWatcher.Watch</code>でOSのテーマ変更に自動追従させる。
-                <code class="inline">Light</code>/<code class="inline">Dark</code>明示時は、まず(<code class="inline">window.IsLoaded</code>の場合のみ)
-                <code class="inline">SystemThemeWatcher.UnWatch</code>で自動追従を止め、<code class="inline">ApplicationThemeManager.Apply</code>で固定適用する
+                呼び出しのたびに、まず(<code class="inline">window.IsLoaded</code>の場合のみ)
+                <code class="inline">SystemThemeWatcher.UnWatch</code>で既存の監視登録を解除してから、
+                <code class="inline">System</code>指定時は<code class="inline">SystemThemeWatcher.Watch</code>でOSのテーマ変更に
+                自動追従させ、<code class="inline">Light</code>/<code class="inline">Dark</code>明示時は
+                <code class="inline">ApplicationThemeManager.Apply</code>で固定適用する
                 (未Loadedのウィンドウに対する<code class="inline">UnWatch</code>は例外になるためガードしている)。
+                先にUnWatchするのはリリース前レビューで発見した不具合の修正: <code class="inline">Watch</code>は重複登録防止を
+                行わないため、既定の<code class="inline">System</code>モードのまま設定ダイアログでOKを押すたびに同一ウィンドウが
+                監視リストへ際限なく積み重なっていた。<code class="inline">WpfDialogService.ReplaceMainWindowForLanguageChange</code>
+                も、言語切替で旧ウィンドウを<code class="inline">Close()</code>する前に明示的に<code class="inline">UnWatch</code>する
+                (呼ばないと閉じたはずのウィンドウが静的な監視リストに参照され続け、プロセス終了までGCされない)。
               </td>
             </tr>
             <tr>
@@ -1435,12 +1452,23 @@
           <thead><tr><th>責務</th><th>主なメソッド</th></tr></thead>
           <tbody>
             <tr><td>D&amp;D中の自動スクロール(#4)</td><td class="mono">UpdateBookmarkAutoScroll / StartBookmarkAutoScroll / StopBookmarkAutoScroll(DispatcherTimerで一定間隔ごとにスクロール)</td></tr>
-            <tr><td>行の余白部分クリックでの選択(#5)</td><td class="mono">SelectBookmarkRowAtY / FindTreeViewItemAtY(Y座標から該当行のTreeViewItemを幾何的に特定して選択)</td></tr>
+            <tr><td>行の余白部分クリックでの選択・D&amp;Dドロップの受付(#5)</td><td class="mono">SelectBookmarkRowAtY / FindTreeViewItemAtY(Y座標から該当行のTreeViewItemを幾何的に特定)、ResolveBookmarkDropPlan(同じくY座標ベースでドロップ対象行・子/兄弟いずれとして挿入するかを判定)</td></tr>
             <tr><td>レベル上下ボタンの中継・活性状態更新</td><td class="mono">OnPromoteLevelClick / OnDemoteLevelClick / UpdateLevelButtonsEnabled</td></tr>
             <tr><td>ファイル一覧の上下ボタン活性状態更新(#2・#3)</td><td class="mono">UpdateFileMoveButtonsEnabled(<code class="inline">FileListViewModel.GetMoveAvailability</code>をそのまま反映)</td></tr>
           </tbody>
         </table>
       </div>
+      <p style="font-size: 13.5px; color: var(--ink-soft);">
+        Avalonia版特有の不具合(#13): <code class="inline">TreeView</code>/<code class="inline">ListBox</code>は
+        <code class="inline">SelectingItemsControl</code>の既定のクリック選択処理が<code class="inline">PointerPressed</code>を
+        Bubbleフェーズで先取りして<code class="inline">Handled=true</code>にするため、通常のXAMLイベント購読
+        (<code class="inline">PointerPressed="..."</code>属性、既定でBubble)では自作のD&amp;D開始検知ハンドラに
+        一切イベントが届かず、しおりのドラッグ自体が全く始まらなかった。WPF版は元々
+        <code class="inline">PreviewMouseLeftButtonDown</code>(Tunnelフェーズ)を使っていたためこの問題が無く、
+        Avalonia版でも<code class="inline">FileListBox</code>/<code class="inline">BookmarkTreeView</code>に対して
+        <code class="inline">AddHandler(PointerPressedEvent, handler, RoutingStrategies.Tunnel)</code>で明示的に
+        Tunnelフェーズ購読するようコンストラクタで登録し直すことで解決した(実機での再現・修正確認済み)。
+      </p>
 
       <h3>i18n: Strings / AppLanguageBootstrapper <span class="badge info">v1.1.0</span></h3>
       <div class="table-wrap">
@@ -1450,17 +1478,33 @@
             <tr><td class="wrap-mono">Strings <span class="tag">App/Resources/Strings.cs</span></td><td>Resources/Strings.resx(日本語・中立)/Strings.en.resx(英語サテライト)への型安全アクセサ。各キーにつき<code class="inline">public static string Xxx =&gt; Get(nameof(Xxx))</code>形式のプロパティを持つ。<code class="inline">dotnet build</code>単体ではVisual Studioのコード自動生成(ResXFileCodeGenerator)が動作しないため手書き</td></tr>
             <tr><td class="wrap-mono">Strings.Culture <span class="mono">static CultureInfo?</span></td><td>非nullの間、<code class="inline">ResourceManager.GetString(name, Culture)</code>がこのカルチャを強制使用する(<code class="inline">CurrentUICulture</code>は書き換えない。数値・日付書式等、他のロケール依存処理に影響を与えないため)</td></tr>
             <tr><td class="wrap-mono">AppLanguageBootstrapper.ApplyAsync(userSettings, ct)</td><td>設定済みの<code class="inline">Options.Language</code>があればそれを使う。未設定なら<code class="inline">CultureInfo.InstalledUICulture</code>の下2文字が"ja"かどうかで判定(例外時は日本語)し、結果を<code class="inline">SaveAsync</code>で永続化してから<code class="inline">Strings.Culture</code>に反映する。WPF/Avalonia双方の<code class="inline">App</code>で、<code class="inline">MainWindow</code>をDI解決する<strong>前</strong>に呼ぶ必要がある(x:Static参照はXAML読み込み時点で値が固定されるため)</td></tr>
+            <tr><td class="wrap-mono">AppLanguageBootstrapper.ApplyImmediate(language)</td><td>設定ダイアログでの言語変更を、その場で<code class="inline">Strings.Culture</code>へ反映するための版。既に構築済みのウィンドウのXAML(<code class="inline">x:Static</code>参照)を動的に再描画する手段は無いため、呼び出し側(<code class="inline">*DialogService.ShowSettingsDialogAsync</code>)はこの直後に<code class="inline">ReplaceMainWindowForLanguageChange</code>で、同じ<code class="inline">MainWindowViewModel</code>(読込済みファイル・編集中のしおりツリー等の状態)を引き継いだ新しい<code class="inline">MainWindow</code>を構築・表示してから旧ウィンドウを<code class="inline">Close()</code>する(v1.1.0でテーマモードと同様、次回起動を待たず即時反映するように変更)</td></tr>
           </tbody>
         </table>
       </div>
-
-      <h3>AppPaths <span class="tag">App/AppPaths.cs</span> <span class="badge info">v1.1.0でパス変更</span></h3>
       <p>
-        <code class="inline">UserSettingsFilePath</code>は<code class="inline">AppDirectory</code>
-        (= <code class="inline">AppContext.BaseDirectory</code>、実行ファイルと同じフォルダ)を基準にする
-        (旧実装は<code class="inline">%AppData%/PdfBookmarkMerger/</code>だった)。<code class="inline">LogDirectory</code>は
-        従来通り<code class="inline">AppDataDirectory</code>(<code class="inline">Environment.SpecialFolder.ApplicationData</code>)を
-        基準にする(実行ファイルの配置場所が読み取り専用の可能性を考慮し、ログは書き込み保証のある場所に残す)。
+        <code class="inline">ReplaceMainWindowForLanguageChange</code>は旧ウィンドウを<code class="inline">Close()</code>する前に、
+        <code class="inline">SystemThemeWatcher.UnWatch</code>(WPF版、上記ThemeApplier参照)に加え、新旧どちらの
+        <code class="inline">MainWindow</code>もコンストラクタで<code class="inline">ViewModel.Step</code>/
+        <code class="inline">IsBusy</code>/<code class="inline">BookmarkTree.UndoCommand</code>を購読し
+        <code class="inline">FileList.Files.CollectionChanged</code>にハンドラを登録するため、旧ウィンドウの
+        <code class="inline">Closed</code>で<code class="inline">CompositeDisposable</code>を<code class="inline">Dispose</code>し
+        イベントハンドラも解除する(リリース前レビューで修正: 同じ<code class="inline">MainWindowViewModel</code>を
+        引き継ぐ都合上、これらを解除しないと旧ウィンドウの購読が残り続け、以後<code class="inline">ViewModel</code>が
+        変化するたびに閉じたはずの旧ウィンドウのUI更新処理まで無駄に走り続けていた)。
+      </p>
+
+      <h3>AppPaths <span class="tag">App/AppPaths.cs</span> <span class="badge info">v1.1.0でログと同じ場所に統一</span></h3>
+      <p>
+        <code class="inline">UserSettingsFilePath</code>・<code class="inline">LogDirectory</code>はいずれも
+        <code class="inline">AppDataDirectory</code>(= <code class="inline">Environment.GetFolderPath(SpecialFolder.ApplicationData)</code>配下の
+        <code class="inline">PdfBookmarkMerger/</code>)を基準にする。実行ファイルの配置場所が読み取り専用の可能性を
+        考慮し、書き込みが保証される場所に統一している。v1.1.0の開発途中では<code class="inline">UserSettingsFilePath</code>を
+        <code class="inline">AppDirectory</code>(= <code class="inline">AppContext.BaseDirectory</code>、実行ファイルと同じフォルダ)
+        基準に変更しポータブル化を試みた時期があったが、上記の理由から最終的に<code class="inline">LogDirectory</code>と
+        同じ<code class="inline">AppDataDirectory</code>へ戻した。単体テストが実ユーザーの設定ファイルを上書きしないよう、
+        環境変数<code class="inline">PDFBOOKMARKMERGER_APPDATA_DIR</code>で<code class="inline">AppDataDirectory</code>を
+        差し替え可能にしている(値はキャッシュせず参照のたびに評価する)。
       </p>
     </section>
 
@@ -1618,7 +1662,12 @@ private const double IndentPerLevel = 16;</span></pre>
       <p class="lede">
         WPF版・Avalonia版とも、起動処理の骨格は<code class="inline">PdfBookmarkMergerHostFactory.Build</code>に共通化されている。
       </p>
-      <pre class="code">1. App()コンストラクタ(WPF: App.xaml.cs / Avalonia: App.axaml.cs)
+      <pre class="code">0. Program.Main (Avaloniaのみ、v1.1.0で追加)
+     StartWithClassicDesktopLifetime(args) 全体をtry/catchで囲む
+     → WPFのDispatcherUnhandledExceptionに相当するUIスレッド専用フックがAvaloniaには無いための埋め合わせ
+     → catchした例外はLogUnhandledExceptionで記録してからrethrow(クラッシュ自体はさせる)
+
+1. App()コンストラクタ(WPF: App.xaml.cs / Avalonia: App.axaml.cs)
      AppDomain.UnhandledException / TaskScheduler.UnobservedTaskException を登録
      (WPFのみ Application.DispatcherUnhandledException も登録)
      → Log.Logger 設定前の例外も、可能な限り早期に拾える状態にしておく
@@ -1626,8 +1675,8 @@ private const double IndentPerLevel = 16;</span></pre>
 2. OnStartup / OnFrameworkInitializationCompleted
      PdfBookmarkMergerHostFactory.Build(args, configureUiServices) を呼ぶ
        a. AppPaths.AppDataDirectory / LogDirectory を作成
-       b. Configuration: appsettings.json → settings.json(いずれも実行ファイルと同じフォルダ、reloadOnChange: true)
-       c. Serilog: Console + File(日次ローリング, 14世代保持) を Log.Logger に設定
+       b. Configuration: appsettings.json(実行ファイルと同じフォルダ) → settings.json(%AppData%/PdfBookmarkMerger/、reloadOnChange: true)
+       c. Serilog: File(日次ローリング, 14世代保持) [+ Debugビルドのみ Console] を Log.Logger に設定
        d. DI: AddPdfBookmarkMergerCore() + AddPdfBookmarkMergerApp() + configureUiServices(IDialogService実装, MainWindow)
      host.Start()
      AppLanguageBootstrapper.ApplyAsync(userSettings) で表示言語を確定 (v1.1.0、MainWindow解決より前に実行必須)

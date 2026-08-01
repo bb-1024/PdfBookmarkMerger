@@ -18,7 +18,7 @@ Built on a shared ReactiveProperty MVVM core with two native UI front ends: **WP
 - Undo for tree edits, with history automatically capped by memory usage rather than a fixed step count.
 - Parallelized, progress-reporting loads and merges so large bookmark-heavy batches stay responsive.
 - Japanese and English UI, auto-detected on first launch from the OS language and changeable from Settings.
-- Portable settings: `settings.json` lives next to the executable, not in the registry or a per-user profile folder.
+- No registry use: `settings.json` and log files are both stored under the per-user `%AppData%/PdfBookmarkMerger/` folder.
 
 ### Requirements
 
@@ -85,7 +85,7 @@ ReactiveProperty MVVMを核とする共通アプリケーション層を、Windo
 - しおりツリー編集の「元に戻す」に対応。履歴は固定回数ではなく、使用メモリ量に応じて自動的に管理。
 - 読み込み・結合処理の並列化と進捗表示により、大量のしおりを含むファイルでも画面が固まらない。
 - 日本語・英語のUIに対応。初回起動時はOSの言語から自動判定し、以後は設定画面で変更可能。
-- 設定はレジストリではなく実行ファイルと同じフォルダの`settings.json`に保存(ポータブル構成)。
+- 設定はレジストリを使わず、`settings.json`・ログともにユーザーごとの`%AppData%/PdfBookmarkMerger/`フォルダに保存。
 
 ### 動作環境
 

@@ -1120,16 +1120,25 @@
               <td class="wrap-mono">MergeAsync(PdfMergeRequest request, CancellationToken ct)</td>
               <td class="mono">Task</td>
               <td>
-                Inside <code class="inline">Task.Run</code>: ① Create an empty output <code class="inline">PdfDocument</code>.
-                ② Open <code class="inline">request.Files</code> in order, importing pages one at a time with
-                <code class="inline">output.AddPage(page)</code> while building a lookup table
+                Runs in two phases inside <code class="inline">Task.Run</code> (parallelized in v1.1.0, req. #1).
+                <strong>Phase 1 (parallel)</strong>: opens <code class="inline">request.Files</code> in parallel via
+                <code class="inline">PdfReader.Open</code> into an <code class="inline">opened[]</code> array, capping
+                concurrency to 1–8 (based on CPU core count) with a <code class="inline">SemaphoreSlim(MaxParallelOpen)</code>
+                (writes to the output <code class="inline">PdfDocument</code> aren't thread-safe, so none happen here).
+                <strong>Phase 2 (single-threaded)</strong>: walks <code class="inline">opened[]</code> in order, importing
+                pages one at a time with <code class="inline">output.AddPage(page)</code> while building a lookup table
                 (<code class="inline">pageMap</code>) from
-                <code class="inline">(FileEntry.Id, original page index) → output PdfPage</code>.
-                ③ <code class="inline">ApplyBookmarks</code> recursively walks <code class="inline">request.Bookmarks</code>,
+                <code class="inline">(FileEntry.Id, original page index) → output PdfPage</code>, then
+                <code class="inline">ApplyBookmarks</code> recursively walks <code class="inline">request.Bookmarks</code>,
                 resolving jump-target pages via <code class="inline">pageMap</code> and rebuilding the output document's
-                <code class="inline">Outlines</code>.
-                ④ Set the properties and save. Because the key is the file's <code class="inline">Guid</code> rather than its
-                file path, the same PDF file can be added to the merge target multiple times and still work correctly.
+                <code class="inline">Outlines</code>. Finally sets the properties and saves. Because the key is the
+                file's <code class="inline">Guid</code> rather than its file path, the same PDF file can be added to the
+                merge target multiple times and still work correctly.
+                Each <code class="inline">PdfDocument</code> in <code class="inline">opened[]</code> is disposed inside a
+                single <code class="inline">try/finally</code> covering both phases (fixed during a pre-release review:
+                it previously only wrapped phase 2, so if <code class="inline">PdfReader.Open</code> failed for even one
+                file during phase 1, every other successfully-opened input PDF was left undisposed, keeping its file
+                handle locked by the process until exit).
               </td>
             </tr>
             <tr>
@@ -1410,12 +1419,20 @@
             <tr>
               <td class="mono">ThemeApplier (Wpf)<br /><span class="mono" style="font-size:11px;color:var(--ink-faint);">Apply(Window, ThemeMode)</span></td>
               <td>
-                When <code class="inline">System</code> is specified, <code class="inline">SystemThemeWatcher.Watch</code>
-                makes the app automatically track OS theme changes. When <code class="inline">Light</code>/<code class="inline">Dark</code>
-                is specified explicitly, automatic tracking is first stopped via <code class="inline">SystemThemeWatcher.UnWatch</code>
-                (only when <code class="inline">window.IsLoaded</code>), and then the fixed theme is applied via
-                <code class="inline">ApplicationThemeManager.Apply</code> (calling <code class="inline">UnWatch</code> on a
-                not-yet-loaded window throws, so this is guarded).
+                Every call first stops any existing watch via <code class="inline">SystemThemeWatcher.UnWatch</code>
+                (only when <code class="inline">window.IsLoaded</code>; calling <code class="inline">UnWatch</code> on a
+                not-yet-loaded window throws, so this is guarded), then either re-registers
+                <code class="inline">SystemThemeWatcher.Watch</code> for automatic OS theme tracking when
+                <code class="inline">System</code> is specified, or applies a fixed theme via
+                <code class="inline">ApplicationThemeManager.Apply</code> when <code class="inline">Light</code>/
+                <code class="inline">Dark</code> is specified explicitly. Unwatching first fixes a bug found during a
+                pre-release review: <code class="inline">Watch</code> has no duplicate-registration guard, so pressing
+                OK in the settings dialog while staying on the default <code class="inline">System</code> mode kept
+                re-adding the same window to the watch list indefinitely.
+                <code class="inline">WpfDialogService.ReplaceMainWindowForLanguageChange</code> likewise explicitly
+                calls <code class="inline">UnWatch</code> on the old window before <code class="inline">Close()</code>ing
+                it on a language switch (without this, the closed window stays referenced by the static watch list
+                and is never garbage-collected for the rest of the process).
               </td>
             </tr>
             <tr>
@@ -1477,12 +1494,25 @@
           <thead><tr><th>Responsibility</th><th>Main Methods</th></tr></thead>
           <tbody>
             <tr><td>Auto-scroll during D&amp;D (#4)</td><td class="mono">UpdateBookmarkAutoScroll / StartBookmarkAutoScroll / StopBookmarkAutoScroll (scrolls at a fixed interval via DispatcherTimer)</td></tr>
-            <tr><td>Selection by clicking a row's margin area (#5)</td><td class="mono">SelectBookmarkRowAtY / FindTreeViewItemAtY (geometrically locates and selects the corresponding row's TreeViewItem from a Y coordinate)</td></tr>
+            <tr><td>Selection by clicking a row's margin area, and accepting D&amp;D drops there too (#5)</td><td class="mono">SelectBookmarkRowAtY / FindTreeViewItemAtY (geometrically locates the corresponding row's TreeViewItem from a Y coordinate), ResolveBookmarkDropPlan (same Y-coordinate approach to resolve the drop target row and whether it inserts as a child or sibling)</td></tr>
             <tr><td>Relaying the promote/demote-level buttons and updating their enabled state</td><td class="mono">OnPromoteLevelClick / OnDemoteLevelClick / UpdateLevelButtonsEnabled</td></tr>
             <tr><td>Updating the file-list move-up/down buttons' enabled state (#2, #3)</td><td class="mono">UpdateFileMoveButtonsEnabled (reflects <code class="inline">FileListViewModel.GetMoveAvailability</code> directly)</td></tr>
           </tbody>
         </table>
       </div>
+      <p style="font-size: 13.5px; color: var(--ink-soft);">
+        Avalonia-specific bug (#13): <code class="inline">TreeView</code>/<code class="inline">ListBox</code>'s built-in
+        click-to-select handling, part of <code class="inline">SelectingItemsControl</code>, consumes
+        <code class="inline">PointerPressed</code> on the Bubble phase and marks it
+        <code class="inline">Handled=true</code> first, so a plain XAML event subscription
+        (<code class="inline">PointerPressed="..."</code>, Bubble by default) never reached the app's own D&amp;D-start
+        detection handler at all — dragging a bookmark simply never started. The WPF build never had this problem
+        because it already used <code class="inline">PreviewMouseLeftButtonDown</code> (Tunnel phase). Fixed for
+        Avalonia too by re-registering <code class="inline">FileListBox</code>/<code class="inline">BookmarkTreeView</code>
+        in the constructor with
+        <code class="inline">AddHandler(PointerPressedEvent, handler, RoutingStrategies.Tunnel)</code>, subscribing on
+        the Tunnel phase explicitly (reproduced and confirmed fixed on real hardware).
+      </p>
 
       <h3>i18n: Strings / AppLanguageBootstrapper <span class="badge info">v1.1.0</span></h3>
       <div class="table-wrap">
@@ -1492,18 +1522,36 @@
             <tr><td class="wrap-mono">Strings <span class="tag">App/Resources/Strings.cs</span></td><td>A type-safe accessor for Resources/Strings.resx (Japanese, neutral) / Strings.en.resx (English satellite). For each key there is a property of the form <code class="inline">public static string Xxx =&gt; Get(nameof(Xxx))</code>. Hand-written because Visual Studio's code generator (ResXFileCodeGenerator) does not run under a plain <code class="inline">dotnet build</code></td></tr>
             <tr><td class="wrap-mono">Strings.Culture <span class="mono">static CultureInfo?</span></td><td>While non-null, <code class="inline">ResourceManager.GetString(name, Culture)</code> forces the use of this culture (<code class="inline">CurrentUICulture</code> is not rewritten, so as not to affect other locale-dependent processing such as number/date formatting)</td></tr>
             <tr><td class="wrap-mono">AppLanguageBootstrapper.ApplyAsync(userSettings, ct)</td><td>Uses the configured <code class="inline">Options.Language</code> if present. If unset, determines it from whether the last two characters of <code class="inline">CultureInfo.InstalledUICulture</code> are "ja" (falling back to Japanese on exception), persists the result via <code class="inline">SaveAsync</code>, and then applies it to <code class="inline">Strings.Culture</code>. In both the WPF and Avalonia <code class="inline">App</code>, this must be called <strong>before</strong> <code class="inline">MainWindow</code> is resolved via DI (since x:Static references have their values fixed at the time the XAML is loaded)</td></tr>
+            <tr><td class="wrap-mono">AppLanguageBootstrapper.ApplyImmediate(language)</td><td>Applies a language change made in the settings dialog to <code class="inline">Strings.Culture</code> immediately. Since there is no way to dynamically redraw the XAML (x:Static references) of a window that has already been constructed, the caller (<code class="inline">*DialogService.ShowSettingsDialogAsync</code>) follows this call with <code class="inline">ReplaceMainWindowForLanguageChange</code>, which constructs and shows a new <code class="inline">MainWindow</code> carrying over the same <code class="inline">MainWindowViewModel</code> (loaded files, the bookmark tree being edited, etc.) and then closes the old one (changed in v1.1.0 to take effect immediately, like theme mode, instead of waiting for the next launch)</td></tr>
           </tbody>
         </table>
       </div>
-
-      <h3>AppPaths <span class="tag">App/AppPaths.cs</span> <span class="badge info">Path changed in v1.1.0</span></h3>
       <p>
-        <code class="inline">UserSettingsFilePath</code> is based on <code class="inline">AppDirectory</code>
-        (= <code class="inline">AppContext.BaseDirectory</code>, the same folder as the executable) — the old
-        implementation used <code class="inline">%AppData%/PdfBookmarkMerger/</code>. <code class="inline">LogDirectory</code>
-        continues to be based on <code class="inline">AppDataDirectory</code>
-        (<code class="inline">Environment.SpecialFolder.ApplicationData</code>), as before (in consideration of the
-        possibility that the executable's location is read-only, logs are kept in a location writability is guaranteed).
+        Before closing the old window, <code class="inline">ReplaceMainWindowForLanguageChange</code> calls
+        <code class="inline">SystemThemeWatcher.UnWatch</code> (WPF build, see ThemeApplier above). Additionally, since
+        both the old and new <code class="inline">MainWindow</code> subscribe to <code class="inline">ViewModel.Step</code>/
+        <code class="inline">IsBusy</code>/<code class="inline">BookmarkTree.UndoCommand</code> and register a handler on
+        <code class="inline">FileList.Files.CollectionChanged</code> in their constructors, the old window's
+        <code class="inline">Closed</code> event disposes a <code class="inline">CompositeDisposable</code> and
+        unsubscribes that handler too (fixed during a pre-release review: because both windows share the same
+        <code class="inline">MainWindowViewModel</code>, failing to unsubscribe left the old window's callbacks alive,
+        so every subsequent <code class="inline">ViewModel</code> change kept running the closed window's UI-update
+        logic for no reason).
+      </p>
+
+      <h3>AppPaths <span class="tag">App/AppPaths.cs</span> <span class="badge info">Unified with the log location in v1.1.0</span></h3>
+      <p>
+        <code class="inline">UserSettingsFilePath</code> and <code class="inline">LogDirectory</code> are both based on
+        <code class="inline">AppDataDirectory</code> (= <code class="inline">PdfBookmarkMerger/</code> under
+        <code class="inline">Environment.GetFolderPath(SpecialFolder.ApplicationData)</code>). This is unified on a
+        location where writes are guaranteed to succeed, in consideration of the possibility that the executable's
+        location is read-only. Partway through v1.1.0 development, <code class="inline">UserSettingsFilePath</code>
+        was changed to be based on <code class="inline">AppDirectory</code> (= <code class="inline">AppContext.BaseDirectory</code>,
+        the same folder as the executable) in an attempt to make the app portable, but for the reason above it was
+        ultimately reverted to the same <code class="inline">AppDataDirectory</code> as <code class="inline">LogDirectory</code>.
+        So unit tests don't overwrite a real user's settings file, <code class="inline">AppDataDirectory</code> can be
+        overridden via the <code class="inline">PDFBOOKMARKMERGER_APPDATA_DIR</code> environment variable (evaluated
+        on every access rather than cached).
       </p>
     </section>
 
@@ -1675,7 +1723,12 @@ private const double IndentPerLevel = 16;</span></pre>
         In both the WPF and Avalonia builds, the skeleton of the startup process is shared via
         <code class="inline">PdfBookmarkMergerHostFactory.Build</code>.
       </p>
-      <pre class="code">1. App() constructor (WPF: App.xaml.cs / Avalonia: App.axaml.cs)
+      <pre class="code">0. Program.Main (Avalonia only, added in v1.1.0)
+     Wraps the entire StartWithClassicDesktopLifetime(args) call in try/catch
+     → Makes up for Avalonia having no UI-thread-specific hook equivalent to WPF's DispatcherUnhandledException
+     → Any caught exception is recorded via LogUnhandledException, then rethrown (the crash itself still happens)
+
+1. App() constructor (WPF: App.xaml.cs / Avalonia: App.axaml.cs)
      Registers AppDomain.UnhandledException / TaskScheduler.UnobservedTaskException
      (WPF only: also registers Application.DispatcherUnhandledException)
      → Ensures that exceptions occurring before Log.Logger is configured can still be caught as early as possible
@@ -1683,8 +1736,8 @@ private const double IndentPerLevel = 16;</span></pre>
 2. OnStartup / OnFrameworkInitializationCompleted
      Calls PdfBookmarkMergerHostFactory.Build(args, configureUiServices)
        a. Creates AppPaths.AppDataDirectory / LogDirectory
-       b. Configuration: appsettings.json → settings.json (both in the same folder as the executable, reloadOnChange: true)
-       c. Serilog: configures Log.Logger with Console + File (daily rolling, 14 generations retained)
+       b. Configuration: appsettings.json (same folder as the executable) → settings.json (%AppData%/PdfBookmarkMerger/, reloadOnChange: true)
+       c. Serilog: configures Log.Logger with File (daily rolling, 14 generations retained) [+ Console in Debug builds only]
        d. DI: AddPdfBookmarkMergerCore() + AddPdfBookmarkMergerApp() + configureUiServices(IDialogService implementation, MainWindow)
      host.Start()
      AppLanguageBootstrapper.ApplyAsync(userSettings) finalizes the display language (v1.1.0; must run before MainWindow is resolved)
