@@ -105,17 +105,9 @@
                     </TreeView.Styles>
                     <TreeView.ItemTemplate>
                         <TreeDataTemplate DataType="vm:BookmarkNodeViewModel" ItemsSource="{Binding Children}">
-                            <!--
-                                MinWidthをTreeViewの実測幅に合わせ、Backgroundを明示することで、内容(タイトル等)が
-                                短い行でもヒットテスト可能な範囲が行の右端まで届くようにする。これが無いと、内容の
-                                右側の余白はどの要素にも塗られておらずヒットテストされないため、D&D中にその位置へ
-                                カーソルを合わせてもDragOverイベント自体が発生しなかった。
-                            -->
+                            <!-- Background明示: 未設定だとSpacingの隙間等がヒットテストされない。 -->
                             <StackPanel Orientation="Horizontal" Margin="2" Spacing="6" Tag="{Binding}"
                                         Background="Transparent">
-                                <StackPanel.MinWidth>
-                                    <Binding Path="Bounds.Width" RelativeSource="{RelativeSource AncestorType=TreeView}" x:CompileBindings="False" />
-                                </StackPanel.MinWidth>
                                 <TextBlock Text="{Binding LevelNumber, StringFormat=Lv.{0}}"
                                            Width="34" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
                                 <TextBox Text="{Binding Title.Value}" TextChanged="OnBookmarkTitleTextChanged">

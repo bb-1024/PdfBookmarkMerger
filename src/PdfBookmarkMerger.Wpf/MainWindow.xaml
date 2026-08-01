@@ -152,14 +152,7 @@
                     </TreeView.ItemContainerStyle>
                     <TreeView.Resources>
                         <HierarchicalDataTemplate DataType="{x:Type vm:BookmarkNodeViewModel}" ItemsSource="{Binding Children}">
-                            <!--
-                                MinWidthをTreeViewの実測幅に合わせることで、内容(タイトル等)が短い行でも
-                                Backgroundの描画範囲(=ヒットテスト可能な範囲)が行の右端まで届くようにする。
-                                これが無いと、内容の右側の余白はどの要素にも塗られておらずヒットテストされないため、
-                                D&D中にその位置へカーソルを合わせてもDragOverイベント自体が発生しなかった。
-                            -->
-                            <Border Padding="4,3" CornerRadius="4" Tag="{Binding}"
-                                    MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=TreeView}}">
+                            <Border Padding="4,3" CornerRadius="4" Tag="{Binding}">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Background" Value="Transparent" />
