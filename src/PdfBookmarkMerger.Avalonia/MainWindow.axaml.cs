@@ -283,6 +283,7 @@ public partial class MainWindow : Window
         var item = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true);
         _bookmarkPressedNode = item?.DataContext as BookmarkNodeViewModel;
         _bookmarkPressedArgs = _bookmarkPressedNode is not null ? e : null;
+        Serilog.Log.Information("[DND-DIAG] PointerPressed source={Source} item={Item} node={Node}", e.Source?.GetType().Name, item is not null, _bookmarkPressedNode?.Title.Value);
 
         if (item is null)
         {
@@ -377,11 +378,18 @@ public partial class MainWindow : Window
         _bookmarkPressedNode = null;
         _bookmarkPressedArgs = null;
 
+        Serilog.Log.Information("[DND-DIAG] Starting DoDragDropAsync for {Title}", dragged.Title.Value);
         try
         {
             var dataTransfer = new DataTransfer();
             dataTransfer.Add(DataTransferItem.Create(BookmarkDragFormat, dragged));
-            await DragDrop.DoDragDropAsync(pressArgs, dataTransfer, DragDropEffects.Move);
+            var result = await DragDrop.DoDragDropAsync(pressArgs, dataTransfer, DragDropEffects.Move);
+            Serilog.Log.Information("[DND-DIAG] DoDragDropAsync completed, result={Result}", result);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[DND-DIAG] DoDragDropAsync threw");
+            throw;
         }
         finally
         {
@@ -391,14 +399,17 @@ public partial class MainWindow : Window
 
     private void OnBookmarkTreeDragOver(object? sender, DragEventArgs e)
     {
+        Serilog.Log.Information("[DND-DIAG] OnBookmarkTreeDragOver fired, source={Source}", e.Source?.GetType().Name);
         if (e.DataTransfer.Contains(BookmarkDragFormat))
         {
             e.DragEffects = DragDropEffects.Move;
         }
 
-        if (ResolveBookmarkDropPlan(e) is { } plan)
+        var plan = ResolveBookmarkDropPlan(e);
+        Serilog.Log.Information("[DND-DIAG] ResolveBookmarkDropPlan -> {Plan}", plan is null ? "null" : $"Target={plan.Value.TargetNode.Title.Value} InsertAsChild={plan.Value.InsertAsChild}");
+        if (plan is { } p)
         {
-            ShowBookmarkDropIndicator(plan.LineX, plan.LineY);
+            ShowBookmarkDropIndicator(p.LineX, p.LineY);
         }
         else
         {
