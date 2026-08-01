@@ -1,4 +1,6 @@
+using System.Collections.Specialized;
 using System.Globalization;
+using System.Reactive.Disposables;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -8,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PdfBookmarkMerger.App.ViewModels;
+using Reactive.Bindings.Extensions;
 
 namespace PdfBookmarkMerger.AvaloniaApp;
 
@@ -45,6 +48,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _bookmarkAutoScrollTimer = new() { Interval = TimeSpan.FromMilliseconds(40) };
     private double _bookmarkAutoScrollStep;
 
+    /// <summary>言語切り替え時にウィンドウが差し替えられても、同じViewModelインスタンスへの
+    /// 購読が古いウィンドウに残り続けないよう、Closedで一括破棄する。</summary>
+    private readonly CompositeDisposable _viewModelSubscriptions = [];
+
     public MainWindow(MainWindowViewModel viewModel)
     {
         InitializeComponent();
@@ -58,14 +65,14 @@ public partial class MainWindow : Window
             {
                 RecomputeTitleColumnWidth();
             }
-        });
+        }).AddTo(_viewModelSubscriptions);
 
         _busyDetailTimer.Tick += OnBusyDetailTimerTick;
-        ViewModel.IsBusy.Subscribe(OnIsBusyChanged);
+        ViewModel.IsBusy.Subscribe(OnIsBusyChanged).AddTo(_viewModelSubscriptions);
 
         // Undo(元に戻す)はRootNodes全体を作り直すため、タイトル列幅もあわせて再計算する。
         // VM側のUndoCommand.Subscribe(Undo)(RootNodes再構築)が先に完了してから呼ばれる。
-        ViewModel.BookmarkTree.UndoCommand.Subscribe(RecomputeTitleColumnWidth);
+        ViewModel.BookmarkTree.UndoCommand.Subscribe(RecomputeTitleColumnWidth).AddTo(_viewModelSubscriptions);
 
         _bookmarkAutoScrollTimer.Tick += (_, _) =>
         {
@@ -80,7 +87,7 @@ public partial class MainWindow : Window
             scrollViewer.Offset = new Vector(offset.X, newY);
         };
 
-        ViewModel.FileList.Files.CollectionChanged += (_, _) => UpdateFileMoveButtonsEnabled();
+        ViewModel.FileList.Files.CollectionChanged += OnFileListFilesCollectionChanged;
         UpdateFileMoveButtonsEnabled();
 
         // ListBox/TreeView自身の選択処理(SelectingItemsControlの既定の内部処理)がPointerPressedを
@@ -90,6 +97,23 @@ public partial class MainWindow : Window
         // 既定の選択処理より先に(確実に)イベントを受け取れるようにする。
         FileListBox.AddHandler(PointerPressedEvent, OnFileListPointerPressed, RoutingStrategies.Tunnel);
         BookmarkTreeView.AddHandler(PointerPressedEvent, OnBookmarkTreePointerPressed, RoutingStrategies.Tunnel);
+
+        Closed += OnMainWindowClosed;
+    }
+
+    private void OnFileListFilesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();
+
+    /// <summary>
+    /// 言語切り替え時、このウィンドウはViewModelより先に破棄される(AvaloniaDialogService.
+    /// ReplaceMainWindowForLanguageChangeが新ウィンドウへ同じViewModelを引き継ぐため)。
+    /// ここで購読を解除しないと、古いウィンドウのコールバックがViewModelの変化のたびに
+    /// (既に閉じた)自分自身のUI要素を触り続けてしまう。
+    /// </summary>
+    private void OnMainWindowClosed(object? sender, EventArgs e)
+    {
+        Closed -= OnMainWindowClosed;
+        ViewModel.FileList.Files.CollectionChanged -= OnFileListFilesCollectionChanged;
+        _viewModelSubscriptions.Dispose();
     }
 
     private void OnFileListSelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();
@@ -291,7 +315,6 @@ public partial class MainWindow : Window
         var item = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true);
         _bookmarkPressedNode = item?.DataContext as BookmarkNodeViewModel;
         _bookmarkPressedArgs = _bookmarkPressedNode is not null ? e : null;
-        Serilog.Log.Information("[DND-DIAG] PointerPressed source={Source} item={Item} node={Node}", e.Source?.GetType().Name, item is not null, _bookmarkPressedNode?.Title.Value);
 
         if (item is null)
         {
@@ -386,18 +409,11 @@ public partial class MainWindow : Window
         _bookmarkPressedNode = null;
         _bookmarkPressedArgs = null;
 
-        Serilog.Log.Information("[DND-DIAG] Starting DoDragDropAsync for {Title}", dragged.Title.Value);
         try
         {
             var dataTransfer = new DataTransfer();
             dataTransfer.Add(DataTransferItem.Create(BookmarkDragFormat, dragged));
-            var result = await DragDrop.DoDragDropAsync(pressArgs, dataTransfer, DragDropEffects.Move);
-            Serilog.Log.Information("[DND-DIAG] DoDragDropAsync completed, result={Result}", result);
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Error(ex, "[DND-DIAG] DoDragDropAsync threw");
-            throw;
+            await DragDrop.DoDragDropAsync(pressArgs, dataTransfer, DragDropEffects.Move);
         }
         finally
         {
@@ -407,14 +423,12 @@ public partial class MainWindow : Window
 
     private void OnBookmarkTreeDragOver(object? sender, DragEventArgs e)
     {
-        Serilog.Log.Information("[DND-DIAG] OnBookmarkTreeDragOver fired, source={Source}", e.Source?.GetType().Name);
         if (e.DataTransfer.Contains(BookmarkDragFormat))
         {
             e.DragEffects = DragDropEffects.Move;
         }
 
         var plan = ResolveBookmarkDropPlan(e);
-        Serilog.Log.Information("[DND-DIAG] ResolveBookmarkDropPlan -> {Plan}", plan is null ? "null" : $"Target={plan.Value.TargetNode.Title.Value} InsertAsChild={plan.Value.InsertAsChild}");
         if (plan is { } p)
         {
             ShowBookmarkDropIndicator(p.LineX, p.LineY);

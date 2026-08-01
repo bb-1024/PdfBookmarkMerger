@@ -1,3 +1,5 @@
+using System.Collections.Specialized;
+using System.Reactive.Disposables;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -7,6 +9,7 @@ using System.Windows.Threading;
 using PdfBookmarkMerger.App.Resources;
 using PdfBookmarkMerger.App.ViewModels;
 using PdfBookmarkMerger.WpfApp.Controls;
+using Reactive.Bindings.Extensions;
 
 namespace PdfBookmarkMerger.WpfApp;
 
@@ -39,6 +42,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     private readonly record struct BookmarkDropPlan(BookmarkNodeViewModel TargetNode, bool InsertAsChild, double LineX, double LineY);
 
+    /// <summary>言語切り替え時にウィンドウが差し替えられても、同じViewModelインスタンスへの
+    /// 購読が古いウィンドウに残り続けないよう、Closedで一括破棄する。</summary>
+    private readonly CompositeDisposable _viewModelSubscriptions = [];
+
     public MainWindow(MainWindowViewModel viewModel)
     {
         InitializeComponent();
@@ -48,13 +55,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _busyDetailTimer.Tick += OnBusyDetailTimerTick;
 
         Loaded += OnMainWindowLoaded;
+        Closed += OnMainWindowClosed;
     }
 
     private void OnMainWindowLoaded(object sender, RoutedEventArgs e)
     {
         // ファイル一覧が空の間、AdornerLayer経由でヒントテキストを重ねる。
         // ListBoxの可視ツリー自体は一切変更しないため、D&Dのヒットテストに影響しない。
-        ViewModel.FileList.HasFiles.Subscribe(_ => UpdateFileListPlaceholder());
+        ViewModel.FileList.HasFiles.Subscribe(_ => UpdateFileListPlaceholder()).AddTo(_viewModelSubscriptions);
 
         // しおり編集画面に入るたびに、タイトル列の幅を現在のタイトル群に合わせて再計算する。
         ViewModel.Step.Subscribe(step =>
@@ -63,16 +71,30 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 RecomputeTitleColumnWidth();
             }
-        });
+        }).AddTo(_viewModelSubscriptions);
 
-        ViewModel.IsBusy.Subscribe(OnIsBusyChanged);
+        ViewModel.IsBusy.Subscribe(OnIsBusyChanged).AddTo(_viewModelSubscriptions);
 
-        ViewModel.FileList.Files.CollectionChanged += (_, _) => UpdateFileMoveButtonsEnabled();
+        ViewModel.FileList.Files.CollectionChanged += OnFileListFilesCollectionChanged;
         UpdateFileMoveButtonsEnabled();
 
         // Undo(元に戻す)はRootNodes全体を作り直すため、タイトル列幅もあわせて再計算する。
         // VM側のUndoCommand.Subscribe(Undo)(RootNodes再構築)が先に完了してから呼ばれる。
-        ViewModel.BookmarkTree.UndoCommand.Subscribe(RecomputeTitleColumnWidth);
+        ViewModel.BookmarkTree.UndoCommand.Subscribe(RecomputeTitleColumnWidth).AddTo(_viewModelSubscriptions);
+    }
+
+    private void OnFileListFilesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();
+
+    /// <summary>
+    /// 言語切り替え時、このウィンドウはViewModelより先に破棄される(ReplaceMainWindowForLanguageChangeが
+    /// 新ウィンドウへ同じViewModelを引き継ぐため)。ここで購読を解除しないと、古いウィンドウの
+    /// コールバックがViewModelの変化のたびに(既に閉じた)自分自身のUI要素を触り続けてしまう。
+    /// </summary>
+    private void OnMainWindowClosed(object? sender, EventArgs e)
+    {
+        Closed -= OnMainWindowClosed;
+        ViewModel.FileList.Files.CollectionChanged -= OnFileListFilesCollectionChanged;
+        _viewModelSubscriptions.Dispose();
     }
 
     private void OnFileListSelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();
