@@ -27,15 +27,21 @@ public static class PdfBookmarkMergerHostFactory
             .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: true)
             .AddJsonFile(AppPaths.UserSettingsFilePath, optional: true, reloadOnChange: true);
 
-        Log.Logger = new LoggerConfiguration()
+        var loggerConfiguration = new LoggerConfiguration()
             .ReadFrom.Configuration(builder.Configuration)
             .Enrich.FromLogContext()
-            .WriteTo.Console()
             .WriteTo.File(
                 Path.Combine(AppPaths.LogDirectory, "pdfbookmarkmerger-.log"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 14)
-            .CreateLogger();
+                retainedFileCountLimit: 14);
+
+#if DEBUG
+        // コンソールへの出力は開発時(dotnet run等でコンソールにアタッチされている場合)の
+        // 確認用。配布版(Release)には通常アタッチされたコンソールが無く不要なため、Debugのみ有効にする。
+        loggerConfiguration.WriteTo.Console();
+#endif
+
+        Log.Logger = loggerConfiguration.CreateLogger();
 
         builder.Logging.ClearProviders();
         builder.Services.AddSerilog(dispose: true);
