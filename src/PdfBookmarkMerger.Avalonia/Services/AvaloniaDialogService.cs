@@ -70,6 +70,10 @@ public sealed class AvaloniaDialogService : IDialogService
             startLocation = await storageProvider.TryGetFolderFromPathAsync(new Uri(initialDirectory));
         }
 
+        // WPF版(WpfDialogService)と挙動を揃える: 保存先が未指定の場合は「ドキュメント」フォルダを
+        // 既定の開始位置とする(未指定のままだとOS/ピッカー実装依存の挙動になってしまうため)。
+        startLocation ??= await storageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Documents);
+
         var file = await storageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = Strings.SaveMergedPdfDialogTitle,
