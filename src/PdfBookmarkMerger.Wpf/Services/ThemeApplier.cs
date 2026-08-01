@@ -13,18 +13,20 @@ public static class ThemeApplier
 {
     public static void Apply(Window window, AppThemeMode mode)
     {
+        // SystemThemeWatcher.Watchは重複登録を防止しないため、設定ダイアログでOKを押すたびに
+        // (モードが変わっていなくても)無条件でWatchすると同一ウィンドウが監視リストに何度も
+        // 積み重なってしまう。呼び出しのたびにまず解除してから、必要な状態を作り直す。
+        // UnWatchは「まだLoadedしていないウィンドウ」に対して呼ぶと例外になるため、
+        // アプリ起動直後(Show前)の初回呼び出しはスキップする。
+        if (window.IsLoaded)
+        {
+            SystemThemeWatcher.UnWatch(window);
+        }
+
         if (mode == AppThemeMode.System)
         {
             SystemThemeWatcher.Watch(window, WindowBackdropType.None);
             return;
-        }
-
-        // 明示的なライト/ダーク指定時は、システム設定への自動追従を止めてから固定で適用する。
-        // UnWatchは「まだLoadedしていないウィンドウ」に対して呼ぶと例外になるため、
-        // アプリ起動直後(Show前)にLight/Darkが指定されているケースはスキップする。
-        if (window.IsLoaded)
-        {
-            SystemThemeWatcher.UnWatch(window);
         }
 
         var theme = mode == AppThemeMode.Dark ? ApplicationTheme.Dark : ApplicationTheme.Light;

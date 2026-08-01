@@ -113,6 +113,10 @@ public sealed class WpfDialogService : IDialogService
         ThemeApplier.Apply(reloaded, themeMode);
         reloaded.Show();
         Application.Current.MainWindow = reloaded;
+
+        // SystemThemeWatcher.Watch(ThemeApplier.Apply経由)で監視中の場合、Closeするだけでは
+        // 静的な監視リストから外れず、閉じたはずの旧ウィンドウがプロセス生存中ずっと参照され続けてしまう。
+        Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(oldWindow);
         oldWindow.Close();
 
         return reloaded;
