@@ -65,6 +65,8 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
 
         DisplayMergedPageNumber = new ReactivePropertySlim<int?>(MergedPageNumber).AddTo(Disposables);
 
+        IsPageNumberEdited = new ReactivePropertySlim<bool>(model.PageOffset is { } initialOffset && initialOffset != 0).AddTo(Disposables);
+
         IsExpanded = new ReactivePropertySlim<bool>(true).AddTo(Disposables);
 
         // 表示方法(DestinationType)に応じて、実際にPDFへ反映される座標コントロールのみ活性化する。
@@ -122,6 +124,12 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
     /// 連動してBookmarkTreeViewModelが再計算・反映する。
     /// </summary>
     public ReactivePropertySlim<int?> DisplayMergedPageNumber { get; }
+
+    /// <summary>
+    /// 結合前ページ数に編集(差分が非ゼロ)が加わっているか(表示専用)。テキストボックスの強調表示に使う。
+    /// PreOffsetPageNumber/DisplayMergedPageNumberと同様、BookmarkTreeViewModelが再計算・反映する。
+    /// </summary>
+    public ReactivePropertySlim<bool> IsPageNumberEdited { get; }
 
     /// <summary>ツリー上の階層の深さ(ルート=0)。列の縦位置揃えに使う。</summary>
     public int Depth => Parent is null ? 0 : Parent.Depth + 1;

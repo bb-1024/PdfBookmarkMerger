@@ -458,4 +458,38 @@ public sealed class BookmarkTreeViewModelTests
         exportedPage9.PageOffset.ShouldBe(3);
         exportedOther.PageOffset.ShouldBe(3, "後続ファイルには自分自身の編集が無くても連鎖分が加算される");
     }
+
+    [Fact]
+    public void EditingPreOffsetPageNumber_SetsIsPageNumberEdited_OnlyForAffectedNodes()
+    {
+        var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
+
+        page5.PreOffsetPageNumber.Value = 8;
+
+        page1.IsPageNumberEdited.Value.ShouldBeFalse();
+        page5.IsPageNumberEdited.Value.ShouldBeTrue();
+        page9.IsPageNumberEdited.Value.ShouldBeTrue();
+        otherFilePage1.IsPageNumberEdited.Value.ShouldBeFalse("自身のPageOffsetは0のまま(結合後ページ数の連鎖のみを受ける)");
+    }
+
+    [Fact]
+    public void ResettingPreOffsetPageNumberToOriginalPageNumber_UndoesTheEditAndItsCascade()
+    {
+        var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
+
+        page5.PreOffsetPageNumber.Value = 8;
+        vm.HasPageNumberEdits.Value.ShouldBeTrue();
+
+        // コンテキストメニューの「リセット」相当の操作: 表示専用のOriginalPageNumber(編集前の基準値)を
+        // 書き戻すことで、通常の編集と同じ経路で差分の巻き戻しが波及する。
+        page5.PreOffsetPageNumber.Value = page5.OriginalPageNumber;
+
+        page1.PreOffsetPageNumber.Value.ShouldBe(1);
+        page5.PreOffsetPageNumber.Value.ShouldBe(5);
+        page9.PreOffsetPageNumber.Value.ShouldBe(9);
+        page5.IsPageNumberEdited.Value.ShouldBeFalse();
+        page9.IsPageNumberEdited.Value.ShouldBeFalse();
+        otherFilePage1.DisplayMergedPageNumber.Value.ShouldBe(11);
+        vm.HasPageNumberEdits.Value.ShouldBeFalse();
+    }
 }

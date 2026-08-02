@@ -1409,6 +1409,9 @@
         <code class="inline">DisplayMergedPageNumber</code> (<code class="inline">ReactivePropertySlim&lt;int?&gt;</code>)
         is display-only for the post-merge page number; it never computes its own value and is instead written by
         <code class="inline">BookmarkTreeViewModel.RecomputeAllPageNumberDisplays</code> on every recompute.
+        <code class="inline">IsPageNumberEdited</code> (<code class="inline">ReactivePropertySlim&lt;bool&gt;</code>) is
+        likewise display-only, and drives the highlighted state of the pre-merge page number text box (whether the
+        delta is non-zero).
       </p>
 
       <h3>PdfFileEntryViewModel <span class="tag">ViewModels/PdfFileEntryViewModel.cs</span></h3>
@@ -1526,6 +1529,8 @@
             <tr><td class="mono">ThemeModeToLabelConverter</td><td><code class="inline">ThemeMode</code> ⇔ localized label (Light / Dark / Follow system settings (default))</td><td><code class="inline">ConvertBack</code> is not implemented (<code class="inline">NotSupportedException</code>)</td></tr>
             <tr><td class="mono">DepthToTitleWidthConverter</td><td>(hierarchy depth, title column base width) ⇒ the title TextBox's actual width</td><td><strong>Deliberately holds different constants: WPF = 19px, Avalonia = 16px</strong> (because each framework's default TreeViewItem indent width differs; see the <a href="#algo-indent">algorithm explanation</a>)</td></tr>
             <tr><td class="mono">EnumToVisibilityConverter (Wpf) / EnumEqualsConverter (Avalonia)</td><td>Switches panel visibility based on enum-value equality (e.g., switching between the step-1/step-2 screens)</td><td>Because WPF returns <code class="inline">Visibility</code> while Avalonia returns <code class="inline">bool</code> (bound directly to <code class="inline">IsVisible</code>), these are separate implementations with different target types</td></tr>
+            <tr><td class="mono">PageNumberWidthConverter <span class="badge ok">New feature</span></td><td>Pre-merge page number (int) ⇒ text box width (px)</td><td>Digit count (including sign) × 9px plus 20px padding, minimum 32px. A fixed formula so the number is never clipped on a PDF with a large page count (the same logic is implemented independently for WPF and Avalonia)</td></tr>
+            <tr><td class="mono">EditedHighlightBrushConverter <span class="badge ok">New feature</span></td><td><code class="inline">IsPageNumberEdited</code> (bool) ⇒ background brush</td><td>A semi-transparent amber (<code class="inline">#50FFB300</code>) when edited (true), otherwise transparent. A semi-transparent color, rather than an opaque one, so it reads correctly layered over both the light and dark themes. WPF returns a <code class="inline">SolidColorBrush</code>, while Avalonia returns <code class="inline">Brushes.Transparent</code> (an immutable <code class="inline">ImmutableSolidColorBrush</code>), so the test comparing the two goes through the shared <code class="inline">ISolidColorBrush</code> interface</td></tr>
           </tbody>
         </table>
       </div>
@@ -1543,9 +1548,20 @@
             <tr><td>Bookmark tree D&amp;D (reordering / re-parenting)</td><td class="mono">OnBookmarkTreeDrop / ResolveBookmarkDropPlan (Wpf) / <a href="#algo-move">the Move call</a></td></tr>
             <tr><td>Recomputing the title column width</td><td class="mono">RecomputeTitleColumnWidth / MeasureTextWidth</td></tr>
             <tr><td>Relaying toolbar operations (add, delete, level cap, etc.)</td><td class="mono">OnAdd*BookmarkClick / OnSetLevelCapClick, etc.</td></tr>
+            <tr><td>Resetting the pre-merge page number text box <span class="badge ok">New feature</span></td><td class="mono">OnResetPreOffsetPageNumberClick</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        <span class="badge ok">New feature</span> The reset <code class="inline">ContextMenu</code> is attached
+        directly to the pre-merge page number text box itself, not to the bookmark row as a whole. In both WPF and
+        Avalonia, assigning a ContextMenu to a control via its property causes that ContextMenu's (and its
+        MenuItems') DataContext to inherit the assigned control's DataContext (WPF's InheritanceContext; Avalonia
+        inherits similarly through the popup's logical parent), so
+        <code class="inline">OnResetPreOffsetPageNumberClick</code> can use
+        <code class="inline">((MenuItem)sender).DataContext</code> directly as the target
+        <code class="inline">BookmarkNodeViewModel</code>.
+      </p>
       <p style="font-size: 13.5px; color: var(--ink-soft);">
         How the hint text shown while the file list is empty is implemented also differs per framework. The WPF version
         uses <code class="inline">PlaceholderTextAdorner</code> (which merely overlays onto the <code class="inline">AdornerLayer</code>

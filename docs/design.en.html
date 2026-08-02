@@ -1017,6 +1017,20 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         CanExecute on <code class="inline">MainWindowViewModel</code>). Editing the value back to net zero
         re-enables both commands as usual.
       </p>
+      <p>
+        The text box's width is not fixed — <code class="inline">PageNumberWidthConverter</code> computes it from
+        the number of digits being displayed (including a sign), so the number is never clipped on a PDF with a
+        large page count. A text box with a non-zero delta (i.e., an active edit) is highlighted with a
+        semi-transparent amber background via <code class="inline">EditedHighlightBrushConverter</code>, reading
+        <code class="inline">BookmarkNodeViewModel.IsPageNumberEdited</code> (a semi-transparent color was chosen,
+        rather than an opaque one, so it reads correctly layered over both the light and dark themes).
+        Right-clicking the text box opens a context menu with "Reset Pre-merge Page Number"; choosing it writes the
+        bookmark's own pre-edit baseline (<code class="inline">OriginalPageNumber</code>) back into
+        <code class="inline">PreOffsetPageNumber.Value</code>. Since this goes through the exact same path as a
+        normal edit (<code class="inline">OnPreOffsetPageNumberChanged</code>), the cascade to later rows in the
+        same file and to subsequent files is correctly unwound by the same rule an edit uses to apply it, and the
+        reset is an Undo target too.
+      </p>
     </section>
 
     <section id="settings-logging">
@@ -1224,17 +1238,17 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
             <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>Exact match of the declaration line, Page/Action attributes for flat and nested structures, the argument list for each of Fit/FitH/FitV/XYZ (substituting 0 when unset), and falling back to OriginalPageIndex when MergedPageIndex has not been computed</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>Expanding only files directly under a folder while excluding subfolders, ignoring non-PDF files, and ignoring nonexistent paths</td></tr>
             <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails. Saving the bookmark settings file (default file name, export invocation, no invocation on cancel). That editing the pre-merge page number disables only <code class="inline">MergeCommand</code>, and disables <code class="inline">SaveBookmarkSettingsCommand</code> too once an inconsistency results</td></tr>
-            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order), and <strong>editing the pre-merge page number</strong> (applies only to same-file bookmarks at or after the edited page, cascades post-merge numbers across files, clears HasPageNumberEdits when the edit nets back to zero, sets HasPageNumberInconsistency on an invalid result, is restored by Undo, and is reflected in <code class="inline">ToExportModel</code>)</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order), and <strong>editing the pre-merge page number</strong> (applies only to same-file bookmarks at or after the edited page, cascades post-merge numbers across files, clears HasPageNumberEdits when the edit nets back to zero, sets HasPageNumberInconsistency on an invalid result, sets IsPageNumberEdited only on the nodes actually affected, is restored by Undo, that writing a node's own baseline back (equivalent to the right-click reset) unwinds the cascade, and is reflected in <code class="inline">ToExportModel</code>)</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>Batch move up/down of a multi-selection block, and button-enabled state at the boundaries and for a non-contiguous selection (<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO-order retrieval, discarding the oldest entries once the total size cap is exceeded, and always keeping the most recent entry even when the cap is exceeded</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Resolving Japanese/English resources by switching Strings.Culture, auto-detection and one-time persistence when unset, and preserving an existing configured value</td></tr>
             <tr><td class="mono">AppPathsTests</td><td>That both the settings-file path and the log path resolve under the per-user AppData folder (not the executable's location)</td></tr>
-            <tr><td class="mono">ConverterParityTests</td><td>That the Zoom% conversion, coordinate string conversion, and theme labels produce matching results between WPF and Avalonia. That <code class="inline">DepthToTitleWidthConverter</code> computes correctly for each implementation according to <em>its own</em> indent constant (19px/16px) (<a href="#platform-notes">details</a>)</td></tr>
+            <tr><td class="mono">ConverterParityTests</td><td>That the Zoom% conversion, coordinate string conversion, theme labels, <code class="inline">PageNumberWidthConverter</code>, and <code class="inline">EditedHighlightBrushConverter</code> produce matching results between WPF and Avalonia. That <code class="inline">DepthToTitleWidthConverter</code> computes correctly for each implementation according to <em>its own</em> indent constant (19px/16px) (<a href="#platform-notes">details</a>)</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p><span class="badge ok">Result</span> All 114 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
+      <p><span class="badge ok">Result</span> All 124 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
     </section>
 
     <section id="windows-release-build">

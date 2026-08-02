@@ -1370,7 +1370,9 @@
         完結しないためBookmarkTreeViewModel側でまとめて行う必要がある)。
         <code class="inline">DisplayMergedPageNumber</code>(<code class="inline">ReactivePropertySlim&lt;int?&gt;</code>)は
         結合後ページ数の表示専用で、<code class="inline">BookmarkTreeViewModel.RecomputeAllPageNumberDisplays</code>が
-        再計算のたびに書き戻す(自身では計算しない)。
+        再計算のたびに書き戻す(自身では計算しない)。同様に<code class="inline">IsPageNumberEdited</code>
+        (<code class="inline">ReactivePropertySlim&lt;bool&gt;</code>)も表示専用で、結合前ページ数テキストボックスの
+        強調表示(差分が非ゼロかどうか)に使う。
       </p>
 
       <h3>PdfFileEntryViewModel <span class="tag">ViewModels/PdfFileEntryViewModel.cs</span></h3>
@@ -1481,6 +1483,8 @@
             <tr><td class="mono">ThemeModeToLabelConverter</td><td><code class="inline">ThemeMode</code>⇔日本語ラベル(ライト/ダーク/システム設定(既定))</td><td><code class="inline">ConvertBack</code>は未実装(<code class="inline">NotSupportedException</code>)</td></tr>
             <tr><td class="mono">DepthToTitleWidthConverter</td><td>(階層の深さ, タイトル列基準幅)⇒タイトルTextBoxの実際の幅</td><td><strong>WPF=19px、Avalonia=16pxと、意図的に異なる定数を持つ</strong>(各フレームワークのTreeViewItem既定インデント幅が異なるため。<a href="#algo-indent">アルゴリズム解説</a>参照)</td></tr>
             <tr><td class="mono">EnumToVisibilityConverter (Wpf) / EnumEqualsConverter (Avalonia)</td><td>enum値の一致判定によるパネルの表示切替(手順1/手順2画面の切替等)</td><td>WPFは<code class="inline">Visibility</code>を返し、Avaloniaは<code class="inline">bool</code>(<code class="inline">IsVisible</code>に直接バインド)を返すため、変換先の型が異なる別実装になっている</td></tr>
+            <tr><td class="mono">PageNumberWidthConverter <span class="badge ok">新機能</span></td><td>結合前ページ数(int)⇒テキストボックスの幅(px)</td><td>桁数(符号含む)×9px+パディング20px、最小32px。ページ数の多いPDFで数字が見切れないようにするための固定式(WPF/Avaloniaで同一のロジックを個別実装)</td></tr>
+            <tr><td class="mono">EditedHighlightBrushConverter <span class="badge ok">新機能</span></td><td><code class="inline">IsPageNumberEdited</code>(bool)⇒背景色ブラシ</td><td>編集済み(true)の場合は半透明のオレンジ系(<code class="inline">#50FFB300</code>)、それ以外は透明。ライト/ダーク双方のテーマに重ねても違和感がないよう不透明色ではなく半透明色を使う。WPFは<code class="inline">SolidColorBrush</code>、Avaloniaは<code class="inline">Brushes.Transparent</code>(不変の<code class="inline">ImmutableSolidColorBrush</code>)を返すため、両者を比較するテストは共通インターフェース<code class="inline">ISolidColorBrush</code>経由で行う</td></tr>
           </tbody>
         </table>
       </div>
@@ -1498,9 +1502,18 @@
             <tr><td>しおりツリーのD&amp;D(並べ替え・再親子付け)</td><td class="mono">OnBookmarkTreeDrop / ResolveBookmarkDropPlan(Wpf) / <a href="#algo-move">Move呼び出し</a></td></tr>
             <tr><td>タイトル列幅の再計算</td><td class="mono">RecomputeTitleColumnWidth / MeasureTextWidth</td></tr>
             <tr><td>ツールバー操作(追加・削除・レベル上限等)の中継</td><td class="mono">OnAdd*BookmarkClick / OnSetLevelCapClick 等</td></tr>
+            <tr><td>結合前ページ数テキストボックスのリセット <span class="badge ok">新機能</span></td><td class="mono">OnResetPreOffsetPageNumberClick</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        <span class="badge ok">新機能</span> リセット用の<code class="inline">ContextMenu</code>は(しおり行全体ではなく)
+        結合前ページ数テキストボックス自身に直接割り当てている。WPF・AvaloniaともにContextMenuをプロパティ経由で
+        コントロールへ割り当てると、そのContextMenu(および内部のMenuItem)のDataContextは割り当て先コントロールの
+        DataContextを継承する(WPFのInheritanceContext。Avaloniaもポップアップの論理親経由で同様に継承する)ため、
+        <code class="inline">OnResetPreOffsetPageNumberClick</code>は<code class="inline">((MenuItem)sender).DataContext</code>を
+        そのまま対象の<code class="inline">BookmarkNodeViewModel</code>として使える。
+      </p>
       <p style="font-size: 13.5px; color: var(--ink-soft);">
         ファイル一覧が空の間に表示するヒントテキストの実装方法もフレームワークごとに異なる。WPF版は
         <code class="inline">PlaceholderTextAdorner</code>(<code class="inline">AdornerLayer</code>に重ねるだけで、

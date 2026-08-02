@@ -677,6 +677,21 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private BookmarkNodeViewModel? GetSelectedBookmarkNode() =>
         BookmarkTreeView.SelectedItem as BookmarkNodeViewModel;
 
+    /// <summary>
+    /// 結合前ページ数テキストボックスのコンテキストメニュー(リセット)。ContextMenuはプロパティ経由で
+    /// TextBoxへ割り当てているため、WPFのInheritanceContextによりMenuItem.DataContextはそのTextBoxの
+    /// DataContext(=対象のBookmarkNodeViewModel)へ解決される。編集前の値へ戻すと、通常の編集と
+    /// 同じ経路(BookmarkTreeViewModel.OnPreOffsetPageNumberChanged)で同一ファイル内の後続行・
+    /// 後続ファイルへの連鎖も正しく巻き戻される。
+    /// </summary>
+    private void OnResetPreOffsetPageNumberClick(object sender, RoutedEventArgs e)
+    {
+        if (((MenuItem)sender).DataContext is BookmarkNodeViewModel node)
+        {
+            node.PreOffsetPageNumber.Value = node.OriginalPageNumber;
+        }
+    }
+
     private static T? FindAncestor<T>(DependencyObject current) where T : DependencyObject
     {
         while (current is not null)

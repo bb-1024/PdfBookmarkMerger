@@ -41,6 +41,7 @@ public static class Strings
     public static string BookmarkOriginPrefixWithActionFormat => Get(nameof(BookmarkOriginPrefixWithActionFormat));
     public static string BookmarkOriginPrefixFormat => Get(nameof(BookmarkOriginPrefixFormat));
     public static string BookmarkOriginSuffix => Get(nameof(BookmarkOriginSuffix));
+    public static string ResetPageNumberMenuItem => Get(nameof(ResetPageNumberMenuItem));
     public static string PromoteLevelButton => Get(nameof(PromoteLevelButton));
     public static string DemoteLevelButton => Get(nameof(DemoteLevelButton));
     public static string AddRootButton => Get(nameof(AddRootButton));

@@ -451,6 +451,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             WalkAll(RootNodes, vm =>
             {
                 var offset = vm.Model.PageOffset ?? 0;
+                vm.IsPageNumberEdited.Value = offset != 0;
                 if (offset != 0)
                 {
                     hasEdits = true;

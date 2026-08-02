@@ -83,6 +83,7 @@
   <data name="BookmarkOriginPrefixWithActionFormat" xml:space="preserve"><value>[{0}] From: {1} p.</value></data>
   <data name="BookmarkOriginPrefixFormat" xml:space="preserve"><value>From: {0} p.</value></data>
   <data name="BookmarkOriginSuffix" xml:space="preserve"><value>-&gt; Merged p.</value></data>
+  <data name="ResetPageNumberMenuItem" xml:space="preserve"><value>Reset Pre-merge Page Number</value></data>
   <data name="PromoteLevelButton" xml:space="preserve"><value>Promote Level</value></data>
   <data name="DemoteLevelButton" xml:space="preserve"><value>Demote Level</value></data>
   <data name="AddRootButton" xml:space="preserve"><value>Add as Root</value></data>

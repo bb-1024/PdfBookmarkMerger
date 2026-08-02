@@ -27,6 +27,12 @@ public sealed class ConverterParityTests
     private static readonly WpfConverters.DepthToTitleWidthConverter WpfDepthWidth = new();
     private static readonly AvaloniaConverters.DepthToTitleWidthConverter AvaloniaDepthWidth = new();
 
+    private static readonly WpfConverters.PageNumberWidthConverter WpfPageNumberWidth = new();
+    private static readonly AvaloniaConverters.PageNumberWidthConverter AvaloniaPageNumberWidth = new();
+
+    private static readonly WpfConverters.EditedHighlightBrushConverter WpfEditedHighlight = new();
+    private static readonly AvaloniaConverters.EditedHighlightBrushConverter AvaloniaEditedHighlight = new();
+
     [Theory]
     [InlineData(0.0)]
     [InlineData(1.0)]
@@ -129,5 +135,44 @@ public sealed class ConverterParityTests
         var avaloniaResult = AvaloniaDepthWidth.Convert([depth, baseWidth], typeof(double), null, CultureInfo.InvariantCulture);
 
         avaloniaResult.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(42)]
+    [InlineData(9999)]
+    [InlineData(-7)]
+    [InlineData(0)]
+    public void PageNumberWidthConverter_Convert_MatchesBetweenWpfAndAvalonia(int pageNumber)
+    {
+        var wpfResult = WpfPageNumberWidth.Convert(pageNumber, typeof(double), null, CultureInfo.InvariantCulture);
+        var avaloniaResult = AvaloniaPageNumberWidth.Convert(pageNumber, typeof(double), null, CultureInfo.InvariantCulture);
+
+        wpfResult.ShouldBe(avaloniaResult);
+    }
+
+    [Fact]
+    public void PageNumberWidthConverter_Convert_LargerNumberOfDigits_ProducesLargerWidth()
+    {
+        var narrow = (double)WpfPageNumberWidth.Convert(5, typeof(double), null, CultureInfo.InvariantCulture);
+        var wide = (double)WpfPageNumberWidth.Convert(123456, typeof(double), null, CultureInfo.InvariantCulture);
+
+        wide.ShouldBeGreaterThan(narrow);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EditedHighlightBrushConverter_Convert_MatchesBetweenWpfAndAvalonia(bool isEdited)
+    {
+        // Avalonia.Media.Brushes.Transparentは(可変な)SolidColorBrushではなくImmutableSolidColorBrushを
+        // 返すため、両方の実装が持つISolidColorBrush(Colorプロパティのみ)経由で比較する。
+        var wpfBrush = (System.Windows.Media.SolidColorBrush)WpfEditedHighlight.Convert(isEdited, typeof(object), null, CultureInfo.InvariantCulture);
+        var avaloniaBrush = (Avalonia.Media.ISolidColorBrush)AvaloniaEditedHighlight.Convert(isEdited, typeof(object), null, CultureInfo.InvariantCulture);
+
+        wpfBrush.Color.A.ShouldBe(avaloniaBrush.Color.A);
+        wpfBrush.Color.R.ShouldBe(avaloniaBrush.Color.R);
+        wpfBrush.Color.G.ShouldBe(avaloniaBrush.Color.G);
+        wpfBrush.Color.B.ShouldBe(avaloniaBrush.Color.B);
     }
 }

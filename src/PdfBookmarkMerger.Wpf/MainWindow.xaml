@@ -19,6 +19,8 @@
         <conv:NullableDoubleToStringConverter x:Key="NullableDoubleToStringConverter" />
         <conv:ZoomPercentToStringConverter x:Key="ZoomPercentToStringConverter" />
         <conv:DepthToTitleWidthConverter x:Key="DepthToTitleWidthConverter" />
+        <conv:PageNumberWidthConverter x:Key="PageNumberWidthConverter" />
+        <conv:EditedHighlightBrushConverter x:Key="EditedHighlightBrushConverter" />
         <conv:InverseBooleanConverter x:Key="InverseBooleanConverter" />
         <conv:BusyProgressToTextConverter x:Key="BusyProgressToTextConverter" />
         <conv:PageCountToTextConverter x:Key="PageCountToTextConverter" />
@@ -212,7 +214,16 @@
                                             </MultiBinding>
                                         </TextBlock.Text>
                                     </TextBlock>
-                                    <TextBox Text="{Binding PreOffsetPageNumber.Value}" Width="40" Margin="0,0,4,0" />
+                                    <TextBox Text="{Binding PreOffsetPageNumber.Value}"
+                                             Width="{Binding PreOffsetPageNumber.Value, Converter={StaticResource PageNumberWidthConverter}}"
+                                             Background="{Binding IsPageNumberEdited.Value, Converter={StaticResource EditedHighlightBrushConverter}}"
+                                             Margin="0,0,4,0">
+                                        <TextBox.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="{x:Static resx:Strings.ResetPageNumberMenuItem}" Click="OnResetPreOffsetPageNumberClick" />
+                                            </ContextMenu>
+                                        </TextBox.ContextMenu>
+                                    </TextBox>
                                     <TextBlock Text="{x:Static resx:Strings.BookmarkOriginSuffix}" VerticalAlignment="Center"
                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="11" Margin="0,0,2,0" />
                                     <TextBlock Text="{Binding DisplayMergedPageNumber.Value}" VerticalAlignment="Center"
