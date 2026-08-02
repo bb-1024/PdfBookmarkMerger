@@ -93,6 +93,7 @@
   <data name="ForceFitCheckbox" xml:space="preserve"><value>一律でFitに設定</value></data>
   <data name="GlobalExpandCheckbox" xml:space="preserve"><value>一律で展開表示を設定</value></data>
   <data name="MergeButton" xml:space="preserve"><value>結合してPDFを保存...</value></data>
+  <data name="SaveBookmarkSettingsButton" xml:space="preserve"><value>しおり設定ファイルを保存...</value></data>
   <data name="StatusBarProcessingLabel" xml:space="preserve"><value>処理中...</value></data>
   <data name="BusyProgressCountOnlyFormat" xml:space="preserve"><value>{0} / {1} 件</value></data>
   <data name="BusyProgressWithDetailFormat" xml:space="preserve"><value>{0} / {1} 件 (処理中: {2})</value></data>
@@ -143,6 +144,15 @@
   <data name="MergeErrorDialogTitle" xml:space="preserve"><value>結合エラー</value></data>
   <data name="MergeErrorMessageFormat" xml:space="preserve"><value>PDFの結合に失敗しました。
 {0}</value></data>
+  <data name="DefaultBookmarkSettingsFileName" xml:space="preserve"><value>結合結果.xml</value></data>
+  <data name="StatusSavingBookmarkSettings" xml:space="preserve"><value>しおり設定ファイルを保存しています...</value></data>
+  <data name="StatusSaveBookmarkSettingsCompleteFormat" xml:space="preserve"><value>しおり設定ファイルを保存しました: {0}</value></data>
+  <data name="SaveBookmarkSettingsCompleteDialogTitle" xml:space="preserve"><value>保存完了</value></data>
+  <data name="SaveBookmarkSettingsCompleteMessageFormat" xml:space="preserve"><value>しおり設定ファイルを保存しました。
+{0}</value></data>
+  <data name="SaveBookmarkSettingsErrorDialogTitle" xml:space="preserve"><value>保存エラー</value></data>
+  <data name="SaveBookmarkSettingsErrorMessageFormat" xml:space="preserve"><value>しおり設定ファイルの保存に失敗しました。
+{0}</value></data>
 
   <!-- BookmarkTreeViewModel -->
   <data name="NewBookmarkDefaultTitle" xml:space="preserve"><value>新しいしおり</value></data>
@@ -154,4 +164,7 @@
   <data name="PdfFileTypeName" xml:space="preserve"><value>PDFファイル</value></data>
   <data name="OpenFolderDialogTitle" xml:space="preserve"><value>結合対象PDFフォルダの選択</value></data>
   <data name="SaveMergedPdfDialogTitle" xml:space="preserve"><value>結合後PDFの保存先</value></data>
+  <data name="SaveBookmarkSettingsDialogTitle" xml:space="preserve"><value>しおり設定ファイルの保存先</value></data>
+  <data name="XmlFileFilterWpf" xml:space="preserve"><value>XMLファイル (*.xml)|*.xml</value></data>
+  <data name="XmlFileTypeName" xml:space="preserve"><value>XMLファイル</value></data>
 </root>

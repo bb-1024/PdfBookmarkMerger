@@ -15,12 +15,13 @@ namespace PdfBookmarkMerger.App.Tests;
 /// </summary>
 public sealed class MainWindowViewModelTests
 {
-    private static (MainWindowViewModel MainVm, FakeMetadataService Metadata, FakeMergeService Merge, FakeDialogService Dialog)
+    private static (MainWindowViewModel MainVm, FakeMetadataService Metadata, FakeMergeService Merge, FakeBookmarkSettingsExportService Export, FakeDialogService Dialog)
         CreateSut()
     {
         var collector = new FakeFileCollectorService();
         var metadata = new FakeMetadataService();
         var merge = new FakeMergeService();
+        var export = new FakeBookmarkSettingsExportService();
         var dialog = new FakeDialogService();
         var userSettings = new FakeUserSettingsService();
 
@@ -32,17 +33,18 @@ public sealed class MainWindowViewModelTests
             bookmarkTree,
             metadata,
             merge,
+            export,
             dialog,
             userSettings,
             NullLogger<MainWindowViewModel>.Instance);
 
-        return (mainVm, metadata, merge, dialog);
+        return (mainVm, metadata, merge, export, dialog);
     }
 
     [Fact]
     public async Task MergeAsync_ExcludesFilesThatFailedMetadataLoad_EvenThoughTheyRemainInFileList()
     {
-        var (mainVm, metadata, merge, _) = CreateSut();
+        var (mainVm, metadata, merge, _, _) = CreateSut();
 
         var goodEntry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
         var brokenEntry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\b-broken.pdf" });
@@ -78,7 +80,7 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task ConfirmFilesAsync_WhenAllFilesFail_DoesNotAdvanceToEditBookmarksStep()
     {
-        var (mainVm, metadata, _, dialog) = CreateSut();
+        var (mainVm, metadata, _, _, dialog) = CreateSut();
 
         var brokenEntry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\broken.pdf" });
         mainVm.FileList.Files.Add(brokenEntry);
@@ -88,5 +90,43 @@ public sealed class MainWindowViewModelTests
 
         mainVm.Step.Value.ShouldBe(WorkflowStep.SelectFiles);
         dialog.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public async Task SaveBookmarkSettingsAsync_SuggestsXmlExtensionOfMergeDefaultFileName_AndCallsExportService()
+    {
+        var (mainVm, metadata, _, export, dialog) = CreateSut();
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\report.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(
+            entry.FilePath,
+            pageCount: 3,
+            bookmarks: [new BookmarkNode { SourceFileEntryId = entry.Id, OriginalPageIndex = 0, Title = "A" }]);
+
+        await mainVm.ConfirmFilesAsync();
+
+        dialog.SaveBookmarkSettingsDialogResult = @"C:\out\report_merged.xml";
+        await mainVm.SaveBookmarkSettingsAsync();
+
+        export.CallCount.ShouldBe(1);
+        export.LastOutputPath.ShouldBe(@"C:\out\report_merged.xml");
+        export.LastBookmarks!.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task SaveBookmarkSettingsAsync_WhenDialogCancelled_DoesNotCallExportService()
+    {
+        var (mainVm, metadata, _, export, dialog) = CreateSut();
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\report.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(entry.FilePath, pageCount: 3);
+        await mainVm.ConfirmFilesAsync();
+
+        dialog.SaveBookmarkSettingsDialogResult = null;
+        await mainVm.SaveBookmarkSettingsAsync();
+
+        export.CallCount.ShouldBe(0);
     }
 }

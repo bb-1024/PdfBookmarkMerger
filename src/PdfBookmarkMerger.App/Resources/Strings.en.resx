@@ -93,6 +93,7 @@
   <data name="ForceFitCheckbox" xml:space="preserve"><value>Force Fit for All</value></data>
   <data name="GlobalExpandCheckbox" xml:space="preserve"><value>Force Expand for All</value></data>
   <data name="MergeButton" xml:space="preserve"><value>Merge and Save PDF...</value></data>
+  <data name="SaveBookmarkSettingsButton" xml:space="preserve"><value>Save Bookmark Settings File...</value></data>
   <data name="StatusBarProcessingLabel" xml:space="preserve"><value>Processing...</value></data>
   <data name="BusyProgressCountOnlyFormat" xml:space="preserve"><value>{0} / {1} item(s)</value></data>
   <data name="BusyProgressWithDetailFormat" xml:space="preserve"><value>{0} / {1} item(s) (Processing: {2})</value></data>
@@ -143,6 +144,15 @@
   <data name="MergeErrorDialogTitle" xml:space="preserve"><value>Merge Error</value></data>
   <data name="MergeErrorMessageFormat" xml:space="preserve"><value>Failed to merge the PDFs.
 {0}</value></data>
+  <data name="DefaultBookmarkSettingsFileName" xml:space="preserve"><value>merged-result.xml</value></data>
+  <data name="StatusSavingBookmarkSettings" xml:space="preserve"><value>Saving the bookmark settings file...</value></data>
+  <data name="StatusSaveBookmarkSettingsCompleteFormat" xml:space="preserve"><value>Bookmark settings file saved: {0}</value></data>
+  <data name="SaveBookmarkSettingsCompleteDialogTitle" xml:space="preserve"><value>Save Complete</value></data>
+  <data name="SaveBookmarkSettingsCompleteMessageFormat" xml:space="preserve"><value>The bookmark settings file has been saved.
+{0}</value></data>
+  <data name="SaveBookmarkSettingsErrorDialogTitle" xml:space="preserve"><value>Save Error</value></data>
+  <data name="SaveBookmarkSettingsErrorMessageFormat" xml:space="preserve"><value>Failed to save the bookmark settings file.
+{0}</value></data>
 
   <!-- BookmarkTreeViewModel -->
   <data name="NewBookmarkDefaultTitle" xml:space="preserve"><value>New Bookmark</value></data>
@@ -154,4 +164,7 @@
   <data name="PdfFileTypeName" xml:space="preserve"><value>PDF Files</value></data>
   <data name="OpenFolderDialogTitle" xml:space="preserve"><value>Select a Folder of PDFs to Merge</value></data>
   <data name="SaveMergedPdfDialogTitle" xml:space="preserve"><value>Save Merged PDF As</value></data>
+  <data name="SaveBookmarkSettingsDialogTitle" xml:space="preserve"><value>Save Bookmark Settings File As</value></data>
+  <data name="XmlFileFilterWpf" xml:space="preserve"><value>XML Files (*.xml)|*.xml</value></data>
+  <data name="XmlFileTypeName" xml:space="preserve"><value>XML Files</value></data>
 </root>

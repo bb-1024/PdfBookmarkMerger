@@ -1139,6 +1139,44 @@
         </table>
       </div>
 
+      <h3>BookmarkSettingsExportService <span class="tag">Services/BookmarkSettingsExportService.cs(新機能)</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="wrap-mono">メソッド</th><th>戻り値</th><th>振る舞い・注意点</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="wrap-mono">ExportAsync(bookmarks, outputPath, CancellationToken ct)</td>
+              <td class="mono">Task</td>
+              <td>
+                社内の「しおり設定ファイル仕様」(ref/しおり設定ファイル仕様.txt、リポジトリには含めない)に
+                従い、<code class="inline">Task.Run</code>内で同期的にXMLへ書き出す。宣言行
+                (<code class="inline">&lt;?xml version="1.0" encoding="UTF-8"?&gt;</code>)は、
+                <code class="inline">XmlWriter.WriteStartDocument</code>がencoding名を小文字"utf-8"で出力してしまい
+                仕様書の例(大文字"UTF-8")と一致しないため、<code class="inline">StreamWriter</code>で直接1行書いてから
+                <code class="inline">OmitXmlDeclaration=true</code>の<code class="inline">XmlWriter</code>を後段に繋ぐ。
+                ルート<code class="inline">&lt;Bookmark&gt;</code>直下に、各<code class="inline">BookmarkNode</code>を
+                <code class="inline">&lt;Title Page="..." Action="GoTo"&gt;タイトル&lt;子のTitle.../&gt;&lt;/Title&gt;</code>として
+                再帰的に書き出す。
+              </td>
+            </tr>
+            <tr>
+              <td class="wrap-mono">- BuildPageAttribute(node)</td>
+              <td class="mono">string</td>
+              <td>
+                <code class="inline">Page</code>属性の値を組み立てる。ページ番号は
+                <code class="inline">(MergedPageIndex ?? OriginalPageIndex) + 1</code>(1始まり、
+                <code class="inline">MergedPageIndex</code>未算出時は<code class="inline">OriginalPageIndex</code>に
+                フォールバック)。表示方法はPDF Referenceの引数順を踏襲し、<code class="inline">Fit</code>は
+                引数なし、<code class="inline">FitH</code>/<code class="inline">FitV</code>はTop/Left1個、
+                <code class="inline">XYZ</code>はLeft/Top/Zoomの3個を常に固定位置で出力する(仕様書はZoom=0を
+                nullと同義と明記しているため、本実装ではLeft/Topが未設定の場合も同じ規約で0を代入し、
+                引数の位置ずれを避けている)。
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <h3>BookmarkOffsetCalculator / MissingBookmarkFallback <span class="tag">非破壊パイプライン(#8対応)</span></h3>
       <div class="table-wrap">
         <table>
@@ -1372,6 +1410,12 @@
         コンストラクタで<code class="inline">DataContext</code>を設定し、OKボタンへ初期フォーカスを当てて
         (Enterキーでそのまま確定できるように)、OK/CancelボタンのClickで<code class="inline">DialogResult</code>を設定して
         <code class="inline">Close()</code>するのみ。個々のクラスに固有のロジックは持たない。
+      </p>
+      <p>
+        <span class="badge ok">新機能</span> <code class="inline">IDialogService</code>に
+        <code class="inline">ShowSaveBookmarkSettingsDialogAsync</code>を追加した。
+        <code class="inline">ShowSaveMergedPdfDialogAsync</code>と同じ構造で、拡張子・フィルターのみXML用
+        (<code class="inline">Strings.XmlFileFilterWpf</code> / <code class="inline">Strings.XmlFileTypeName</code>)。
       </p>
 
       <h3>ThemeApplier(WPF / Avalonia、非共有)</h3>
@@ -1801,6 +1845,7 @@ private const double IndentPerLevel = 16;</span></pre>
             <tr><td class="mono">IPdfFileCollectorService, PdfFileCollectorService</td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}PdfFileCollectorService.cs</td></tr>
             <tr><td class="mono">IPdfMetadataService, PdfMetadataService</td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}PdfMetadataService.cs</td></tr>
             <tr><td class="mono">IPdfMergeService, PdfMergeService</td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}PdfMergeService.cs</td></tr>
+            <tr><td class="mono">IBookmarkSettingsExportService, BookmarkSettingsExportService <span class="badge ok">新機能</span></td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}BookmarkSettingsExportService.cs</td></tr>
             <tr><td class="mono">BookmarkOffsetCalculator, MissingBookmarkFallback, BookmarkDestinationTypeMapper</td><td class="mono">src/PdfBookmarkMerger.Core/Services/*.cs</td></tr>
             <tr><td class="mono">ViewModelBase, MainWindowViewModel, FileListViewModel, BookmarkTreeViewModel, BookmarkNodeViewModel, PdfFileEntryViewModel, PropertiesDialogViewModel, SettingsViewModel, LevelCapDialogViewModel, WorkflowStep</td><td class="mono">src/PdfBookmarkMerger.App/ViewModels/*.cs</td></tr>
             <tr><td class="mono">IDialogService, IUserSettingsService, UserSettingsService</td><td class="mono">src/PdfBookmarkMerger.App/Services/*.cs</td></tr>

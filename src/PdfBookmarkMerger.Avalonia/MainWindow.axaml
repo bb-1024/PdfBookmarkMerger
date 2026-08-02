@@ -181,6 +181,7 @@
                     <CheckBox Content="{x:Static resx:Strings.GlobalExpandCheckbox}" IsThreeState="True"
                               IsChecked="{Binding BookmarkTree.GlobalExpandOverride.Value, Mode=TwoWay}"
                               VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Button Content="{x:Static resx:Strings.SaveBookmarkSettingsButton}" Command="{Binding SaveBookmarkSettingsCommand}" />
                     <Button Content="{x:Static resx:Strings.MergeButton}" Command="{Binding MergeCommand}" />
                 </StackPanel>
             </StackPanel>

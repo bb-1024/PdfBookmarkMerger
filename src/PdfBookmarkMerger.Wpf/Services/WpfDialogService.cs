@@ -56,6 +56,21 @@ public sealed class WpfDialogService : IDialogService
         return Task.FromResult(result);
     }
 
+    public Task<string?> ShowSaveBookmarkSettingsDialogAsync(string suggestedFileName, string? initialDirectory)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = Strings.SaveBookmarkSettingsDialogTitle,
+            Filter = Strings.XmlFileFilterWpf,
+            FileName = suggestedFileName,
+            InitialDirectory = string.IsNullOrEmpty(initialDirectory) ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : initialDirectory,
+            OverwritePrompt = true,
+        };
+
+        var result = dialog.ShowDialog(Application.Current.MainWindow) == true ? dialog.FileName : null;
+        return Task.FromResult(result);
+    }
+
     public Task<PdfDocumentPropertiesModel?> ShowPropertiesDialogAsync(PdfDocumentPropertiesModel initial)
     {
         var viewModel = new PropertiesDialogViewModel(initial);

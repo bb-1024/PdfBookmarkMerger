@@ -1158,6 +1158,46 @@
         </table>
       </div>
 
+      <h3>BookmarkSettingsExportService <span class="tag">Services/BookmarkSettingsExportService.cs (new feature)</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="wrap-mono">Method</th><th>Return value</th><th>Behavior / notes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="wrap-mono">ExportAsync(bookmarks, outputPath, CancellationToken ct)</td>
+              <td class="mono">Task</td>
+              <td>
+                Writes XML synchronously inside <code class="inline">Task.Run</code>, following the internal
+                "bookmark settings file specification" (<code class="inline">ref/しおり設定ファイル仕様.txt</code>,
+                not included in the repository). The declaration line
+                (<code class="inline">&lt;?xml version="1.0" encoding="UTF-8"?&gt;</code>) is written directly via a
+                <code class="inline">StreamWriter</code> before handing off to an <code class="inline">XmlWriter</code>
+                with <code class="inline">OmitXmlDeclaration=true</code>, because <code class="inline">XmlWriter.WriteStartDocument</code>
+                emits the encoding name in lowercase ("utf-8"), which would not match the specification's example
+                (uppercase "UTF-8"). Each <code class="inline">BookmarkNode</code> is written recursively under the
+                root <code class="inline">&lt;Bookmark&gt;</code> element as
+                <code class="inline">&lt;Title Page="..." Action="GoTo"&gt;title&lt;nested Title.../&gt;&lt;/Title&gt;</code>.
+              </td>
+            </tr>
+            <tr>
+              <td class="wrap-mono">- BuildPageAttribute(node)</td>
+              <td class="mono">string</td>
+              <td>
+                Builds the value of the <code class="inline">Page</code> attribute. The page number is
+                <code class="inline">(MergedPageIndex ?? OriginalPageIndex) + 1</code> (1-based, falling back to
+                <code class="inline">OriginalPageIndex</code> when <code class="inline">MergedPageIndex</code> has
+                not yet been computed). The display method follows the PDF Reference's argument order:
+                <code class="inline">Fit</code> takes no arguments, <code class="inline">FitH</code>/<code class="inline">FitV</code>
+                always emit one (Top/Left), and <code class="inline">XYZ</code> always emits three (Left, Top, Zoom)
+                at fixed positions. Since the specification itself states that a Zoom of 0 means the same as null,
+                this implementation applies the same convention to Left/Top when unset, substituting 0 rather than
+                omitting the argument, to avoid shifting the argument positions.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <h3>BookmarkOffsetCalculator / MissingBookmarkFallback <span class="tag">Non-destructive pipeline (fix for #8)</span></h3>
       <div class="table-wrap">
         <table>
@@ -1409,6 +1449,13 @@
         OK button initial focus (so it can be confirmed directly with the Enter key), and the OK/Cancel buttons' Click
         handlers merely set <code class="inline">DialogResult</code> and call <code class="inline">Close()</code>. None of
         the individual classes contain any logic of their own.
+      </p>
+      <p>
+        <span class="badge ok">New feature</span> <code class="inline">IDialogService</code> gained
+        <code class="inline">ShowSaveBookmarkSettingsDialogAsync</code>, structurally identical to
+        <code class="inline">ShowSaveMergedPdfDialogAsync</code> — only the extension/filter differ, using
+        <code class="inline">Strings.XmlFileFilterWpf</code> / <code class="inline">Strings.XmlFileTypeName</code>
+        for XML.
       </p>
 
       <h3>ThemeApplier (WPF / Avalonia, not shared)</h3>
@@ -1866,6 +1913,7 @@ private const double IndentPerLevel = 16;</span></pre>
             <tr><td class="mono">IPdfFileCollectorService, PdfFileCollectorService</td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}PdfFileCollectorService.cs</td></tr>
             <tr><td class="mono">IPdfMetadataService, PdfMetadataService</td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}PdfMetadataService.cs</td></tr>
             <tr><td class="mono">IPdfMergeService, PdfMergeService</td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}PdfMergeService.cs</td></tr>
+            <tr><td class="mono">IBookmarkSettingsExportService, BookmarkSettingsExportService <span class="badge ok">New feature</span></td><td class="mono">src/PdfBookmarkMerger.Core/Services/{I,}BookmarkSettingsExportService.cs</td></tr>
             <tr><td class="mono">BookmarkOffsetCalculator, MissingBookmarkFallback, BookmarkDestinationTypeMapper</td><td class="mono">src/PdfBookmarkMerger.Core/Services/*.cs</td></tr>
             <tr><td class="mono">ViewModelBase, MainWindowViewModel, FileListViewModel, BookmarkTreeViewModel, BookmarkNodeViewModel, PdfFileEntryViewModel, PropertiesDialogViewModel, SettingsViewModel, LevelCapDialogViewModel, WorkflowStep</td><td class="mono">src/PdfBookmarkMerger.App/ViewModels/*.cs</td></tr>
             <tr><td class="mono">IDialogService, IUserSettingsService, UserSettingsService</td><td class="mono">src/PdfBookmarkMerger.App/Services/*.cs</td></tr>

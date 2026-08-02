@@ -51,6 +51,7 @@ public static class Strings
     public static string ForceFitCheckbox => Get(nameof(ForceFitCheckbox));
     public static string GlobalExpandCheckbox => Get(nameof(GlobalExpandCheckbox));
     public static string MergeButton => Get(nameof(MergeButton));
+    public static string SaveBookmarkSettingsButton => Get(nameof(SaveBookmarkSettingsButton));
     public static string StatusBarProcessingLabel => Get(nameof(StatusBarProcessingLabel));
     public static string BusyProgressCountOnlyFormat => Get(nameof(BusyProgressCountOnlyFormat));
     public static string BusyProgressWithDetailFormat => Get(nameof(BusyProgressWithDetailFormat));
@@ -93,6 +94,13 @@ public static class Strings
     public static string MergeCompleteMessageFormat => Get(nameof(MergeCompleteMessageFormat));
     public static string MergeErrorDialogTitle => Get(nameof(MergeErrorDialogTitle));
     public static string MergeErrorMessageFormat => Get(nameof(MergeErrorMessageFormat));
+    public static string DefaultBookmarkSettingsFileName => Get(nameof(DefaultBookmarkSettingsFileName));
+    public static string StatusSavingBookmarkSettings => Get(nameof(StatusSavingBookmarkSettings));
+    public static string StatusSaveBookmarkSettingsCompleteFormat => Get(nameof(StatusSaveBookmarkSettingsCompleteFormat));
+    public static string SaveBookmarkSettingsCompleteDialogTitle => Get(nameof(SaveBookmarkSettingsCompleteDialogTitle));
+    public static string SaveBookmarkSettingsCompleteMessageFormat => Get(nameof(SaveBookmarkSettingsCompleteMessageFormat));
+    public static string SaveBookmarkSettingsErrorDialogTitle => Get(nameof(SaveBookmarkSettingsErrorDialogTitle));
+    public static string SaveBookmarkSettingsErrorMessageFormat => Get(nameof(SaveBookmarkSettingsErrorMessageFormat));
 
     public static string NewBookmarkDefaultTitle => Get(nameof(NewBookmarkDefaultTitle));
     public static string NoMergeTargetFilesError => Get(nameof(NoMergeTargetFilesError));
@@ -102,4 +110,7 @@ public static class Strings
     public static string PdfFileTypeName => Get(nameof(PdfFileTypeName));
     public static string OpenFolderDialogTitle => Get(nameof(OpenFolderDialogTitle));
     public static string SaveMergedPdfDialogTitle => Get(nameof(SaveMergedPdfDialogTitle));
+    public static string SaveBookmarkSettingsDialogTitle => Get(nameof(SaveBookmarkSettingsDialogTitle));
+    public static string XmlFileFilterWpf => Get(nameof(XmlFileFilterWpf));
+    public static string XmlFileTypeName => Get(nameof(XmlFileTypeName));
 }

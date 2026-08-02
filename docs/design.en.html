@@ -971,6 +971,24 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         (<code class="inline">WpfDialogService</code>/<code class="inline">AvaloniaDialogService</code>'s
         <code class="inline">ReplaceMainWindowForLanguageChange</code>).
       </p>
+
+      <h3>Bookmark settings file export <span class="badge ok">New feature</span></h3>
+      <p>
+        The current bookmark tree can be exported, independently of running an actual PDF merge, as an XML file
+        conforming to the internal "bookmark settings file specification" (a UTF-8 XML document whose root
+        <code class="inline">&lt;Bookmark&gt;</code> element nests <code class="inline">&lt;Title Page="page-number display-method[ coordinates...]" Action="GoTo"&gt;</code>
+        elements). A "Save Bookmark Settings File" button sits next to "Merge and Save PDF" on the bookmark-edit
+        screen (step 3); once a save location is confirmed, <code class="inline">BookmarkSettingsExportService.ExportAsync</code>
+        writes out the current bookmark tree (<code class="inline">BookmarkTree.ToModel()</code>, which returns a
+        Fit-only clone while Force Fit for All is on). The suggested file name reuses the merge dialog's default
+        file name with its extension changed to <code class="inline">.xml</code>. The page number is the 1-based
+        page within the merged PDF (<code class="inline">MergedPageIndex</code>, falling back to
+        <code class="inline">OriginalPageIndex</code> when not yet computed); the display method is written with
+        the same argument order as the PDF Reference's display methods (Fit/FitH/FitV/XYZ), substituting 0 for any
+        unset Left/Top/Zoom argument (since the specification itself states that a Zoom of 0 means the same as
+        null, this implementation applies the same convention to Left/Top to avoid shifting the argument
+        positions).
+      </p>
     </section>
 
     <section id="settings-logging">
@@ -1175,8 +1193,9 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
             <tr><td class="mono">BookmarkOffsetCalculatorTests</td><td>Computation of cumulative page offsets, skipping of files whose metadata was not retrieved, and <strong>that the input (the original BookmarkNode) is never modified (non-destructiveness)</strong></td></tr>
             <tr><td class="mono">MissingBookmarkFallbackTests</td><td>Filling in a file-name bookmark for files with no bookmarks, inheriting the display method from the preceding file (but not the coordinates), and returning the same instance (no duplication) for files that already have bookmarks</td></tr>
             <tr><td class="mono">PdfMergeServiceTests</td><td>Merges 2 files with bookmarks plus 1 without, reopens the merged result, and verifies page count, bookmark hierarchy, jump-target pages, and properties (integration test)</td></tr>
+            <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>Exact match of the declaration line, Page/Action attributes for flat and nested structures, the argument list for each of Fit/FitH/FitV/XYZ (substituting 0 when unset), and falling back to OriginalPageIndex when MergedPageIndex has not been computed</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>Expanding only files directly under a folder while excluding subfolders, ignoring non-PDF files, and ignoring nonexistent paths</td></tr>
-            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails</td></tr>
+            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails. Saving the bookmark settings file (default file name, export invocation, no invocation on cancel)</td></tr>
             <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, and Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order)</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>Batch move up/down of a multi-selection block, and button-enabled state at the boundaries and for a non-contiguous selection (<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO-order retrieval, discarding the oldest entries once the total size cap is exceeded, and always keeping the most recent entry even when the cap is exceeded</td></tr>
@@ -1187,7 +1206,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         </table>
       </div>
 
-      <p><span class="badge ok">Result</span> All 86 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
+      <p><span class="badge ok">Result</span> All 105 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
     </section>
 
     <section id="windows-release-build">

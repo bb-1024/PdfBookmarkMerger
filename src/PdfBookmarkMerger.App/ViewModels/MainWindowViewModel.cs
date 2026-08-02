@@ -19,6 +19,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 {
     private readonly IPdfMetadataService _metadataService;
     private readonly IPdfMergeService _mergeService;
+    private readonly IBookmarkSettingsExportService _bookmarkSettingsExportService;
     private readonly IDialogService _dialogService;
     private readonly IUserSettingsService _userSettings;
     private readonly ILogger<MainWindowViewModel> _logger;
@@ -30,6 +31,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         BookmarkTreeViewModel bookmarkTree,
         IPdfMetadataService metadataService,
         IPdfMergeService mergeService,
+        IBookmarkSettingsExportService bookmarkSettingsExportService,
         IDialogService dialogService,
         IUserSettingsService userSettings,
         ILogger<MainWindowViewModel> logger)
@@ -38,6 +40,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         BookmarkTree = bookmarkTree;
         _metadataService = metadataService;
         _mergeService = mergeService;
+        _bookmarkSettingsExportService = bookmarkSettingsExportService;
         _dialogService = dialogService;
         _userSettings = userSettings;
         _logger = logger;
@@ -55,6 +58,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         var canMerge = isEditingBookmarks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
         MergeCommand = new AsyncReactiveCommand(canMerge).AddTo(Disposables);
         MergeCommand.Subscribe(async () => await MergeAsync()).AddTo(Disposables);
+
+        var canSaveBookmarkSettings = isEditingBookmarks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
+        SaveBookmarkSettingsCommand = new AsyncReactiveCommand(canSaveBookmarkSettings).AddTo(Disposables);
+        SaveBookmarkSettingsCommand.Subscribe(async () => await SaveBookmarkSettingsAsync()).AddTo(Disposables);
 
         var canGoBack = isEditingBookmarks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
         BackToFileListCommand = new ReactiveCommand(canGoBack).AddTo(Disposables);
@@ -113,6 +120,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public AsyncReactiveCommand ConfirmFilesCommand { get; }
 
     public AsyncReactiveCommand MergeCommand { get; }
+
+    public AsyncReactiveCommand SaveBookmarkSettingsCommand { get; }
 
     public ReactiveCommand BackToFileListCommand { get; }
 
@@ -296,6 +305,48 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             IsBusy.Value = false;
             BusyProgress.Value = null;
+        }
+    }
+
+    /// <summary>internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。</summary>
+    internal async Task SaveBookmarkSettingsAsync()
+    {
+        var mergeTargetFiles = FileList.Files.Where(f => !f.LoadFailed.Value).ToList();
+        var firstFile = mergeTargetFiles.FirstOrDefault();
+
+        // 保存先の既定値: PDF結合保存時と同じ規則(1番目のファイルの格納フォルダ)で、
+        // ファイル名の拡張子だけをxmlに変える。
+        var suggestedFileName = firstFile is not null
+            ? $"{Path.GetFileNameWithoutExtension(firstFile.FilePath)}_merged.xml"
+            : Strings.DefaultBookmarkSettingsFileName;
+        var initialDirectory = firstFile is not null
+            ? Path.GetDirectoryName(firstFile.FilePath)
+            : _userSettings.Current.LastOutputDirectory;
+
+        var outputPath = await _dialogService.ShowSaveBookmarkSettingsDialogAsync(suggestedFileName, initialDirectory);
+        if (outputPath is null)
+        {
+            return;
+        }
+
+        IsBusy.Value = true;
+        StatusMessage.Value = Strings.StatusSavingBookmarkSettings;
+
+        try
+        {
+            await _bookmarkSettingsExportService.ExportAsync(BookmarkTree.ToModel(), outputPath);
+
+            StatusMessage.Value = string.Format(Strings.StatusSaveBookmarkSettingsCompleteFormat, outputPath);
+            _dialogService.ShowInfo(Strings.SaveBookmarkSettingsCompleteDialogTitle, string.Format(Strings.SaveBookmarkSettingsCompleteMessageFormat, outputPath));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "しおり設定ファイルの保存に失敗しました: {OutputPath}", outputPath);
+            _dialogService.ShowError(Strings.SaveBookmarkSettingsErrorDialogTitle, string.Format(Strings.SaveBookmarkSettingsErrorMessageFormat, ex.Message));
+        }
+        finally
+        {
+            IsBusy.Value = false;
         }
     }
 }

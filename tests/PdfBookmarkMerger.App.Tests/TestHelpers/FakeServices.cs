@@ -75,10 +75,30 @@ internal sealed class FakeMergeService : IPdfMergeService
     }
 }
 
+/// <summary>実際にはXMLを書き出さず、最後に受け取った引数を記録するだけのフェイク。</summary>
+internal sealed class FakeBookmarkSettingsExportService : IBookmarkSettingsExportService
+{
+    public IReadOnlyList<BookmarkNode>? LastBookmarks { get; private set; }
+
+    public string? LastOutputPath { get; private set; }
+
+    public int CallCount { get; private set; }
+
+    public Task ExportAsync(IReadOnlyList<BookmarkNode> bookmarks, string outputPath, CancellationToken ct = default)
+    {
+        LastBookmarks = bookmarks;
+        LastOutputPath = outputPath;
+        CallCount++;
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>ダイアログ操作を全て固定値で即応答するフェイク。</summary>
 internal sealed class FakeDialogService : IDialogService
 {
     public string? SaveDialogResult { get; set; } = @"C:\out\merged.pdf";
+
+    public string? SaveBookmarkSettingsDialogResult { get; set; } = @"C:\out\merged.xml";
 
     public PdfDocumentPropertiesModel? PropertiesDialogResult { get; set; }
 
@@ -97,6 +117,9 @@ internal sealed class FakeDialogService : IDialogService
 
     public Task<string?> ShowSaveMergedPdfDialogAsync(string suggestedFileName, string? initialDirectory) =>
         Task.FromResult(SaveDialogResult);
+
+    public Task<string?> ShowSaveBookmarkSettingsDialogAsync(string suggestedFileName, string? initialDirectory) =>
+        Task.FromResult(SaveBookmarkSettingsDialogResult);
 
     public Task<PdfDocumentPropertiesModel?> ShowPropertiesDialogAsync(PdfDocumentPropertiesModel initial) =>
         Task.FromResult(PropertiesDialogResult);

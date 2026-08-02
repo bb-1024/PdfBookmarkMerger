@@ -15,6 +15,9 @@ public interface IDialogService
     /// <summary>保存先ダイアログ。キャンセル時はnull。</summary>
     Task<string?> ShowSaveMergedPdfDialogAsync(string suggestedFileName, string? initialDirectory);
 
+    /// <summary>しおり設定ファイル(XML)の保存先ダイアログ。キャンセル時はnull。</summary>
+    Task<string?> ShowSaveBookmarkSettingsDialogAsync(string suggestedFileName, string? initialDirectory);
+
     /// <summary>プロパティ編集ダイアログ。OKでない場合はnull。</summary>
     Task<PdfDocumentPropertiesModel?> ShowPropertiesDialogAsync(PdfDocumentPropertiesModel initial);
 

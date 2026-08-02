@@ -943,6 +943,21 @@ Directory.Build.props                   <span class="c"># ソリューション�
         (<code class="inline">WpfDialogService</code>/<code class="inline">AvaloniaDialogService</code>の
         <code class="inline">ReplaceMainWindowForLanguageChange</code>)。
       </p>
+
+      <h3>しおり設定ファイル出力 <span class="badge ok">新機能</span></h3>
+      <p>
+        社内の「しおり設定ファイル仕様」(UTF-8のXML、ルート<code class="inline">&lt;Bookmark&gt;</code>直下に
+        <code class="inline">&lt;Title Page="ページ番号 表示方法[ 座標...]" Action="GoTo"&gt;</code>を入れ子で並べる形式)に
+        従ったXMLファイルを、実際のPDF結合を実行せずに単独で書き出せる。しおり編集画面(手順3)に
+        「結合してPDFを保存」と並べて「しおり設定ファイルを保存」ボタンを配置し、保存先ダイアログでの
+        確定後に<code class="inline">BookmarkSettingsExportService.ExportAsync</code>が現在のしおりツリー
+        (<code class="inline">BookmarkTree.ToModel()</code>、ForceFitForAll適用中はFit一律の複製)を書き出す。
+        既定ファイル名は、PDF結合保存時の既定ファイル名の拡張子を<code class="inline">.xml</code>に変えたもの。
+        ページ番号は結合後PDFにおける1始まりページ番号(<code class="inline">MergedPageIndex</code>、未算出の場合は
+        <code class="inline">OriginalPageIndex</code>にフォールバック)、表示方法はPDF Referenceの表示方法
+        (Fit/FitH/FitV/XYZ)と同じ引数順で出力し、Left/Top/Zoomが未設定の引数は0を代入する(仕様上、Zoom=0は
+        nullと同義とされているため、本実装ではLeft/Topにも同じ規約を適用して引数の位置ずれを避けている)。
+      </p>
     </section>
 
     <section id="settings-logging">
@@ -1142,8 +1157,9 @@ Directory.Build.props                   <span class="c"># ソリューション�
             <tr><td class="mono">BookmarkOffsetCalculatorTests</td><td>累積ページオフセットの計算、メタデータ未取得ファイルのスキップ、<strong>入力(元のBookmarkNode)を変更しないこと(非破壊性)</strong></td></tr>
             <tr><td class="mono">MissingBookmarkFallbackTests</td><td>しおりなしファイルへのファイル名しおり補完、直前ファイルの表示方法の引き継ぎ(座標は引き継がない)、既存しおりを持つファイルは複製せず同一インスタンスを返すこと</td></tr>
             <tr><td class="mono">PdfMergeServiceTests</td><td>しおり付き2ファイル+しおりなし1ファイルを結合し、結合結果を再オープンしてページ数・しおり階層・ジャンプ先ページ・プロパティを検証(統合テスト)</td></tr>
+            <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>宣言行の厳密一致、フラット/入れ子構造のPage・Action属性、Fit/FitH/FitV/XYZ各表示方法の引数(未設定時は0を代入)、MergedPageIndex未算出時のOriginalPageIndexへのフォールバック</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>フォルダ直下のみ展開・子フォルダ除外、非PDF無視、存在しないパスの無視</td></tr>
-            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと</td></tr>
+            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと。しおり設定ファイル保存(既定ファイル名・エクスポート呼び出し・キャンセル時未呼び出し)</td></tr>
             <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め(自身のレベル選択時の全削除を含む)、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)、PromoteLevel/DemoteLevel境界条件、Undo(構造操作・プロパティ編集のコアレス・LIFO順の複数回Undo)</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>複数選択ブロックの一括上下移動、境界・非連続選択でのボタン活性状態(<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO順の取り出し、合計サイズ上限超過時の最古エントリからの破棄、最新1件は上限超過でも保持</td></tr>
@@ -1154,7 +1170,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
         </table>
       </div>
 
-      <p><span class="badge ok">結果</span> 全86テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
+      <p><span class="badge ok">結果</span> 全105テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
     </section>
 
     <section id="windows-release-build">

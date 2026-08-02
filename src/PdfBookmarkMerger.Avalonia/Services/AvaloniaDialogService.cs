@@ -87,6 +87,36 @@ public sealed class AvaloniaDialogService : IDialogService
         return file?.Path.LocalPath;
     }
 
+    public async Task<string?> ShowSaveBookmarkSettingsDialogAsync(string suggestedFileName, string? initialDirectory)
+    {
+        var storageProvider = MainWindow?.StorageProvider;
+        if (storageProvider is null)
+        {
+            return null;
+        }
+
+        IStorageFolder? startLocation = null;
+        if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
+        {
+            startLocation = await storageProvider.TryGetFolderFromPathAsync(new Uri(initialDirectory));
+        }
+
+        startLocation ??= await storageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Documents);
+
+        var xmlFileType = new FilePickerFileType(Strings.XmlFileTypeName) { Patterns = ["*.xml"] };
+        var file = await storageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = Strings.SaveBookmarkSettingsDialogTitle,
+            SuggestedFileName = suggestedFileName,
+            DefaultExtension = "xml",
+            FileTypeChoices = [xmlFileType],
+            SuggestedStartLocation = startLocation,
+            ShowOverwritePrompt = true,
+        });
+
+        return file?.Path.LocalPath;
+    }
+
     public async Task<PdfDocumentPropertiesModel?> ShowPropertiesDialogAsync(PdfDocumentPropertiesModel initial)
     {
         var viewModel = new PropertiesDialogViewModel(initial);
