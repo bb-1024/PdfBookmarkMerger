@@ -1339,7 +1339,8 @@
             <tr><td class="wrap-mono">HasPageNumberEdits <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> <span class="badge ok">新機能</span></td><td>ツリー内のいずれかのノードの<code class="inline">PageOffset</code>が非ゼロか。<code class="inline">RecomputeAllPageNumberDisplays</code>の末尾で再計算される。<code class="inline">MainWindowViewModel.MergeCommand</code>のCanExecuteに組み込まれる</td></tr>
             <tr><td class="wrap-mono">HasPageNumberInconsistency <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> <span class="badge ok">新機能</span></td><td>結合前・結合後いずれかのページ数が1未満になっているノードが存在するか。<code class="inline">MainWindowViewModel</code>の<code class="inline">MergeCommand</code>・<code class="inline">SaveBookmarkSettingsCommand</code>双方のCanExecuteに組み込まれる</td></tr>
             <tr><td class="wrap-mono">- OnPreOffsetPageNumberChanged(node, newValue) <span class="badge ok">新機能</span></td><td><code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code>の変更通知を受け取るコールバック。差分(newValue - 編集前の実効値)を、同一<code class="inline">SourceFileEntryId</code>を持ち<code class="inline">OriginalPageIndex</code>が編集ノード以上の全ノードの<code class="inline">PageOffset</code>へ一律加算する。直前にUndoスナップショットを積む(ノード単位でコアレス)。再計算中(<code class="inline">_isRecomputingPageNumbers</code>)は即returnし、書き戻し自体を編集として二重処理しない</td></tr>
-            <tr><td class="wrap-mono">- RecomputeAllPageNumberDisplays() <span class="badge ok">新機能</span></td><td>全ノードの<code class="inline">PreOffsetPageNumber</code>/<code class="inline">DisplayMergedPageNumber</code>を現在の<code class="inline">PageOffset</code>から再計算して書き戻し、<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>を更新する。読込・Undo・追加・削除・レベル上限切り詰め・編集の各操作の後に呼ばれる(Moveは<code class="inline">SourceFileEntryId</code>/<code class="inline">OriginalPageIndex</code>を変更しないため呼ばない)</td></tr>
+            <tr><td class="wrap-mono">ResetFilePageNumbers(node) <span class="badge ok">v1.2.0</span></td><td>結合前ページ数テキストボックスの右クリックメニュー用。<code class="inline">node</code>と同一<code class="inline">SourceFileEntryId</code>を持つ全ノードの<code class="inline">PageOffset</code>を<code class="inline">null</code>へ戻す(<code class="inline">OnPreOffsetPageNumberChanged</code>のような<code class="inline">OriginalPageIndex</code>以降限定ではなく、そのファイル全体が対象)。そのファイルに<code class="inline">PageOffset</code>が非ゼロのノードが1件も無ければ何もせず、Undoスナップショットも積まない</td></tr>
+            <tr><td class="wrap-mono">- RecomputeAllPageNumberDisplays() <span class="badge ok">新機能</span></td><td>全ノードの<code class="inline">PreOffsetPageNumber</code>/<code class="inline">DisplayMergedPageNumber</code>を現在の<code class="inline">PageOffset</code>から再計算して書き戻し、<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>を更新する。読込・Undo・追加・削除・レベル上限切り詰め・編集・<code class="inline">ResetFilePageNumbers</code>の各操作の後に呼ばれる(Moveは<code class="inline">SourceFileEntryId</code>/<code class="inline">OriginalPageIndex</code>を変更しないため呼ばない)</td></tr>
             <tr><td class="wrap-mono">- ComputeCumulativeDeltaBeforeFile() <span class="badge ok">新機能</span></td><td>ファイルごとの「ファイル内で最もOriginalPageIndexが大きいノードのPageOffset」(=そのファイル全体に効く累積差分。どの編集も自身の位置以降=最終ページを含む範囲に及ぶため)を、<code class="inline">_orderedFileIds</code>の順に積算し、各ファイルについて「自分より前のファイルの累積差分の合計」を返す</td></tr>
           </tbody>
         </table>
@@ -1512,7 +1513,11 @@
         コントロールへ割り当てると、そのContextMenu(および内部のMenuItem)のDataContextは割り当て先コントロールの
         DataContextを継承する(WPFのInheritanceContext。Avaloniaもポップアップの論理親経由で同様に継承する)ため、
         <code class="inline">OnResetPreOffsetPageNumberClick</code>は<code class="inline">((MenuItem)sender).DataContext</code>を
-        そのまま対象の<code class="inline">BookmarkNodeViewModel</code>として使える。
+        そのまま対象の<code class="inline">BookmarkNodeViewModel</code>として使える。<span class="badge ok">v1.2.0</span>
+        当初は取得した<code class="inline">BookmarkNodeViewModel</code>へ直接
+        <code class="inline">PreOffsetPageNumber.Value = OriginalPageNumber</code>を書き戻していたが、これでは
+        リセット対象の行より前のページへの編集が残ってしまうため、<code class="inline">BookmarkTreeViewModel.ResetFilePageNumbers(node)</code>
+        を呼び出す形に改めた(対象ノードが属するファイル全体の編集を一括で取り消す)。
       </p>
       <p style="font-size: 13.5px; color: var(--ink-soft);">
         ファイル一覧が空の間に表示するヒントテキストの実装方法もフレームワークごとに異なる。WPF版は

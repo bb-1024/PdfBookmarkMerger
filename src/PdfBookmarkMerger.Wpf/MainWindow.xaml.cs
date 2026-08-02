@@ -680,15 +680,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     /// <summary>
     /// 結合前ページ数テキストボックスのコンテキストメニュー(リセット)。ContextMenuはプロパティ経由で
     /// TextBoxへ割り当てているため、WPFのInheritanceContextによりMenuItem.DataContextはそのTextBoxの
-    /// DataContext(=対象のBookmarkNodeViewModel)へ解決される。編集前の値へ戻すと、通常の編集と
-    /// 同じ経路(BookmarkTreeViewModel.OnPreOffsetPageNumberChanged)で同一ファイル内の後続行・
-    /// 後続ファイルへの連鎖も正しく巻き戻される。
+    /// DataContext(=対象のBookmarkNodeViewModel)へ解決される。対象ノードが属するPDFファイルに
+    /// 関係する結合前ページ数の編集を、ファイル単位で一括リセットする(そのノード単体だけでなく、
+    /// 同一ファイル内の他のノードへの編集もすべて元へ戻す)。
     /// </summary>
     private void OnResetPreOffsetPageNumberClick(object sender, RoutedEventArgs e)
     {
         if (((MenuItem)sender).DataContext is BookmarkNodeViewModel node)
         {
-            node.PreOffsetPageNumber.Value = node.OriginalPageNumber;
+            ViewModel.BookmarkTree.ResetFilePageNumbers(node);
         }
     }
 

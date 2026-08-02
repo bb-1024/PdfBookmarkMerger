@@ -1024,12 +1024,15 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         semi-transparent amber background via <code class="inline">EditedHighlightBrushConverter</code>, reading
         <code class="inline">BookmarkNodeViewModel.IsPageNumberEdited</code> (a semi-transparent color was chosen,
         rather than an opaque one, so it reads correctly layered over both the light and dark themes).
-        Right-clicking the text box opens a context menu with "Reset Pre-merge Page Number"; choosing it writes the
-        bookmark's own pre-edit baseline (<code class="inline">OriginalPageNumber</code>) back into
-        <code class="inline">PreOffsetPageNumber.Value</code>. Since this goes through the exact same path as a
-        normal edit (<code class="inline">OnPreOffsetPageNumberChanged</code>), the cascade to later rows in the
-        same file and to subsequent files is correctly unwound by the same rule an edit uses to apply it, and the
-        reset is an Undo target too.
+        Right-clicking the text box opens a context menu with "Reset Pre-merge Page Numbers for This File"; choosing
+        it calls <code class="inline">BookmarkTreeViewModel.ResetFilePageNumbers</code>, which clears the edits of
+        <strong>every bookmark belonging to the same PDF file (SourceFileEntryId) as the row that was
+        right-clicked</strong>, not just that one row (setting each bookmark's
+        <code class="inline">PageOffset</code> back to its unedited state, null)
+        <span class="badge ok">Fixed in v1.2.0</span>. Rolling back only the clicked row's own baseline value would
+        leave earlier edits intact — edits applied to rows that sit before the reset target on the source PDF's own
+        page structure — so the reset is scoped to the whole file instead. The reset is an Undo target too (a no-op,
+        pushing no Undo entry, when that file has no active edits).
       </p>
     </section>
 
@@ -1238,7 +1241,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
             <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>Exact match of the declaration line, Page/Action attributes for flat and nested structures, the argument list for each of Fit/FitH/FitV/XYZ (substituting 0 when unset), and falling back to OriginalPageIndex when MergedPageIndex has not been computed</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>Expanding only files directly under a folder while excluding subfolders, ignoring non-PDF files, and ignoring nonexistent paths</td></tr>
             <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails. Saving the bookmark settings file (default file name, export invocation, no invocation on cancel). That editing the pre-merge page number disables only <code class="inline">MergeCommand</code>, and disables <code class="inline">SaveBookmarkSettingsCommand</code> too once an inconsistency results</td></tr>
-            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order), and <strong>editing the pre-merge page number</strong> (applies only to same-file bookmarks at or after the edited page, cascades post-merge numbers across files, clears HasPageNumberEdits when the edit nets back to zero, sets HasPageNumberInconsistency on an invalid result, sets IsPageNumberEdited only on the nodes actually affected, is restored by Undo, that writing a node's own baseline back (equivalent to the right-click reset) unwinds the cascade, and is reflected in <code class="inline">ToExportModel</code>)</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order), and <strong>editing the pre-merge page number</strong> (applies only to same-file bookmarks at or after the edited page, cascades post-merge numbers across files, clears HasPageNumberEdits when the edit nets back to zero, sets HasPageNumberInconsistency on an invalid result, sets IsPageNumberEdited only on the nodes actually affected, is restored by Undo, that manually typing the original value back into the text box unwinds the cascade, and is reflected in <code class="inline">ToExportModel</code>), and <strong><code class="inline">ResetFilePageNumbers</code></strong> (resets the whole file at once, including edits on pages before the reset target; leaves other files untouched; is a no-op that pushes no Undo entry when that file has no active edits; is restored by Undo)</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>Batch move up/down of a multi-selection block, and button-enabled state at the boundaries and for a non-contiguous selection (<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO-order retrieval, discarding the oldest entries once the total size cap is exceeded, and always keeping the most recent entry even when the cap is exceeded</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Resolving Japanese/English resources by switching Strings.Culture, auto-detection and one-time persistence when unset, and preserving an existing configured value</td></tr>
@@ -1248,7 +1251,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         </table>
       </div>
 
-      <p><span class="badge ok">Result</span> All 124 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
+      <p><span class="badge ok">Result</span> All 128 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
     </section>
 
     <section id="windows-release-build">

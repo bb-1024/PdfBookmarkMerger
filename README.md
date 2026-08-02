@@ -17,7 +17,7 @@ Built on a shared ReactiveProperty MVVM core with two native UI front ends: **WP
 - Full bookmark-tree editor: rename, change destination type (Fit/XYZ/...), edit jump coordinates, add/remove nodes, promote/demote levels, drag & drop to reparent or reorder (with auto-scroll near the tree edges), and cap the depth of a subtree.
 - Undo for tree edits, with history automatically capped by memory usage rather than a fixed step count.
 - Export the current bookmark tree as a standalone bookmark-settings XML file, independent of running an actual PDF merge.
-- Editable pre-merge page numbers: changing a bookmark's pre-merge page number shifts every bookmark at or after that page (by the source PDF's own page structure, not tree order) in the same file, cascading the post-merge page numbers of that file and every file merged after it. The text box auto-sizes to the number of digits, highlights when it carries an active edit, and offers a right-click "reset" back to its original value. Merging is disabled whenever such an edit is active, and disabled together with the export whenever the edit would produce a page number below 1.
+- Editable pre-merge page numbers: changing a bookmark's pre-merge page number shifts every bookmark at or after that page (by the source PDF's own page structure, not tree order) in the same file, cascading the post-merge page numbers of that file and every file merged after it. The text box auto-sizes to the number of digits and highlights when it carries an active edit; right-click offers "reset" for the whole file, clearing every edit applied anywhere in that file, not just the clicked row. Merging is disabled whenever such an edit is active, and disabled together with the export whenever the edit would produce a page number below 1.
 - Parallelized, progress-reporting loads and merges so large bookmark-heavy batches stay responsive.
 - Japanese and English UI, auto-detected on first launch from the OS language and changeable from Settings.
 - No registry use: `settings.json` and log files are both stored under the per-user `%AppData%/PdfBookmarkMerger/` folder.
@@ -69,7 +69,7 @@ scripts/                         Release build scripts
 dotnet test PdfBookmarkMerger.slnx
 ```
 
-124 tests across three projects: `PdfBookmarkMerger.Core.Tests`, `PdfBookmarkMerger.App.Tests`, and `PdfBookmarkMerger.UiConverters.Tests` (which exercises both frontends' converter classes directly).
+128 tests across three projects: `PdfBookmarkMerger.Core.Tests`, `PdfBookmarkMerger.App.Tests`, and `PdfBookmarkMerger.UiConverters.Tests` (which exercises both frontends' converter classes directly).
 
 ---
 
@@ -86,7 +86,7 @@ ReactiveProperty MVVMを核とする共通アプリケーション層を、Windo
 - しおりツリーの編集: タイトル変更、表示方法(Fit/XYZ等)の変更、ジャンプ先座標の編集、ノードの追加・削除、レベルの上げ下げ、ドラッグ&ドロップによる並べ替え・再親子付け(ツリー端付近での自動スクロール対応)、子孫の階層深さの上限設定。
 - しおりツリー編集の「元に戻す」に対応。履歴は固定回数ではなく、使用メモリ量に応じて自動的に管理。
 - 現在のしおりツリーを、PDF結合を実行せずに単独のしおり設定XMLファイルとして書き出し可能。
-- 結合前ページ数を編集可能。変更すると、同一ファイル内でそのページ(元となるPDFのページ構造上の位置基準、しおりツリー上の順序ではない)以降の全しおりの結合前ページ数、およびそのファイル・後続ファイルの結合後ページ数が一律で連動する。テキストボックスは桁数に応じて幅が自動調整され、差分が加わっている行は強調表示、右クリックで編集前の値へのリセットも可能。編集中は「結合してPDFを保存」を非活性化し、結果ページ数が1未満になる場合は「しおり設定ファイルを保存」も非活性化する。
+- 結合前ページ数を編集可能。変更すると、同一ファイル内でそのページ(元となるPDFのページ構造上の位置基準、しおりツリー上の順序ではない)以降の全しおりの結合前ページ数、およびそのファイル・後続ファイルの結合後ページ数が一律で連動する。テキストボックスは桁数に応じて幅が自動調整され、差分が加わっている行は強調表示。右クリックの「リセット」は、クリックした行だけでなくそのファイル全体の編集を一括で取り消す。編集中は「結合してPDFを保存」を非活性化し、結果ページ数が1未満になる場合は「しおり設定ファイルを保存」も非活性化する。
 - 読み込み・結合処理の並列化と進捗表示により、大量のしおりを含むファイルでも画面が固まらない。
 - 日本語・英語のUIに対応。初回起動時はOSの言語から自動判定し、以後は設定画面で変更可能。
 - 設定はレジストリを使わず、`settings.json`・ログともにユーザーごとの`%AppData%/PdfBookmarkMerger/`フォルダに保存。
@@ -138,4 +138,4 @@ scripts/                         リリースビルド用スクリプト
 dotnet test PdfBookmarkMerger.slnx
 ```
 
-`PdfBookmarkMerger.Core.Tests` / `PdfBookmarkMerger.App.Tests` / `PdfBookmarkMerger.UiConverters.Tests`(両フロントエンドのConverterを実際に実行するゴールデンテスト)の3プロジェクトで、計124件のテストを実施しています。
+`PdfBookmarkMerger.Core.Tests` / `PdfBookmarkMerger.App.Tests` / `PdfBookmarkMerger.UiConverters.Tests`(両フロントエンドのConverterを実際に実行するゴールデンテスト)の3プロジェクトで、計128件のテストを実施しています。

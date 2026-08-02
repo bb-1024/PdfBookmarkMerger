@@ -435,6 +435,42 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 指定ノードが属するPDFファイル(SourceFileEntryId)に関係する結合前ページ数の編集を、
+    /// そのファイル内の全ノードについて一括でリセットする(PageOffsetを未編集状態=nullへ戻す)。
+    /// 個々のノード単位でのリセット(そのノードのOriginalPageIndex以降のみ戻す)では、
+    /// 編集対象ノードより前のページに及ぼした過去の編集が残ってしまうため、
+    /// ファイル単位で完全に元へ戻す。
+    /// </summary>
+    public void ResetFilePageNumbers(BookmarkNodeViewModel node)
+    {
+        var fileId = node.Model.SourceFileEntryId;
+        var hasEdits = false;
+        WalkAll(RootNodes, vm =>
+        {
+            if (vm.Model.SourceFileEntryId == fileId && (vm.Model.PageOffset ?? 0) != 0)
+            {
+                hasEdits = true;
+            }
+        });
+
+        if (!hasEdits)
+        {
+            return;
+        }
+
+        PushUndoSnapshot();
+        WalkAll(RootNodes, vm =>
+        {
+            if (vm.Model.SourceFileEntryId == fileId)
+            {
+                vm.Model.PageOffset = null;
+            }
+        });
+
+        RecomputeAllPageNumberDisplays();
+    }
+
+    /// <summary>
     /// 全ノードのPreOffsetPageNumber/DisplayMergedPageNumberを、現在のPageOffset設定に基づいて
     /// 再計算し各ノードへ書き戻す。あわせてHasPageNumberEdits/HasPageNumberInconsistencyも更新する。
     /// ツリー構造・PageOffsetを変更しうるすべての操作(読込・Undo・追加・削除・移動・編集)の後に呼ぶ。

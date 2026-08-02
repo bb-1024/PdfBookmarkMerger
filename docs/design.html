@@ -990,11 +990,14 @@ Directory.Build.props                   <span class="c"># ソリューション�
         差分が非ゼロ(編集済み)のテキストボックスは、<code class="inline">BookmarkNodeViewModel.IsPageNumberEdited</code>を
         参照する<code class="inline">EditedHighlightBrushConverter</code>により、半透明のオレンジ系背景色で
         強調表示する(ライト/ダーク双方のテーマ上に重ねても違和感がないよう、不透明色ではなく半透明色を採用)。
-        テキストボックスを右クリックすると「結合前ページ数をリセット」を選べるコンテキストメニューが開き、
-        選択すると<code class="inline">PreOffsetPageNumber.Value</code>へそのしおり自身の編集前基準値
-        (<code class="inline">OriginalPageNumber</code>)を書き戻す。これは通常のテキスト編集と全く同じ経路
-        (<code class="inline">OnPreOffsetPageNumberChanged</code>)を通るため、同一ファイル内の後続行・
-        後続ファイルへの連鎖も編集時と同じ規則で正しく巻き戻され、Undo対象にもなる。
+        テキストボックスを右クリックすると「このファイルの結合前ページ数をリセット」を選べる
+        コンテキストメニューが開き、選択すると<code class="inline">BookmarkTreeViewModel.ResetFilePageNumbers</code>が、
+        右クリックした行だけでなく、<strong>その行と同じPDFファイル(SourceFileEntryId)に属する
+        全しおりの編集</strong>を一括で取り消す(各しおりの<code class="inline">PageOffset</code>を
+        未編集状態=nullへ戻す)<span class="badge ok">v1.2.0で修正</span>。個々のしおり単位で編集前基準値へ
+        書き戻すだけでは、リセット対象より前のページに及ぼした過去の編集(元となるPDFのページ構造上、
+        リセット対象より手前にある行への編集)が残ってしまうため、ファイル単位で完全に元へ戻す設計とした。
+        リセットもUndo対象になる(そのファイルに編集が1件も無い場合は何もしない=Undo履歴も積まない)。
       </p>
     </section>
 
@@ -1198,7 +1201,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
             <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>宣言行の厳密一致、フラット/入れ子構造のPage・Action属性、Fit/FitH/FitV/XYZ各表示方法の引数(未設定時は0を代入)、MergedPageIndex未算出時のOriginalPageIndexへのフォールバック</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>フォルダ直下のみ展開・子フォルダ除外、非PDF無視、存在しないパスの無視</td></tr>
             <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと。しおり設定ファイル保存(既定ファイル名・エクスポート呼び出し・キャンセル時未呼び出し)。結合前ページ数編集時に<code class="inline">MergeCommand</code>のみ非活性化、不整合時は<code class="inline">SaveBookmarkSettingsCommand</code>も非活性化されること</td></tr>
-            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め(自身のレベル選択時の全削除を含む)、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)、PromoteLevel/DemoteLevel境界条件、Undo(構造操作・プロパティ編集のコアレス・LIFO順の複数回Undo)、<strong>結合前ページ数編集</strong>(同一ファイル内の該当ページ以降のみへの一律反映、ファイル横断的な結合後ページ数の連鎖、編集の正味ゼロへの復帰によるHasPageNumberEditsの解除、不整合時のHasPageNumberInconsistency、IsPageNumberEditedが影響を受けたノードのみtrueになること、Undoによる復元、右クリックリセット相当の操作(自身の基準値への書き戻し)による連鎖の巻き戻し、<code class="inline">ToExportModel</code>への連鎖分の反映)</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め(自身のレベル選択時の全削除を含む)、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)、PromoteLevel/DemoteLevel境界条件、Undo(構造操作・プロパティ編集のコアレス・LIFO順の複数回Undo)、<strong>結合前ページ数編集</strong>(同一ファイル内の該当ページ以降のみへの一律反映、ファイル横断的な結合後ページ数の連鎖、編集の正味ゼロへの復帰によるHasPageNumberEditsの解除、不整合時のHasPageNumberInconsistency、IsPageNumberEditedが影響を受けたノードのみtrueになること、Undoによる復元、テキストボックスへ手動で編集前の値を入力し直した場合の連鎖の巻き戻し、<code class="inline">ToExportModel</code>への連鎖分の反映)、<strong><code class="inline">ResetFilePageNumbers</code></strong>(リセット対象より前のページへの編集も含めファイル全体を一括リセットすること、別ファイルへは影響しないこと、そのファイルに編集が無い場合は何もせずUndo履歴も積まないこと、Undoによる復元)</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>複数選択ブロックの一括上下移動、境界・非連続選択でのボタン活性状態(<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO順の取り出し、合計サイズ上限超過時の最古エントリからの破棄、最新1件は上限超過でも保持</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Strings.Cultureの切替による日英リソース解決、未設定時の自動判定・一度だけの永続化、既存設定値の保持</td></tr>
@@ -1208,7 +1211,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
         </table>
       </div>
 
-      <p><span class="badge ok">結果</span> 全124テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
+      <p><span class="badge ok">結果</span> 全128テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
     </section>
 
     <section id="windows-release-build">

@@ -473,15 +473,15 @@ public sealed class BookmarkTreeViewModelTests
     }
 
     [Fact]
-    public void ResettingPreOffsetPageNumberToOriginalPageNumber_UndoesTheEditAndItsCascade()
+    public void ManuallyTypingBackTheOriginalPageNumber_UndoesTheEditAndItsCascade()
     {
         var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
 
         page5.PreOffsetPageNumber.Value = 8;
         vm.HasPageNumberEdits.Value.ShouldBeTrue();
 
-        // コンテキストメニューの「リセット」相当の操作: 表示専用のOriginalPageNumber(編集前の基準値)を
-        // 書き戻すことで、通常の編集と同じ経路で差分の巻き戻しが波及する。
+        // テキストボックスへ手動で編集前の値を入力し直した場合も、通常の編集と同じ経路で
+        // 差分の巻き戻しが波及する(ResetFilePageNumbersのようなファイル単位の一括リセットとは別経路)。
         page5.PreOffsetPageNumber.Value = page5.OriginalPageNumber;
 
         page1.PreOffsetPageNumber.Value.ShouldBe(1);
@@ -491,5 +491,68 @@ public sealed class BookmarkTreeViewModelTests
         page9.IsPageNumberEdited.Value.ShouldBeFalse();
         otherFilePage1.DisplayMergedPageNumber.Value.ShouldBe(11);
         vm.HasPageNumberEdits.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ResetFilePageNumbers_ClearsAllEditsForThatFile_EvenBeforeTheEditedNode()
+    {
+        var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
+
+        // Page9(結合前ページ9)を6に変更(delta=-3)。この時点でPage5・Page1はPage9より前のページなので
+        // 影響を受けないが、その後Page1(結合前ページ1)を起点にリセットしても、同一ファイル内の
+        // Page9への編集も含めて全てリセットされるべき。
+        page9.PreOffsetPageNumber.Value = 6;
+        page5.IsPageNumberEdited.Value.ShouldBeFalse("Page9より前のページなので、この時点ではまだ編集の影響を受けない");
+
+        vm.ResetFilePageNumbers(page1);
+
+        page1.PreOffsetPageNumber.Value.ShouldBe(1);
+        page5.PreOffsetPageNumber.Value.ShouldBe(5);
+        page9.PreOffsetPageNumber.Value.ShouldBe(9);
+        page9.IsPageNumberEdited.Value.ShouldBeFalse();
+        otherFilePage1.DisplayMergedPageNumber.Value.ShouldBe(11);
+        vm.HasPageNumberEdits.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ResetFilePageNumbers_DoesNotAffectOtherFiles()
+    {
+        var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
+
+        page5.PreOffsetPageNumber.Value = 8;
+        otherFilePage1.PreOffsetPageNumber.Value = 3;
+
+        vm.ResetFilePageNumbers(page5);
+
+        page5.PreOffsetPageNumber.Value.ShouldBe(5);
+        page9.PreOffsetPageNumber.Value.ShouldBe(9);
+        otherFilePage1.PreOffsetPageNumber.Value.ShouldBe(3, "別ファイルへの編集はリセットされない");
+        vm.HasPageNumberEdits.Value.ShouldBeTrue("別ファイルの編集がまだ残っている");
+    }
+
+    [Fact]
+    public void ResetFilePageNumbers_WithNoEditsForThatFile_IsNoOpAndDoesNotPushUndoSnapshot()
+    {
+        var (vm, page1, _, _, _) = CreateSutWithTwoFiles();
+
+        vm.ResetFilePageNumbers(page1);
+
+        vm.CanUndo.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Undo_AfterResetFilePageNumbers_RestoresThePreResetEdits()
+    {
+        var (vm, page1, page5, page9, _) = CreateSutWithTwoFiles();
+
+        page9.PreOffsetPageNumber.Value = 6;
+        vm.ResetFilePageNumbers(page1);
+        vm.HasPageNumberEdits.Value.ShouldBeFalse();
+
+        vm.UndoCommand.Execute();
+
+        var restoredPage9 = vm.RootNodes.Single(n => n.Title.Value == "Page9");
+        restoredPage9.PreOffsetPageNumber.Value.ShouldBe(6);
+        vm.HasPageNumberEdits.Value.ShouldBeTrue();
     }
 }

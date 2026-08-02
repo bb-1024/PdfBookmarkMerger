@@ -83,7 +83,7 @@
   <data name="BookmarkOriginPrefixWithActionFormat" xml:space="preserve"><value>[{0}] 元: {1} p.</value></data>
   <data name="BookmarkOriginPrefixFormat" xml:space="preserve"><value>元: {0} p.</value></data>
   <data name="BookmarkOriginSuffix" xml:space="preserve"><value>→ 結合後 p.</value></data>
-  <data name="ResetPageNumberMenuItem" xml:space="preserve"><value>結合前ページ数をリセット</value></data>
+  <data name="ResetPageNumberMenuItem" xml:space="preserve"><value>このファイルの結合前ページ数をリセット</value></data>
   <data name="PromoteLevelButton" xml:space="preserve"><value>レベルを上げる</value></data>
   <data name="DemoteLevelButton" xml:space="preserve"><value>レベルを下げる</value></data>
   <data name="AddRootButton" xml:space="preserve"><value>ルートに追加</value></data>

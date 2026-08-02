@@ -670,15 +670,15 @@ public partial class MainWindow : Window
     /// <summary>
     /// 結合前ページ数テキストボックスのコンテキストメニュー(リセット)。ContextMenuはプロパティ経由で
     /// TextBoxへ割り当てているため、MenuItem.DataContextはそのTextBoxのDataContext
-    /// (=対象のBookmarkNodeViewModel)を継承する。編集前の値へ戻すと、通常の編集と同じ経路
-    /// (BookmarkTreeViewModel.OnPreOffsetPageNumberChanged)で同一ファイル内の後続行・後続ファイルへの
-    /// 連鎖も正しく巻き戻される。
+    /// (=対象のBookmarkNodeViewModel)を継承する。対象ノードが属するPDFファイルに関係する
+    /// 結合前ページ数の編集を、ファイル単位で一括リセットする(そのノード単体だけでなく、
+    /// 同一ファイル内の他のノードへの編集もすべて元へ戻す)。
     /// </summary>
     private void OnResetPreOffsetPageNumberClick(object? sender, RoutedEventArgs e)
     {
         if ((sender as MenuItem)?.DataContext is BookmarkNodeViewModel node)
         {
-            node.PreOffsetPageNumber.Value = node.OriginalPageNumber;
+            ViewModel.BookmarkTree.ResetFilePageNumbers(node);
         }
     }
 }
