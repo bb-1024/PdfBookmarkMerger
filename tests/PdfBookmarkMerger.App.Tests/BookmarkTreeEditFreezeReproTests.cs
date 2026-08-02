@@ -155,7 +155,7 @@ public sealed class BookmarkTreeEditFreezeReproTests
 
         var dialog = new FakeDialogService();
         var vm = new BookmarkTreeViewModel(dialog);
-        vm.Load(merged, fileNames);
+        vm.Load(merged, fileNames, files.Select(f => f.Id).ToList());
 
         vm.RootNodes.ShouldNotBeEmpty("Real sample tree loaded with zero root bookmarks.");
 

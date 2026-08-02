@@ -979,15 +979,43 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         <code class="inline">&lt;Bookmark&gt;</code> element nests <code class="inline">&lt;Title Page="page-number display-method[ coordinates...]" Action="GoTo"&gt;</code>
         elements). A "Save Bookmark Settings File" button sits next to "Merge and Save PDF" on the bookmark-edit
         screen (step 3); once a save location is confirmed, <code class="inline">BookmarkSettingsExportService.ExportAsync</code>
-        writes out the current bookmark tree (<code class="inline">BookmarkTree.ToModel()</code>, which returns a
-        Fit-only clone while Force Fit for All is on). The suggested file name reuses the merge dialog's default
-        file name with its extension changed to <code class="inline">.xml</code>. The page number is the 1-based
-        page within the merged PDF (<code class="inline">MergedPageIndex</code>, falling back to
+        writes out the current bookmark tree (<code class="inline">BookmarkTree.ToExportModel()</code>, a
+        non-destructive clone that also bakes in the cascading offsets from the page-number edits described below;
+        it returns a Fit-only clone while Force Fit for All is on). The suggested file name reuses the merge
+        dialog's default file name with its extension changed to <code class="inline">.xml</code>. The page number
+        is the 1-based page within the merged PDF (<code class="inline">MergedPageIndex</code>, falling back to
         <code class="inline">OriginalPageIndex</code> when not yet computed); the display method is written with
         the same argument order as the PDF Reference's display methods (Fit/FitH/FitV/XYZ), substituting 0 for any
         unset Left/Top/Zoom argument (since the specification itself states that a Zoom of 0 means the same as
         null, this implementation applies the same convention to Left/Top to avoid shifting the argument
         positions).
+      </p>
+
+      <h3>Editable pre-merge page number <span class="badge ok">New feature</span></h3>
+      <p>
+        The pre-merge page number shown in the bookmark tree's GoTo line ("From: {file name} p.N") changed from
+        plain text to an editable text box (<code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code>).
+        Changing its value uniformly shifts the pre-merge page number of <strong>every bookmark in the same file
+        whose underlying PDF page position (OriginalPageIndex) is at or after the edited row's</strong> — based on
+        the source PDF's own page structure, not the bookmark tree's display order
+        (<code class="inline">BookmarkTreeViewModel.OnPreOffsetPageNumberChanged</code>). The post-merge page
+        number ("-&gt; Merged p.N") of that same file, and of every file merged after it, cascades by the same
+        total amount (<code class="inline">ComputeCumulativeDeltaBeforeFile</code>: a file's "total effect on
+        later files" equals the delta carried by whichever of its bookmarks has the largest OriginalPageIndex,
+        since every edit's affected range extends through that file's last page). This addend
+        (<code class="inline">BookmarkNode.PageOffset</code>) never affects the
+        <code class="inline">OriginalPageIndex</code>/<code class="inline">MergedPageIndex</code> fields the real
+        PDF merge relies on — it exists purely for the bookmark-settings export and the on-screen display.
+      </p>
+      <p>
+        If an edit would push either the pre-merge or the post-merge page number below 1 (an inconsistency), both
+        "Merge and Save PDF" and "Save Bookmark Settings File" are disabled. If there is no inconsistency, having
+        at least one active edit disables only "Merge and Save PDF" (since the real merged PDF's page positions no
+        longer match what is displayed or exported), while "Save Bookmark Settings File" stays available
+        (<code class="inline">BookmarkTreeViewModel</code>'s <code class="inline">HasPageNumberEdits</code> /
+        <code class="inline">HasPageNumberInconsistency</code> are folded into the respective commands'
+        CanExecute on <code class="inline">MainWindowViewModel</code>). Editing the value back to net zero
+        re-enables both commands as usual.
       </p>
     </section>
 
@@ -1195,8 +1223,8 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
             <tr><td class="mono">PdfMergeServiceTests</td><td>Merges 2 files with bookmarks plus 1 without, reopens the merged result, and verifies page count, bookmark hierarchy, jump-target pages, and properties (integration test)</td></tr>
             <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>Exact match of the declaration line, Page/Action attributes for flat and nested structures, the argument list for each of Fit/FitH/FitV/XYZ (substituting 0 when unset), and falling back to OriginalPageIndex when MergedPageIndex has not been computed</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>Expanding only files directly under a folder while excluding subfolders, ignoring non-PDF files, and ignoring nonexistent paths</td></tr>
-            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails. Saving the bookmark settings file (default file name, export invocation, no invocation on cancel)</td></tr>
-            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, and Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order)</td></tr>
+            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails. Saving the bookmark settings file (default file name, export invocation, no invocation on cancel). That editing the pre-merge page number disables only <code class="inline">MergeCommand</code>, and disables <code class="inline">SaveBookmarkSettingsCommand</code> too once an inconsistency results</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order), and <strong>editing the pre-merge page number</strong> (applies only to same-file bookmarks at or after the edited page, cascades post-merge numbers across files, clears HasPageNumberEdits when the edit nets back to zero, sets HasPageNumberInconsistency on an invalid result, is restored by Undo, and is reflected in <code class="inline">ToExportModel</code>)</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>Batch move up/down of a multi-selection block, and button-enabled state at the boundaries and for a non-contiguous selection (<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO-order retrieval, discarding the oldest entries once the total size cap is exceeded, and always keeping the most recent entry even when the cap is exceeded</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Resolving Japanese/English resources by switching Strings.Culture, auto-detection and one-time persistence when unset, and preserving an existing configured value</td></tr>
@@ -1206,7 +1234,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         </table>
       </div>
 
-      <p><span class="badge ok">Result</span> All 105 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
+      <p><span class="badge ok">Result</span> All 114 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
     </section>
 
     <section id="windows-release-build">

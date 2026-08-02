@@ -18,7 +18,8 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
         BookmarkNodeViewModel? parent,
         IObservable<bool> forceFitForAll,
         IObservable<bool?> globalExpandOverride,
-        Action<string>? requestUndoSnapshot = null)
+        Action<string>? requestUndoSnapshot = null,
+        Action<BookmarkNodeViewModel, int>? onPreOffsetPageNumberChanged = null)
     {
         Model = model;
         SourceFileName = sourceFileName;
@@ -56,6 +57,14 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
         Zoom = new ReactivePropertySlim<double?>(model.Zoom).AddTo(Disposables);
         Zoom.Skip(1).Subscribe(v => { RequestUndoSnapshot(nameof(Zoom)); model.Zoom = v; }).AddTo(Disposables);
 
+        // 結合前ページ数(PreOffsetPageNumber)は他のプロパティと異なりmodelへ直接反映しない。
+        // 編集後の値をどのノードへどう波及させるか(同一ファイル内の後続・後続ファイルへの結合後ページ数の
+        // 連鎖)はBookmarkTreeViewModel側でまとめて計算する必要があるため、変更通知のみを上位へ渡す。
+        PreOffsetPageNumber = new ReactivePropertySlim<int>(model.OriginalPageIndex + 1 + (model.PageOffset ?? 0)).AddTo(Disposables);
+        PreOffsetPageNumber.Skip(1).Subscribe(v => onPreOffsetPageNumberChanged?.Invoke(this, v)).AddTo(Disposables);
+
+        DisplayMergedPageNumber = new ReactivePropertySlim<int?>(MergedPageNumber).AddTo(Disposables);
+
         IsExpanded = new ReactivePropertySlim<bool>(true).AddTo(Disposables);
 
         // 表示方法(DestinationType)に応じて、実際にPDFへ反映される座標コントロールのみ活性化する。
@@ -73,7 +82,7 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
             .ToReadOnlyReactivePropertySlim().AddTo(Disposables);
 
         Children = new ObservableCollection<BookmarkNodeViewModel>(
-            model.Children.Select(c => new BookmarkNodeViewModel(c, sourceFileName, this, forceFitForAll, globalExpandOverride, requestUndoSnapshot)));
+            model.Children.Select(c => new BookmarkNodeViewModel(c, sourceFileName, this, forceFitForAll, globalExpandOverride, requestUndoSnapshot, onPreOffsetPageNumberChanged)));
 
         // 最下位(子を持たない)要素は展開/折りたたみの区別に意味がないため編集不可にする。
         // 「一律で展開表示を設定」がON/OFF(非null)の間も、個別の展開表示チェックボックスは編集不可にする。
@@ -95,11 +104,24 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
 
     public int OriginalPageIndex => Model.OriginalPageIndex;
 
-    /// <summary>結合前ファイル内での1始まりページ番号(表示用)。</summary>
+    /// <summary>結合前ファイル内での1始まりページ番号(編集前の基準値)。</summary>
     public int OriginalPageNumber => Model.OriginalPageIndex + 1;
 
-    /// <summary>結合後PDFにおける1始まりページ番号(表示用)。</summary>
+    /// <summary>結合後PDFにおける1始まりページ番号(編集前の基準値)。</summary>
     public int? MergedPageNumber => Model.MergedPageIndex is { } idx ? idx + 1 : null;
+
+    /// <summary>
+    /// 結合前ページ数(編集可能)。しおり設定画面のテキストボックスに双方向バインドする。
+    /// 変更すると、同一ファイル内でこのノード以降(元となるPDFのページ構造上の位置基準)の
+    /// 全ノードへ差分が一律で反映される(BookmarkTreeViewModel.OnPreOffsetPageNumberChanged)。
+    /// </summary>
+    public ReactivePropertySlim<int> PreOffsetPageNumber { get; }
+
+    /// <summary>
+    /// 結合後ページ数(表示専用)。PreOffsetPageNumberの編集や、結合順で前にあるファイルの編集に
+    /// 連動してBookmarkTreeViewModelが再計算・反映する。
+    /// </summary>
+    public ReactivePropertySlim<int?> DisplayMergedPageNumber { get; }
 
     /// <summary>ツリー上の階層の深さ(ルート=0)。列の縦位置揃えに使う。</summary>
     public int Depth => Parent is null ? 0 : Parent.Depth + 1;

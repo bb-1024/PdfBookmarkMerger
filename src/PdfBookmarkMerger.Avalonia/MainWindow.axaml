@@ -134,13 +134,14 @@
                                          IsEnabled="{Binding IsZoomEditable.Value}" Width="48" />
                                 <TextBlock VerticalAlignment="Center" Foreground="Gray" FontSize="11">
                                     <TextBlock.Text>
-                                        <MultiBinding StringFormat="{x:Static resx:Strings.BookmarkOriginFormat}">
+                                        <MultiBinding StringFormat="{x:Static resx:Strings.BookmarkOriginPrefixFormat}">
                                             <Binding Path="SourceFileName" />
-                                            <Binding Path="OriginalPageNumber" />
-                                            <Binding Path="MergedPageNumber" />
                                         </MultiBinding>
                                     </TextBlock.Text>
                                 </TextBlock>
+                                <TextBox Text="{Binding PreOffsetPageNumber.Value}" Width="40" />
+                                <TextBlock Text="{x:Static resx:Strings.BookmarkOriginSuffix}" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
+                                <TextBlock Text="{Binding DisplayMergedPageNumber.Value}" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
                             </StackPanel>
                         </TreeDataTemplate>
                     </TreeView.ItemTemplate>

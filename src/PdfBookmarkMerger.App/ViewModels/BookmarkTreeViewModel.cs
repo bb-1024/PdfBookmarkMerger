@@ -35,6 +35,14 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
     private List<BookmarkNode> _rootModel = [];
     private IReadOnlyDictionary<Guid, string> _fileNames = new Dictionary<Guid, string>();
+    private IReadOnlyList<Guid> _orderedFileIds = [];
+
+    /// <summary>
+    /// trueの間、PreOffsetPageNumberの変更通知(OnPreOffsetPageNumberChanged)を無視する。
+    /// RecomputeAllPageNumberDisplaysが再計算結果を各ノードへ書き戻す際、その書き戻し自体が
+    /// ユーザー編集として二重に処理・再帰してしまうのを防ぐ。
+    /// </summary>
+    private bool _isRecomputingPageNumbers;
 
     public BookmarkTreeViewModel(IDialogService dialogService)
     {
@@ -49,6 +57,9 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         CanUndo = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         UndoCommand = new ReactiveCommand(CanUndo).AddTo(Disposables);
         UndoCommand.Subscribe(Undo).AddTo(Disposables);
+
+        HasPageNumberEdits = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
+        HasPageNumberInconsistency = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
     }
 
     /// <summary>タイトル列の既定幅(px)。実際の幅はUI側でタイトル文字列の実測幅に応じて拡張される。</summary>
@@ -80,11 +91,27 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     public ReactiveCommand UndoCommand { get; }
 
     /// <summary>
-    /// 新規ドキュメントの読み込み。前のドキュメントのUndo履歴は引き継がない(クリアする)。
+    /// ツリー内のいずれかのしおりの結合前ページ数が編集されているか(差分が実質0でない)。
+    /// trueの間、結合後PDFの実際のページ位置と画面表示・書き出し内容が食い違うため
+    /// 「結合してPDFを保存」を非活性化する(MainWindowViewModel.MergeCommandのCanExecuteに組み込む)。
     /// </summary>
-    public void Load(IReadOnlyList<BookmarkNode> rootBookmarks, IReadOnlyDictionary<Guid, string> fileNames)
+    public ReactivePropertySlim<bool> HasPageNumberEdits { get; }
+
+    /// <summary>
+    /// 編集の結果、結合前・結合後いずれかのページ数が1未満(不整合)になっているノードが存在するか。
+    /// trueの間は「結合してPDFを保存」「しおり設定ファイルを保存」の両方を非活性化する。
+    /// </summary>
+    public ReactivePropertySlim<bool> HasPageNumberInconsistency { get; }
+
+    /// <summary>
+    /// 新規ドキュメントの読み込み。前のドキュメントのUndo履歴は引き継がない(クリアする)。
+    /// orderedFileIdsは結合順のファイルID一覧(結合後ページ数の連鎖計算に使う、しおりツリー上の
+    /// 表示順ではなくファイル一覧の並び順)。
+    /// </summary>
+    public void Load(IReadOnlyList<BookmarkNode> rootBookmarks, IReadOnlyDictionary<Guid, string> fileNames, IReadOnlyList<Guid> orderedFileIds)
     {
         _fileNames = fileNames;
+        _orderedFileIds = orderedFileIds;
         RebuildTree(rootBookmarks);
         _undoHistory.Clear();
         _lastSnapshotPushAt.Clear();
@@ -103,8 +130,10 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         foreach (var node in _rootModel)
         {
             var name = _fileNames.GetValueOrDefault(node.SourceFileEntryId, "?");
-            RootNodes.Add(new BookmarkNodeViewModel(node, name, null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot));
+            RootNodes.Add(new BookmarkNodeViewModel(node, name, null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot, OnPreOffsetPageNumberChanged));
         }
+
+        RecomputeAllPageNumberDisplays();
     }
 
     /// <summary>
@@ -295,6 +324,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         PushUndoSnapshot();
         TruncateBelowLevel(node, absoluteLevel - node.LevelNumber);
         node.SyncChildOrderToModel();
+        RecomputeAllPageNumberDisplays();
     }
 
     private static void TruncateBelowLevel(BookmarkNodeViewModel node, int remainingLevels)
@@ -319,6 +349,40 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     public IReadOnlyList<BookmarkNode> ToModel() =>
         ForceFitForAll.Value ? _rootModel.Select(CloneWithFit).ToList() : _rootModel;
 
+    /// <summary>
+    /// しおり設定ファイル書き出し用のブックマークツリーを返す(非破壊な複製)。各ノードのPageOffsetに、
+    /// 自身の編集分だけでなく、結合順で前にあるファイルの編集による結合後ページ数の連鎖分も
+    /// 合算して反映する。ForceFitForAllがオンの場合はToModel()と同様にFit一律の複製にする。
+    /// </summary>
+    public IReadOnlyList<BookmarkNode> ToExportModel()
+    {
+        var cumulativeBeforeFile = ComputeCumulativeDeltaBeforeFile();
+
+        BookmarkNode CloneForExport(BookmarkNode node)
+        {
+            var crossFileDelta = cumulativeBeforeFile.GetValueOrDefault(node.SourceFileEntryId, 0);
+            var clone = new BookmarkNode
+            {
+                SourceFileEntryId = node.SourceFileEntryId,
+                OriginalPageIndex = node.OriginalPageIndex,
+                MergedPageIndex = node.MergedPageIndex,
+                Title = node.Title,
+                DestinationType = ForceFitForAll.Value ? BookmarkDestinationType.Fit : node.DestinationType,
+                Left = ForceFitForAll.Value ? null : node.Left,
+                Top = ForceFitForAll.Value ? null : node.Top,
+                Right = ForceFitForAll.Value ? null : node.Right,
+                Bottom = ForceFitForAll.Value ? null : node.Bottom,
+                Zoom = ForceFitForAll.Value ? null : node.Zoom,
+                PageOffset = (node.PageOffset ?? 0) + crossFileDelta,
+                IsOpen = node.IsOpen,
+            };
+            clone.Children.AddRange(node.Children.Select(CloneForExport));
+            return clone;
+        }
+
+        return _rootModel.Select(CloneForExport).ToList();
+    }
+
     private static BookmarkNode CloneWithFit(BookmarkNode node)
     {
         var clone = new BookmarkNode
@@ -328,10 +392,137 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             MergedPageIndex = node.MergedPageIndex,
             Title = node.Title,
             DestinationType = BookmarkDestinationType.Fit,
+            PageOffset = node.PageOffset,
             IsOpen = node.IsOpen,
         };
         clone.Children.AddRange(node.Children.Select(CloneWithFit));
         return clone;
+    }
+
+    /// <summary>
+    /// しおり設定画面で結合前ページ数のテキストボックスが編集された際に呼ばれる。
+    /// 同一ファイル内で、編集されたノードの元となるPDFページ位置(OriginalPageIndex)以降にある
+    /// 全ノード(しおりツリー上の順序ではなく、あくまでPDFのページ構造上の位置基準)へ、
+    /// 差分(delta)を一律に加算する。
+    /// </summary>
+    private void OnPreOffsetPageNumberChanged(BookmarkNodeViewModel node, int newValue)
+    {
+        if (_isRecomputingPageNumbers)
+        {
+            return;
+        }
+
+        var oldValue = node.Model.OriginalPageIndex + 1 + (node.Model.PageOffset ?? 0);
+        var delta = newValue - oldValue;
+        if (delta == 0)
+        {
+            return;
+        }
+
+        PushUndoSnapshot($"{node.Model.Id}:PreOffsetPageNumber");
+
+        var fileId = node.Model.SourceFileEntryId;
+        var pivotOriginalIndex = node.Model.OriginalPageIndex;
+        WalkAll(RootNodes, vm =>
+        {
+            if (vm.Model.SourceFileEntryId == fileId && vm.Model.OriginalPageIndex >= pivotOriginalIndex)
+            {
+                vm.Model.PageOffset = (vm.Model.PageOffset ?? 0) + delta;
+            }
+        });
+
+        RecomputeAllPageNumberDisplays();
+    }
+
+    /// <summary>
+    /// 全ノードのPreOffsetPageNumber/DisplayMergedPageNumberを、現在のPageOffset設定に基づいて
+    /// 再計算し各ノードへ書き戻す。あわせてHasPageNumberEdits/HasPageNumberInconsistencyも更新する。
+    /// ツリー構造・PageOffsetを変更しうるすべての操作(読込・Undo・追加・削除・移動・編集)の後に呼ぶ。
+    /// </summary>
+    private void RecomputeAllPageNumberDisplays()
+    {
+        _isRecomputingPageNumbers = true;
+        try
+        {
+            var cumulativeBeforeFile = ComputeCumulativeDeltaBeforeFile();
+
+            var hasEdits = false;
+            var hasInconsistency = false;
+            WalkAll(RootNodes, vm =>
+            {
+                var offset = vm.Model.PageOffset ?? 0;
+                if (offset != 0)
+                {
+                    hasEdits = true;
+                }
+
+                var preNumber = vm.Model.OriginalPageIndex + 1 + offset;
+                vm.PreOffsetPageNumber.Value = preNumber;
+                if (preNumber < 1)
+                {
+                    hasInconsistency = true;
+                }
+
+                if (vm.MergedPageNumber is { } baseMergedNumber)
+                {
+                    var crossFileDelta = cumulativeBeforeFile.GetValueOrDefault(vm.Model.SourceFileEntryId, 0);
+                    var mergedNumber = baseMergedNumber + crossFileDelta + offset;
+                    vm.DisplayMergedPageNumber.Value = mergedNumber;
+                    if (mergedNumber < 1)
+                    {
+                        hasInconsistency = true;
+                    }
+                }
+            });
+
+            HasPageNumberEdits.Value = hasEdits;
+            HasPageNumberInconsistency.Value = hasInconsistency;
+        }
+        finally
+        {
+            _isRecomputingPageNumbers = false;
+        }
+    }
+
+    /// <summary>
+    /// ファイルごとの「そのファイル全体に効く累積差分(FileTotalDelta)」を、結合順(_orderedFileIds)に
+    /// 沿って積み上げ、各ファイルについて「自分より前にあるファイルの累積差分の合計」を返す。
+    /// FileTotalDeltaは、そのファイル内で最もOriginalPageIndexが大きいノードのPageOffsetに等しい
+    /// (どの編集も自身のOriginalPageIndex以降=最終ページを含む範囲に及ぶため、最終ページのノードは
+    /// そのファイルに対するすべての編集の差分を合算した値を持つことになる)。
+    /// </summary>
+    private Dictionary<Guid, int> ComputeCumulativeDeltaBeforeFile()
+    {
+        var maxIndexPerFile = new Dictionary<Guid, int>();
+        var fileTotalDelta = new Dictionary<Guid, int>();
+        WalkAll(RootNodes, vm =>
+        {
+            var fileId = vm.Model.SourceFileEntryId;
+            if (!maxIndexPerFile.TryGetValue(fileId, out var currentMax) || vm.Model.OriginalPageIndex > currentMax)
+            {
+                maxIndexPerFile[fileId] = vm.Model.OriginalPageIndex;
+                fileTotalDelta[fileId] = vm.Model.PageOffset ?? 0;
+            }
+        });
+
+        var cumulativeBeforeFile = new Dictionary<Guid, int>();
+        var running = 0;
+        foreach (var fileId in _orderedFileIds)
+        {
+            cumulativeBeforeFile[fileId] = running;
+            running += fileTotalDelta.GetValueOrDefault(fileId, 0);
+        }
+
+        return cumulativeBeforeFile;
+    }
+
+    private static void WalkAll(IEnumerable<BookmarkNodeViewModel> nodes, Action<BookmarkNodeViewModel> action)
+    {
+        foreach (var node in nodes)
+        {
+            action(node);
+            WalkAll(node.Children, action);
+        }
     }
 
     public BookmarkNodeViewModel AddRoot()
@@ -339,11 +530,12 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         var (fileId, pageIndex) = ResolveDefaultDestination();
         PushUndoSnapshot();
         var model = new BookmarkNode { SourceFileEntryId = fileId, OriginalPageIndex = pageIndex, Title = Strings.NewBookmarkDefaultTitle };
-        var vm = new BookmarkNodeViewModel(model, _fileNames.GetValueOrDefault(fileId, "?"), null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
+        var vm = new BookmarkNodeViewModel(model, _fileNames.GetValueOrDefault(fileId, "?"), null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot, OnPreOffsetPageNumberChanged);
         ApplyCurrentOverridesToNewNode(vm);
 
         RootNodes.Add(vm);
         _rootModel.Add(model);
+        RecomputeAllPageNumberDisplays();
         return vm;
     }
 
@@ -356,13 +548,17 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             OriginalPageIndex = parent.Model.OriginalPageIndex,
             Title = Strings.NewBookmarkDefaultTitle,
             MergedPageIndex = parent.Model.MergedPageIndex,
+            // 親と同じ元ページ(OriginalPageIndex)を指すため、そのページに既に適用されている
+            // 結合前ページ数のオフセットも引き継ぐ(同じページを指す行同士で表示が食い違わないように)。
+            PageOffset = parent.Model.PageOffset,
         };
-        var vm = new BookmarkNodeViewModel(model, parent.SourceFileName, parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
+        var vm = new BookmarkNodeViewModel(model, parent.SourceFileName, parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot, OnPreOffsetPageNumberChanged);
         ApplyCurrentOverridesToNewNode(vm);
 
         parent.Children.Add(vm);
         parent.IsExpanded.Value = true;
         parent.SyncChildOrderToModel();
+        RecomputeAllPageNumberDisplays();
         return vm;
     }
 
@@ -375,8 +571,11 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             OriginalPageIndex = reference.Model.OriginalPageIndex,
             Title = Strings.NewBookmarkDefaultTitle,
             MergedPageIndex = reference.Model.MergedPageIndex,
+            // 参照元と同じ元ページ(OriginalPageIndex)を指すため、そのページに既に適用されている
+            // 結合前ページ数のオフセットも引き継ぐ(同じページを指す行同士で表示が食い違わないように)。
+            PageOffset = reference.Model.PageOffset,
         };
-        var vm = new BookmarkNodeViewModel(model, reference.SourceFileName, reference.Parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot);
+        var vm = new BookmarkNodeViewModel(model, reference.SourceFileName, reference.Parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot, OnPreOffsetPageNumberChanged);
         ApplyCurrentOverridesToNewNode(vm);
 
         var siblings = reference.Parent?.Children ?? RootNodes;
@@ -393,6 +592,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             reference.Parent.SyncChildOrderToModel();
         }
 
+        RecomputeAllPageNumberDisplays();
         return vm;
     }
 
@@ -410,6 +610,8 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         {
             node.Parent.SyncChildOrderToModel();
         }
+
+        RecomputeAllPageNumberDisplays();
     }
 
     /// <summary>ノードをnewParent(nullの場合はルート)のnewIndex位置へ移動する。ドラッグ&ドロップ並べ替え用。</summary>

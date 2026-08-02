@@ -129,4 +129,50 @@ public sealed class MainWindowViewModelTests
 
         export.CallCount.ShouldBe(0);
     }
+
+    [Fact]
+    public async Task EditingPreOffsetPageNumber_DisablesMergeCommand_ButKeepsSaveBookmarkSettingsCommandEnabled()
+    {
+        var (mainVm, metadata, _, _, _) = CreateSut();
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(
+            entry.FilePath,
+            pageCount: 5,
+            bookmarks: [new BookmarkNode { SourceFileEntryId = entry.Id, OriginalPageIndex = 0, Title = "A" }]);
+        await mainVm.ConfirmFilesAsync();
+
+        mainVm.MergeCommand.CanExecute().ShouldBeTrue();
+        mainVm.SaveBookmarkSettingsCommand.CanExecute().ShouldBeTrue();
+
+        var nodeA = mainVm.BookmarkTree.RootNodes.Single(n => n.Title.Value == "A");
+        nodeA.PreOffsetPageNumber.Value = 3;
+
+        mainVm.MergeCommand.CanExecute().ShouldBeFalse();
+        mainVm.SaveBookmarkSettingsCommand.CanExecute().ShouldBeTrue();
+
+        nodeA.PreOffsetPageNumber.Value = 1;
+        mainVm.MergeCommand.CanExecute().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task EditingPreOffsetPageNumberToInvalidValue_DisablesBothMergeAndSaveBookmarkSettingsCommands()
+    {
+        var (mainVm, metadata, _, _, _) = CreateSut();
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(
+            entry.FilePath,
+            pageCount: 5,
+            bookmarks: [new BookmarkNode { SourceFileEntryId = entry.Id, OriginalPageIndex = 0, Title = "A" }]);
+        await mainVm.ConfirmFilesAsync();
+
+        var nodeA = mainVm.BookmarkTree.RootNodes.Single(n => n.Title.Value == "A");
+        nodeA.PreOffsetPageNumber.Value = 0;
+
+        mainVm.MergeCommand.CanExecute().ShouldBeFalse();
+        mainVm.SaveBookmarkSettingsCommand.CanExecute().ShouldBeFalse();
+    }
 }

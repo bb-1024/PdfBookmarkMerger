@@ -35,6 +35,13 @@ public sealed class BookmarkNode
 
     public double? Zoom { get; set; }
 
+    /// <summary>
+    /// しおり設定画面で結合前ページ数を直接編集した際に加算される差分。ユーザーが編集した場合のみ設定される。
+    /// 実際のPDF結合(OriginalPageIndex/MergedPageIndex)には一切影響しない、あくまで書き出し・表示上の
+    /// 調整値。未編集はnull。
+    /// </summary>
+    public int? PageOffset { get; set; }
+
     /// <summary>しおりパネルで初期状態から展開表示するか(PdfOutline.Opened相当)。</summary>
     public bool IsOpen { get; set; }
 
@@ -64,6 +71,7 @@ public sealed class BookmarkNode
             Right = Right,
             Bottom = Bottom,
             Zoom = Zoom,
+            PageOffset = PageOffset,
             IsOpen = IsOpen,
         };
         clone.Children.AddRange(Children.Select(c => c.Clone()));

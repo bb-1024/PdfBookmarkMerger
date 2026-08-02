@@ -80,8 +80,9 @@
   <data name="LeftLabel" xml:space="preserve"><value>Left</value></data>
   <data name="TopLabel" xml:space="preserve"><value>Top</value></data>
   <data name="ZoomLabel" xml:space="preserve"><value>Zoom (%)</value></data>
-  <data name="BookmarkOriginWithActionFormat" xml:space="preserve"><value>[{0}] From: {1} p.{2} -&gt; Merged p.{3}</value></data>
-  <data name="BookmarkOriginFormat" xml:space="preserve"><value>From: {0} p.{1} -&gt; Merged p.{2}</value></data>
+  <data name="BookmarkOriginPrefixWithActionFormat" xml:space="preserve"><value>[{0}] From: {1} p.</value></data>
+  <data name="BookmarkOriginPrefixFormat" xml:space="preserve"><value>From: {0} p.</value></data>
+  <data name="BookmarkOriginSuffix" xml:space="preserve"><value>-&gt; Merged p.</value></data>
   <data name="PromoteLevelButton" xml:space="preserve"><value>Promote Level</value></data>
   <data name="DemoteLevelButton" xml:space="preserve"><value>Demote Level</value></data>
   <data name="AddRootButton" xml:space="preserve"><value>Add as Root</value></data>

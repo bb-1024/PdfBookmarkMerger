@@ -956,6 +956,7 @@
             <tr><td class="mono">MergedPageIndex</td><td class="mono">int?</td><td>結合後PDFにおける0始まりページ番号。<code class="inline">BookmarkOffsetCalculator</code>が計算</td></tr>
             <tr><td class="mono">DestinationType</td><td class="mono">BookmarkDestinationType</td><td>既定<code class="inline">Fit</code></td></tr>
             <tr><td class="mono">Left / Top / Right / Bottom / Zoom</td><td class="mono">double?</td><td><code class="inline">null</code>=未設定(PDFの<code class="inline">/D</code>配列から省略される)</td></tr>
+            <tr><td class="mono">PageOffset <span class="badge ok">新機能</span></td><td class="mono">int?</td><td>しおり編集ツリーで結合前ページ数を編集した際にBookmarkTreeViewModel.OnPreOffsetPageNumberChangedが設定する、しおり設定ファイル出力・画面表示専用のページ番号加算値。<code class="inline">OriginalPageIndex</code>/<code class="inline">MergedPageIndex</code>(実際のPDF結合が使う値)には一切影響しない</td></tr>
             <tr><td class="mono">IsOpen</td><td class="mono">bool</td><td>しおりパネルでの初期展開状態</td></tr>
             <tr><td class="mono">ActionType</td><td class="mono">string { get } = "GoTo"</td><td>PDFsharpが生成できるActionは常にGoToのみ</td></tr>
             <tr><td class="mono">Children</td><td class="mono">List&lt;BookmarkNode&gt; { get } = []</td><td>子しおり。再帰構造</td></tr>
@@ -1329,10 +1330,17 @@
             <tr><td class="wrap-mono">SetChildLevelCapAsync(node)</td><td><code class="inline">ComputeMaxDescendantLevel</code>で子孫の最大相対レベルを求め、0(子が無い)なら何もしない。<code class="inline">IDialogService.ShowLevelCapDialogAsync</code>で絶対レベルを選ばせる際の下限は<code class="inline">node.LevelNumber</code>(<strong>v1.1.0</strong>で<code class="inline">+1</code>から変更。自身のレベルを選択すると子要素が全削除される)。選択後、直前にUndoスナップショットを積んでから<code class="inline">TruncateBelowLevel</code>で反映</td></tr>
             <tr><td class="wrap-mono">- TruncateBelowLevel(node, remainingLevels)</td><td><code class="inline">remainingLevels&lt;=0</code>ならその場で<code class="inline">Children</code>(ビュー・モデル双方)を<code class="inline">Clear()</code>。そうでなければ子へ再帰</td></tr>
             <tr><td class="wrap-mono">ToModel()</td><td><code class="inline">ForceFitForAll</code>がオフなら<code class="inline">_rootModel</code>をそのまま返す。オンなら<code class="inline">CloneWithFit</code>で全ノードを複製し<code class="inline">DestinationType=Fit</code>・座標系プロパティ全て<code class="inline">null</code>にした非破壊な複製ツリーを返す(元データは変更しない)</td></tr>
+            <tr><td class="wrap-mono">ToExportModel() <span class="badge ok">新機能</span></td><td>しおり設定ファイル書き出し専用。<code class="inline">ComputeCumulativeDeltaBeforeFile</code>で求めたファイルごとの連鎖分を、各ノードの複製の<code class="inline">PageOffset</code>へ(自身の編集分と合算して)反映した非破壊な複製ツリーを返す。ForceFitForAllがオンの場合はToModel()と同様Fit一律・座標null化も行う</td></tr>
             <tr><td class="wrap-mono">- ApplyForceFitOverride(forced) / ApplyGlobalExpandOverride(overrideValue)</td><td>オンにする際は各ノードの元の値を<code class="inline">_preOverrideDestinationType</code>/<code class="inline">_preOverrideExpandState</code>にキャッシュしてから上書き。オフに戻す際はキャッシュから復元して削除。この上書き処理自体はUndo対象ではないため<code class="inline">_suppressUndoSnapshots</code>で抑止する</td></tr>
             <tr><td class="wrap-mono">CanUndo <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> / UndoCommand <span class="badge info">v1.1.0</span></td><td>「元に戻す」ボタンの<code class="inline">IsEnabled</code>・<code class="inline">Command</code>に直接バインドする</td></tr>
             <tr><td class="wrap-mono">- PushUndoSnapshot() / PushUndoSnapshot(coalesceKey) <span class="badge info">v1.1.0</span></td><td><code class="inline">_rootModel</code>をJSON化して<code class="inline">UndoHistory&lt;string&gt;</code>へ積む。引数無し版は構造操作用(常に1件積む)、<code class="inline">coalesceKey</code>版はプロパティ編集用(同一キーへの800ms以内の連続呼び出しはコアレスして積まない)。<code class="inline">BookmarkNodeViewModel</code>のプロパティ変更コールバックとして渡される</td></tr>
             <tr><td class="wrap-mono">- Undo() <span class="badge info">v1.1.0</span></td><td><code class="inline">UndoHistory.TryPop</code>で直近のJSONスナップショットを取り出し、デシリアライズして<code class="inline">RebuildTree</code>に渡す(Undo履歴自体はClearしない)</td></tr>
+            <tr><td class="wrap-mono">Load(rootBookmarks, fileNames, orderedFileIds) <span class="badge ok">新機能でorderedFileIds追加</span></td><td>orderedFileIdsは結合順のファイルID一覧(しおりツリー上の表示順ではなく<code class="inline">FileListViewModel.Files</code>の並び順)。結合前ページ数編集時の結合後ページ数の連鎖計算(<code class="inline">ComputeCumulativeDeltaBeforeFile</code>)に使う</td></tr>
+            <tr><td class="wrap-mono">HasPageNumberEdits <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> <span class="badge ok">新機能</span></td><td>ツリー内のいずれかのノードの<code class="inline">PageOffset</code>が非ゼロか。<code class="inline">RecomputeAllPageNumberDisplays</code>の末尾で再計算される。<code class="inline">MainWindowViewModel.MergeCommand</code>のCanExecuteに組み込まれる</td></tr>
+            <tr><td class="wrap-mono">HasPageNumberInconsistency <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> <span class="badge ok">新機能</span></td><td>結合前・結合後いずれかのページ数が1未満になっているノードが存在するか。<code class="inline">MainWindowViewModel</code>の<code class="inline">MergeCommand</code>・<code class="inline">SaveBookmarkSettingsCommand</code>双方のCanExecuteに組み込まれる</td></tr>
+            <tr><td class="wrap-mono">- OnPreOffsetPageNumberChanged(node, newValue) <span class="badge ok">新機能</span></td><td><code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code>の変更通知を受け取るコールバック。差分(newValue - 編集前の実効値)を、同一<code class="inline">SourceFileEntryId</code>を持ち<code class="inline">OriginalPageIndex</code>が編集ノード以上の全ノードの<code class="inline">PageOffset</code>へ一律加算する。直前にUndoスナップショットを積む(ノード単位でコアレス)。再計算中(<code class="inline">_isRecomputingPageNumbers</code>)は即returnし、書き戻し自体を編集として二重処理しない</td></tr>
+            <tr><td class="wrap-mono">- RecomputeAllPageNumberDisplays() <span class="badge ok">新機能</span></td><td>全ノードの<code class="inline">PreOffsetPageNumber</code>/<code class="inline">DisplayMergedPageNumber</code>を現在の<code class="inline">PageOffset</code>から再計算して書き戻し、<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>を更新する。読込・Undo・追加・削除・レベル上限切り詰め・編集の各操作の後に呼ばれる(Moveは<code class="inline">SourceFileEntryId</code>/<code class="inline">OriginalPageIndex</code>を変更しないため呼ばない)</td></tr>
+            <tr><td class="wrap-mono">- ComputeCumulativeDeltaBeforeFile() <span class="badge ok">新機能</span></td><td>ファイルごとの「ファイル内で最もOriginalPageIndexが大きいノードのPageOffset」(=そのファイル全体に効く累積差分。どの編集も自身の位置以降=最終ページを含む範囲に及ぶため)を、<code class="inline">_orderedFileIds</code>の順に積算し、各ファイルについて「自分より前のファイルの累積差分の合計」を返す</td></tr>
           </tbody>
         </table>
       </div>
@@ -1351,6 +1359,18 @@
         <code class="inline">IsZoomEditable</code>(XYZのみ有効)はPDF仕様(<code class="inline">/FitH [top]</code>・<code class="inline">/FitV [left]</code>)に対応する。
         <code class="inline">SyncChildOrderToModel()</code>は<code class="inline">Model.Children</code>を一旦<code class="inline">Clear()</code>してから
         現在のビュー側<code class="inline">Children</code>の順序で再構築する(D&amp;D並べ替え後の同期用)。
+      </p>
+      <p>
+        <span class="badge ok">新機能</span> <code class="inline">PreOffsetPageNumber</code>
+        (<code class="inline">ReactivePropertySlim&lt;int&gt;</code>)はしおり編集ツリーの結合前ページ数
+        テキストボックスへ双方向バインドする。他のプロパティと異なりmodelへ直接反映せず、変更通知を
+        コンストラクタ引数<code class="inline">onPreOffsetPageNumberChanged</code>経由で
+        <code class="inline">BookmarkTreeViewModel.OnPreOffsetPageNumberChanged</code>へそのまま渡す
+        (同一ファイル内の他ノードへの波及・ファイル横断的な結合後ページ数の連鎖の計算は、単体のノードでは
+        完結しないためBookmarkTreeViewModel側でまとめて行う必要がある)。
+        <code class="inline">DisplayMergedPageNumber</code>(<code class="inline">ReactivePropertySlim&lt;int?&gt;</code>)は
+        結合後ページ数の表示専用で、<code class="inline">BookmarkTreeViewModel.RecomputeAllPageNumberDisplays</code>が
+        再計算のたびに書き戻す(自身では計算しない)。
       </p>
 
       <h3>PdfFileEntryViewModel <span class="tag">ViewModels/PdfFileEntryViewModel.cs</span></h3>

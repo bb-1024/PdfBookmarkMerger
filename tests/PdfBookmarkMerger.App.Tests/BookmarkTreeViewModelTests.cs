@@ -23,7 +23,7 @@ public sealed class BookmarkTreeViewModelTests
 
         dialog = new FakeDialogService();
         var vm = new BookmarkTreeViewModel(dialog);
-        vm.Load([], new Dictionary<Guid, string> { [FileId] = "sample.pdf" });
+        vm.Load([], new Dictionary<Guid, string> { [FileId] = "sample.pdf" }, [FileId]);
         return vm;
     }
 
@@ -326,5 +326,136 @@ public sealed class BookmarkTreeViewModelTests
         node.Top.Value.ShouldBe(700);
         node.Left.Value.ShouldBe(50);
         node.Zoom.Value.ShouldBe(1.5);
+    }
+
+    private static readonly Guid FileIdB = Guid.NewGuid();
+
+    /// <summary>
+    /// FileId(結合前ページ1・5・9、MergedPageIndex 0・4・8=1番目のファイル)と、
+    /// FileIdB(結合前ページ1、MergedPageIndex 10=FileIdの後に10ページとして結合される2番目のファイル)を
+    /// 持つツリーを構築する。結合前ページ数編集の同一ファイル内波及・ファイル横断的な結合後ページ数の
+    /// 連鎖の検証に使う。
+    /// </summary>
+    private static (BookmarkTreeViewModel Vm, BookmarkNodeViewModel Page1, BookmarkNodeViewModel Page5, BookmarkNodeViewModel Page9, BookmarkNodeViewModel OtherFilePage1)
+        CreateSutWithTwoFiles()
+    {
+        Strings.Culture = null;
+        var dialog = new FakeDialogService();
+        var vm = new BookmarkTreeViewModel(dialog);
+
+        var page1 = new BookmarkNode { SourceFileEntryId = FileId, Title = "Page1", OriginalPageIndex = 0, MergedPageIndex = 0 };
+        var page5 = new BookmarkNode { SourceFileEntryId = FileId, Title = "Page5", OriginalPageIndex = 4, MergedPageIndex = 4 };
+        var page9 = new BookmarkNode { SourceFileEntryId = FileId, Title = "Page9", OriginalPageIndex = 8, MergedPageIndex = 8 };
+        var otherFilePage1 = new BookmarkNode { SourceFileEntryId = FileIdB, Title = "OtherPage1", OriginalPageIndex = 0, MergedPageIndex = 10 };
+
+        vm.Load([page1, page5, page9, otherFilePage1], new Dictionary<Guid, string>
+        {
+            [FileId] = "a.pdf",
+            [FileIdB] = "b.pdf",
+        }, [FileId, FileIdB]);
+
+        var page1Vm = vm.RootNodes.Single(n => n.Title.Value == "Page1");
+        var page5Vm = vm.RootNodes.Single(n => n.Title.Value == "Page5");
+        var page9Vm = vm.RootNodes.Single(n => n.Title.Value == "Page9");
+        var otherVm = vm.RootNodes.Single(n => n.Title.Value == "OtherPage1");
+
+        return (vm, page1Vm, page5Vm, page9Vm, otherVm);
+    }
+
+    [Fact]
+    public void EditingPreOffsetPageNumber_ShiftsSameFileNodesFromThatOriginalPageOnward_ButNotEarlierOnes()
+    {
+        var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
+
+        // Page5(結合前ページ5)を8に変更(delta=+3)。
+        page5.PreOffsetPageNumber.Value = 8;
+
+        page1.PreOffsetPageNumber.Value.ShouldBe(1, "手前のしおりは変更されない");
+        page5.PreOffsetPageNumber.Value.ShouldBe(8);
+        page9.PreOffsetPageNumber.Value.ShouldBe(12, "後続のしおりは同じ差分だけ一律で変更される");
+    }
+
+    [Fact]
+    public void EditingPreOffsetPageNumber_ShiftsDisplayMergedPageNumber_ForSameFileAndSubsequentFiles()
+    {
+        var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
+
+        page5.PreOffsetPageNumber.Value = 8;
+
+        page1.DisplayMergedPageNumber.Value.ShouldBe(1, "手前のしおりの結合後ページ数は変わらない");
+        page5.DisplayMergedPageNumber.Value.ShouldBe(8, "結合後ページ数(5)+差分(3)");
+        page9.DisplayMergedPageNumber.Value.ShouldBe(12, "結合後ページ数(9)+差分(3)");
+        otherFilePage1.DisplayMergedPageNumber.Value.ShouldBe(14, "後続ファイルの結合後ページ数(11)+差分(3)");
+    }
+
+    [Fact]
+    public void EditingPreOffsetPageNumber_SetsHasPageNumberEdits_AndClearingItBackReturnsToFalse()
+    {
+        var (vm, _, page5, _, _) = CreateSutWithTwoFiles();
+
+        vm.HasPageNumberEdits.Value.ShouldBeFalse();
+
+        page5.PreOffsetPageNumber.Value = 8;
+        vm.HasPageNumberEdits.Value.ShouldBeTrue();
+
+        // 5に戻す(差分が正味ゼロに戻る)。
+        page5.PreOffsetPageNumber.Value = 5;
+        vm.HasPageNumberEdits.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void EditingPreOffsetPageNumber_ToZeroOrLess_SetsHasPageNumberInconsistency()
+    {
+        var (vm, page1, _, _, _) = CreateSutWithTwoFiles();
+
+        page1.PreOffsetPageNumber.Value = 0;
+
+        vm.HasPageNumberInconsistency.Value.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void EditingPreOffsetPageNumber_WithoutInconsistency_DoesNotSetHasPageNumberInconsistency()
+    {
+        var (vm, _, page5, _, _) = CreateSutWithTwoFiles();
+
+        page5.PreOffsetPageNumber.Value = 8;
+
+        vm.HasPageNumberInconsistency.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Undo_AfterEditingPreOffsetPageNumber_RestoresOriginalPageNumbers()
+    {
+        var (vm, _, page5, page9, _) = CreateSutWithTwoFiles();
+
+        page5.PreOffsetPageNumber.Value = 8;
+        vm.CanUndo.Value.ShouldBeTrue();
+
+        vm.UndoCommand.Execute();
+
+        var restoredPage5 = vm.RootNodes.Single(n => n.Title.Value == "Page5");
+        var restoredPage9 = vm.RootNodes.Single(n => n.Title.Value == "Page9");
+        restoredPage5.PreOffsetPageNumber.Value.ShouldBe(5);
+        restoredPage9.PreOffsetPageNumber.Value.ShouldBe(9);
+        vm.HasPageNumberEdits.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ToExportModel_BakesInSameFileAndCrossFileOffset_IntoPageOffset()
+    {
+        var (vm, page1, page5, page9, otherFilePage1) = CreateSutWithTwoFiles();
+
+        page5.PreOffsetPageNumber.Value = 8;
+
+        var exported = vm.ToExportModel();
+        var exportedPage1 = exported.Single(n => n.Title == "Page1");
+        var exportedPage5 = exported.Single(n => n.Title == "Page5");
+        var exportedPage9 = exported.Single(n => n.Title == "Page9");
+        var exportedOther = exported.Single(n => n.Title == "OtherPage1");
+
+        exportedPage1.PageOffset.GetValueOrDefault().ShouldBe(0);
+        exportedPage5.PageOffset.ShouldBe(3);
+        exportedPage9.PageOffset.ShouldBe(3);
+        exportedOther.PageOffset.ShouldBe(3, "後続ファイルには自分自身の編集が無くても連鎖分が加算される");
     }
 }

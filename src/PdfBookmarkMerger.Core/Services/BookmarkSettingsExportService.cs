@@ -69,7 +69,7 @@ public sealed class BookmarkSettingsExportService : IBookmarkSettingsExportServi
 
     private static string BuildPageAttribute(BookmarkNode node)
     {
-        var pageNumber = (node.MergedPageIndex ?? node.OriginalPageIndex) + 1;
+        var pageNumber = (node.MergedPageIndex ?? node.OriginalPageIndex) + 1 + (node.PageOffset ?? 0);
         var mode = node.DestinationType switch
         {
             BookmarkDestinationType.Fit => "Fit",

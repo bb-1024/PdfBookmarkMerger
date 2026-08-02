@@ -55,16 +55,20 @@ public sealed class MainWindowViewModel : ViewModelBase
         ConfirmFilesCommand.Subscribe(async () => await ConfirmFilesAsync()).AddTo(Disposables);
 
         var isEditingBookmarks = Step.Select(s => s == WorkflowStep.EditBookmarks);
-        var canMerge = isEditingBookmarks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
+        var canEdit = isEditingBookmarks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
+
+        // 結合前ページ数が編集されている間、結合後PDFの実際のページ位置が画面表示・書き出し内容と
+        // 食い違うため「結合してPDFを保存」を非活性化する。不整合(ページ数が1未満)が発生している間は
+        // 「しおり設定ファイルを保存」も非活性化する。
+        var canMerge = canEdit.CombineLatest(BookmarkTree.HasPageNumberEdits, (editable, hasEdits) => editable && !hasEdits);
         MergeCommand = new AsyncReactiveCommand(canMerge).AddTo(Disposables);
         MergeCommand.Subscribe(async () => await MergeAsync()).AddTo(Disposables);
 
-        var canSaveBookmarkSettings = isEditingBookmarks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
+        var canSaveBookmarkSettings = canEdit.CombineLatest(BookmarkTree.HasPageNumberInconsistency, (editable, hasInconsistency) => editable && !hasInconsistency);
         SaveBookmarkSettingsCommand = new AsyncReactiveCommand(canSaveBookmarkSettings).AddTo(Disposables);
         SaveBookmarkSettingsCommand.Subscribe(async () => await SaveBookmarkSettingsAsync()).AddTo(Disposables);
 
-        var canGoBack = isEditingBookmarks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
-        BackToFileListCommand = new ReactiveCommand(canGoBack).AddTo(Disposables);
+        BackToFileListCommand = new ReactiveCommand(canEdit).AddTo(Disposables);
         BackToFileListCommand.Subscribe(() => Step.Value = WorkflowStep.SelectFiles).AddTo(Disposables);
 
         AddFilesViaDialogCommand = new AsyncReactiveCommand(IsBusy.Select(b => !b)).AddTo(Disposables);
@@ -203,8 +207,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             var effectiveBookmarks = MissingBookmarkFallback.ResolveEffectiveBookmarks(orderedFiles, _metadataByFileId);
             var merged = BookmarkOffsetCalculator.ComputeMergedBookmarks(orderedFiles, effectiveBookmarks, _metadataByFileId);
             var fileNames = orderedFiles.ToDictionary(f => f.Id, f => f.FileName);
+            var orderedFileIds = orderedFiles.Select(f => f.Id).ToList();
 
-            BookmarkTree.Load(merged, fileNames);
+            BookmarkTree.Load(merged, fileNames, orderedFileIds);
             Step.Value = WorkflowStep.EditBookmarks;
 
             StatusMessage.Value = failedCount == 0
@@ -334,7 +339,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         try
         {
-            await _bookmarkSettingsExportService.ExportAsync(BookmarkTree.ToModel(), outputPath);
+            await _bookmarkSettingsExportService.ExportAsync(BookmarkTree.ToExportModel(), outputPath);
 
             StatusMessage.Value = string.Format(Strings.StatusSaveBookmarkSettingsCompleteFormat, outputPath);
             _dialogService.ShowInfo(Strings.SaveBookmarkSettingsCompleteDialogTitle, string.Format(Strings.SaveBookmarkSettingsCompleteMessageFormat, outputPath));

@@ -80,8 +80,9 @@
   <data name="LeftLabel" xml:space="preserve"><value>Left</value></data>
   <data name="TopLabel" xml:space="preserve"><value>Top</value></data>
   <data name="ZoomLabel" xml:space="preserve"><value>Zoom(%)</value></data>
-  <data name="BookmarkOriginWithActionFormat" xml:space="preserve"><value>[{0}] 元: {1} p.{2} → 結合後 p.{3}</value></data>
-  <data name="BookmarkOriginFormat" xml:space="preserve"><value>元: {0} p.{1} → 結合後 p.{2}</value></data>
+  <data name="BookmarkOriginPrefixWithActionFormat" xml:space="preserve"><value>[{0}] 元: {1} p.</value></data>
+  <data name="BookmarkOriginPrefixFormat" xml:space="preserve"><value>元: {0} p.</value></data>
+  <data name="BookmarkOriginSuffix" xml:space="preserve"><value>→ 結合後 p.</value></data>
   <data name="PromoteLevelButton" xml:space="preserve"><value>レベルを上げる</value></data>
   <data name="DemoteLevelButton" xml:space="preserve"><value>レベルを下げる</value></data>
   <data name="AddRootButton" xml:space="preserve"><value>ルートに追加</value></data>

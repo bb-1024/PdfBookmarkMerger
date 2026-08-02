@@ -206,14 +206,17 @@
                                              IsEnabled="{Binding IsZoomEditable.Value}" Width="48" Margin="0,0,8,0" />
                                     <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="11">
                                         <TextBlock.Text>
-                                            <MultiBinding StringFormat="{x:Static resx:Strings.BookmarkOriginWithActionFormat}">
+                                            <MultiBinding StringFormat="{x:Static resx:Strings.BookmarkOriginPrefixWithActionFormat}">
                                                 <Binding Path="ActionType" Mode="OneTime" />
                                                 <Binding Path="SourceFileName" Mode="OneTime" />
-                                                <Binding Path="OriginalPageNumber" Mode="OneTime" />
-                                                <Binding Path="MergedPageNumber" Mode="OneTime" />
                                             </MultiBinding>
                                         </TextBlock.Text>
                                     </TextBlock>
+                                    <TextBox Text="{Binding PreOffsetPageNumber.Value}" Width="40" Margin="0,0,4,0" />
+                                    <TextBlock Text="{x:Static resx:Strings.BookmarkOriginSuffix}" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="11" Margin="0,0,2,0" />
+                                    <TextBlock Text="{Binding DisplayMergedPageNumber.Value}" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="11" />
                                 </StackPanel>
                             </Border>
                         </HierarchicalDataTemplate>

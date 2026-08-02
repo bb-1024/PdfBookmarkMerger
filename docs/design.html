@@ -951,12 +951,38 @@ Directory.Build.props                   <span class="c"># ソリューション�
         従ったXMLファイルを、実際のPDF結合を実行せずに単独で書き出せる。しおり編集画面(手順3)に
         「結合してPDFを保存」と並べて「しおり設定ファイルを保存」ボタンを配置し、保存先ダイアログでの
         確定後に<code class="inline">BookmarkSettingsExportService.ExportAsync</code>が現在のしおりツリー
-        (<code class="inline">BookmarkTree.ToModel()</code>、ForceFitForAll適用中はFit一律の複製)を書き出す。
+        (<code class="inline">BookmarkTree.ToExportModel()</code>、下記のページ数編集の連鎖分を反映した
+        非破壊な複製。ForceFitForAll適用中はFit一律の複製)を書き出す。
         既定ファイル名は、PDF結合保存時の既定ファイル名の拡張子を<code class="inline">.xml</code>に変えたもの。
         ページ番号は結合後PDFにおける1始まりページ番号(<code class="inline">MergedPageIndex</code>、未算出の場合は
         <code class="inline">OriginalPageIndex</code>にフォールバック)、表示方法はPDF Referenceの表示方法
         (Fit/FitH/FitV/XYZ)と同じ引数順で出力し、Left/Top/Zoomが未設定の引数は0を代入する(仕様上、Zoom=0は
         nullと同義とされているため、本実装ではLeft/Topにも同じ規約を適用して引数の位置ずれを避けている)。
+      </p>
+
+      <h3>結合前ページ数の編集 <span class="badge ok">新機能</span></h3>
+      <p>
+        しおり編集ツリーのGoTo表示欄にある結合前ページ数(元: {ファイル名} p.N)を、テキスト表示から
+        編集可能なテキストボックス(<code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code>)に変更した。
+        値を変更すると、<strong>同一ファイル内で、変更した行の元となるPDFページ位置(OriginalPageIndex)以降にある
+        全しおり</strong>(しおり編集ツリー上の表示順ではなく、あくまで元PDFのページ構造上の位置基準)の
+        結合前ページ数へ、差分が一律で加算される(<code class="inline">BookmarkTreeViewModel.OnPreOffsetPageNumberChanged</code>)。
+        あわせて、そのファイル自身および結合順で後に続くファイルの結合後ページ数(→ 結合後 p.N)も、
+        この差分をすべて合算した分だけ連動して変化する(<code class="inline">ComputeCumulativeDeltaBeforeFile</code>。
+        「そのファイル全体に効く差分」は、ファイル内でOriginalPageIndexが最大のしおりが持つ差分と等しい
+        ——どの編集も自身の位置以降=最終ページを含む範囲に及ぶため)。この加算値
+        (<code class="inline">BookmarkNode.PageOffset</code>)は、実際のPDF結合が使う
+        <code class="inline">OriginalPageIndex</code>/<code class="inline">MergedPageIndex</code>には一切影響しない、
+        しおり設定ファイル出力・画面表示専用の値である。
+      </p>
+      <p>
+        編集によって、結合前・結合後いずれかのページ数が1未満になる(不整合)場合は「結合してPDFを保存」
+        「しおり設定ファイルを保存」の両方を非活性化する。不整合が発生していなければ、編集が1件でもある間は
+        「結合してPDFを保存」のみを非活性化し(実際の結合後PDFのページ位置と画面表示・書き出し内容が
+        食い違うため)、「しおり設定ファイルを保存」は実行可能なままとする
+        (<code class="inline">BookmarkTreeViewModel</code>の<code class="inline">HasPageNumberEdits</code>/
+        <code class="inline">HasPageNumberInconsistency</code>を<code class="inline">MainWindowViewModel</code>の
+        各コマンドのCanExecuteに組み込む)。差分をすべて打ち消す値に戻すと、通常どおり両方とも活性化される。
       </p>
     </section>
 
@@ -1159,8 +1185,8 @@ Directory.Build.props                   <span class="c"># ソリューション�
             <tr><td class="mono">PdfMergeServiceTests</td><td>しおり付き2ファイル+しおりなし1ファイルを結合し、結合結果を再オープンしてページ数・しおり階層・ジャンプ先ページ・プロパティを検証(統合テスト)</td></tr>
             <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>宣言行の厳密一致、フラット/入れ子構造のPage・Action属性、Fit/FitH/FitV/XYZ各表示方法の引数(未設定時は0を代入)、MergedPageIndex未算出時のOriginalPageIndexへのフォールバック</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>フォルダ直下のみ展開・子フォルダ除外、非PDF無視、存在しないパスの無視</td></tr>
-            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと。しおり設定ファイル保存(既定ファイル名・エクスポート呼び出し・キャンセル時未呼び出し)</td></tr>
-            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め(自身のレベル選択時の全削除を含む)、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)、PromoteLevel/DemoteLevel境界条件、Undo(構造操作・プロパティ編集のコアレス・LIFO順の複数回Undo)</td></tr>
+            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと。しおり設定ファイル保存(既定ファイル名・エクスポート呼び出し・キャンセル時未呼び出し)。結合前ページ数編集時に<code class="inline">MergeCommand</code>のみ非活性化、不整合時は<code class="inline">SaveBookmarkSettingsCommand</code>も非活性化されること</td></tr>
+            <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め(自身のレベル選択時の全削除を含む)、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)、PromoteLevel/DemoteLevel境界条件、Undo(構造操作・プロパティ編集のコアレス・LIFO順の複数回Undo)、<strong>結合前ページ数編集</strong>(同一ファイル内の該当ページ以降のみへの一律反映、ファイル横断的な結合後ページ数の連鎖、編集の正味ゼロへの復帰によるHasPageNumberEditsの解除、不整合時のHasPageNumberInconsistency、Undoによる復元、<code class="inline">ToExportModel</code>への連鎖分の反映)</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>複数選択ブロックの一括上下移動、境界・非連続選択でのボタン活性状態(<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO順の取り出し、合計サイズ上限超過時の最古エントリからの破棄、最新1件は上限超過でも保持</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Strings.Cultureの切替による日英リソース解決、未設定時の自動判定・一度だけの永続化、既存設定値の保持</td></tr>
@@ -1170,7 +1196,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
         </table>
       </div>
 
-      <p><span class="badge ok">結果</span> 全105テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
+      <p><span class="badge ok">結果</span> 全114テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
     </section>
 
     <section id="windows-release-build">
