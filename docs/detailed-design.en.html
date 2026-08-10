@@ -1560,6 +1560,7 @@
             <tr><td>Recomputing the title column width</td><td class="mono">RecomputeTitleColumnWidth / MeasureTextWidth</td></tr>
             <tr><td>Relaying toolbar operations (add, delete, level cap, etc.)</td><td class="mono">OnAdd*BookmarkClick / OnSetLevelCapClick, etc.</td></tr>
             <tr><td>Resetting the pre-merge page number text box <span class="badge ok">New feature</span></td><td class="mono">OnResetPreOffsetPageNumberClick</td></tr>
+            <tr><td>Preserving horizontal scroll position on row click <span class="badge warn">v1.2.0</span></td><td class="mono">PreserveBookmarkTreeHorizontalScrollPosition</td></tr>
           </tbody>
         </table>
       </div>
@@ -1576,6 +1577,22 @@
         <code class="inline">BookmarkNodeViewModel</code>, but that left edits applied to pages before the reset
         target intact, so it now calls <code class="inline">BookmarkTreeViewModel.ResetFilePageNumbers(node)</code>
         instead, which clears every edit belonging to the target node's file at once.
+      </p>
+      <p>
+        <span class="badge warn">v1.2.0</span> <code class="inline">PreserveBookmarkTreeHorizontalScrollPosition</code>
+        prevents an unwanted horizontal scroll on row click. Each row in the bookmark-edit tree is wide content —
+        many controls laid out side by side — so a narrow window shows a horizontal scrollbar; clicking a row in
+        that state triggered both WPF's and Avalonia's default "bring the target fully into view on
+        selection/focus change" behavior, moving the horizontal scroll position. Rewriting only the horizontal
+        component of WPF's <code class="inline">RequestBringIntoView</code> was considered, but was dropped since
+        the default handling could run before the TreeView's own handler, at the ScrollViewer's position along the
+        routed event's bubble path — too unreliable to trust. Instead, the horizontal scroll position is captured at
+        mouse-down time (<code class="inline">OnBookmarkTreePreviewMouseLeftButtonDown</code> /
+        <code class="inline">OnBookmarkTreePointerPressed</code>) and restored once the lower-priority dispatcher
+        queue has drained down to <code class="inline">DispatcherPriority.ContextIdle</code>. The vertical position
+        is left alone, so keyboard navigation that selects an off-screen row still scrolls it into view as before.
+        Clicks on the horizontal scrollbar itself (<code class="inline">ScrollBar</code>) are excluded, so dragging
+        it to scroll is never snapped back.
       </p>
       <p style="font-size: 13.5px; color: var(--ink-soft);">
         How the hint text shown while the file list is empty is implemented also differs per framework. The WPF version

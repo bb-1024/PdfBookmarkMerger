@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.Reactive.Disposables;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -308,6 +309,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         _bookmarkDragStart = e.GetPosition(null);
 
+        // 横スクロールバー自体の操作(ドラッグ等)まで巻き戻してしまわないよう、スクロールバー上の
+        // クリックは対象外にする。
+        if (FindAncestor<ScrollBar>((DependencyObject)e.OriginalSource) is null)
+        {
+            PreserveBookmarkTreeHorizontalScrollPosition();
+        }
+
         // 行の実要素(タイトル欄・ComboBox等)が無い部分(レベル表示の左側のインデント余白、
         // 結合後ページ表示の右側の余白)をクリックした場合、既定ではその行にヒットテストされる
         // 要素が無く選択が行われない。ヒットしたTreeViewItemが見つからない場合は、
@@ -603,6 +611,31 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         LevelCapButton.IsEnabled = GetSelectedBookmarkNode() is { Children.Count: > 0 };
         UpdateLevelButtonsEnabled();
+    }
+
+    /// <summary>
+    /// しおり行1件分は多数のコントロールを横に並べた幅広の行のため、ウィンドウ幅より広い場合は
+    /// 横スクロールバーが表示される(HorizontalScrollBarVisibility="Auto")。この状態で行をクリックすると、
+    /// TreeViewItemの既定動作(選択・フォーカス変更に伴うBringIntoView)により行全体(横方向含む)を
+    /// 表示しようとして、意図せず横スクロール位置が動いてしまう不具合があった。
+    /// クリック直後(選択処理が始まる前)の横スクロール位置を保存しておき、選択・フォーカス変更に伴う
+    /// 一連の処理(BringIntoViewや、その後のレイアウト更新)が完了した後のタイミング
+    /// (Dispatcher.BeginInvokeでDispatcherPriority.ContextIdleまでキューを空にしてから)に元の位置へ
+    /// 復元することで、原因となる個々の処理(既定のBringIntoViewか、SelectBookmarkRowAtYの
+    /// item.Focus()か等)を問わず、確実に横スクロール位置を保つ。縦方向は復元しないため、
+    /// キーボード操作で画面外の行を選択した場合の縦方向の自動スクロールはこれまでどおり機能する。
+    /// </summary>
+    private void PreserveBookmarkTreeHorizontalScrollPosition()
+    {
+        _bookmarkTreeScrollViewer ??= FindDescendant<ScrollViewer>(BookmarkTreeView);
+        if (_bookmarkTreeScrollViewer is null)
+        {
+            return;
+        }
+
+        var horizontalOffset = _bookmarkTreeScrollViewer.HorizontalOffset;
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle,
+            () => _bookmarkTreeScrollViewer?.ScrollToHorizontalOffset(horizontalOffset));
     }
 
     private void UpdateLevelButtonsEnabled()

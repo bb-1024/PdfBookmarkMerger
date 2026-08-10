@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reactive.Disposables;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -312,6 +313,13 @@ public partial class MainWindow : Window
 
     private void OnBookmarkTreePointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        // 横スクロールバー自体の操作(ドラッグ等)まで巻き戻してしまわないよう、スクロールバー上の
+        // クリックは対象外にする。
+        if ((e.Source as Visual)?.FindAncestorOfType<ScrollBar>(true) is null)
+        {
+            PreserveBookmarkTreeHorizontalScrollPosition();
+        }
+
         var item = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(true);
         _bookmarkPressedNode = item?.DataContext as BookmarkNodeViewModel;
         _bookmarkPressedArgs = _bookmarkPressedNode is not null ? e : null;
@@ -596,6 +604,35 @@ public partial class MainWindow : Window
     {
         LevelCapButton.IsEnabled = BookmarkTreeView.SelectedItem is BookmarkNodeViewModel { Children.Count: > 0 };
         UpdateLevelButtonsEnabled();
+    }
+
+    /// <summary>
+    /// しおり行1件分は多数のコントロールを横に並べた幅広の行のため、ウィンドウ幅より広い場合は
+    /// 横スクロールバーが表示される(HorizontalScrollBarVisibility="Auto")。この状態で行をクリックすると、
+    /// 既定の動作(選択・フォーカス変更時にScrollViewerが対象を画面内へ収めようとする)により
+    /// 行全体(横方向含む)を表示しようとして、意図せず横スクロール位置が動いてしまう不具合があった。
+    /// クリック直後(選択処理が始まる前)の横スクロール位置を保存しておき、選択・フォーカス変更に伴う
+    /// 一連の処理が完了した後のタイミング(Dispatcher.UIThread.PostでDispatcherPriority.ContextIdleまで
+    /// キューを空にしてから)に元の位置へ復元することで、原因となる個々の処理(既定の自動スクロールか、
+    /// SelectBookmarkRowAtYのitem.Focus()か等)を問わず、確実に横スクロール位置を保つ。縦方向は
+    /// 復元しないため、キーボード操作で画面外の行を選択した場合の縦方向の自動スクロールはこれまでどおり機能する。
+    /// </summary>
+    private void PreserveBookmarkTreeHorizontalScrollPosition()
+    {
+        _bookmarkTreeScrollViewer ??= BookmarkTreeView.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (_bookmarkTreeScrollViewer is null)
+        {
+            return;
+        }
+
+        var horizontalOffset = _bookmarkTreeScrollViewer.Offset.X;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_bookmarkTreeScrollViewer is { } scrollViewer)
+            {
+                scrollViewer.Offset = new Vector(horizontalOffset, scrollViewer.Offset.Y);
+            }
+        }, DispatcherPriority.ContextIdle);
     }
 
     private void UpdateLevelButtonsEnabled()

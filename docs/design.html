@@ -1121,7 +1121,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
       <p class="lede">
         ViewModel層(<code class="inline">PdfBookmarkMerger.App</code>)はWPF・Avalonia間で完全に共有しているが、
         XAML側の見た目・レイアウトはUIフレームワークごとの既定テーマに依存するため、
-        同じ意図の実装でも既定値の食い違いが不具合として表面化することがある。実際に発生した2件を記録する。
+        同じ意図の実装でも既定値の食い違いが不具合として表面化することがある。実際に発生した3件を記録する。
       </p>
 
       <div class="card">
@@ -1157,6 +1157,27 @@ Directory.Build.props                   <span class="c"># ソリューション�
           <code class="inline">DepthToTitleWidthConverter</code>ゴールデンテストは「WPF/Avaloniaの計算結果が
           一致する」ことではなく、「各実装が<em>自身の</em>正しいインデント定数通りに計算しているか」を検証する形に
           設計している(そもそも実際のインデント幅がフレームワーク間で異なる以上、一致するのが誤り)。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>しおり行クリックで横スクロール位置が動く(WPF・Avalonia共通) <span class="badge warn">v1.2.0で修正</span></h4>
+        <p>
+          しおり編集ツリーの1行は多数のコントロールを横に並べた幅広の内容のため、ウィンドウが狭い場合は
+          横スクロールバーが表示される(<code class="inline">ScrollViewer.HorizontalScrollBarVisibility="Auto"</code>)。
+          この状態で行をクリックすると、WPF・Avalonia双方の既定動作(選択・フォーカス変更に伴う
+          「対象を画面内へ収める」処理)が行全体(横方向を含む)を表示しようとし、意図せず横スクロール位置が
+          動いてしまう不具合があった。WPFの<code class="inline">RequestBringIntoView</code>ルーテッドイベントを
+          横方向のみ差し替えて再要求する方式も検討したが、既定の「対象を画面内へ収める」処理がイベントの
+          バブル経路上でTreeView側のハンドラより先(ScrollViewer側)に実行される可能性を排除できず、
+          確実性に欠けると判断した。代わりに、クリック直後(選択処理が始まる前)の横スクロール位置を保存し、
+          選択・フォーカス変更に伴う一連の処理が完了した後のタイミング(<code class="inline">DispatcherPriority.ContextIdle</code>
+          まで低優先度キューを空にしてから)に元の位置へ復元する方式を採った。原因となる個々の処理
+          (既定の自動スクロールか、行の実要素が無い部分をクリックした際のフォールバック処理
+          <code class="inline">SelectBookmarkRowAtY</code>内の<code class="inline">Focus()</code>か等)を
+          問わず確実に横スクロール位置を保てる一方、縦方向は復元しないため、キーボード操作で画面外の行を
+          選択した場合の縦方向の自動スクロールは従来どおり機能する。横スクロールバー自体のドラッグ操作
+          (<code class="inline">ScrollBar</code>上でのクリック)は対象外とし、巻き戻してしまわないようにしている。
         </p>
       </div>
 

@@ -1155,7 +1155,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
       <p class="lede">
         The ViewModel layer (<code class="inline">PdfBookmarkMerger.App</code>) is fully shared between WPF and
         Avalonia, but the look and layout on the XAML side depends on each UI framework's own default theme, so an
-        implementation with the same intent can still surface as a bug due to differing defaults. Two such cases
+        implementation with the same intent can still surface as a bug due to differing defaults. Three such cases
         that actually occurred are recorded here.
       </p>
 
@@ -1195,6 +1195,30 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
           "the WPF and Avalonia computed results match," but that "each implementation computes correctly according
           to <em>its own</em> indent constant" (since the actual indent width genuinely differs between the two
           frameworks, requiring them to match would itself be wrong).
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>Clicking a bookmark row moves the horizontal scroll position (WPF and Avalonia both) <span class="badge warn">Fixed in v1.2.0</span></h4>
+        <p>
+          Each row in the bookmark-edit tree is wide content — many controls laid out side by side — so when the
+          window is narrow, a horizontal scrollbar appears
+          (<code class="inline">ScrollViewer.HorizontalScrollBarVisibility="Auto"</code>). Clicking a row in that
+          state triggered both WPF's and Avalonia's default "bring the target fully into view on selection/focus
+          change" behavior, which tried to reveal the entire row (including its horizontal extent), moving the
+          horizontal scroll position unexpectedly. Rewriting only the horizontal component of WPF's
+          <code class="inline">RequestBringIntoView</code> routed event and re-requesting it was considered, but
+          couldn't rule out the default "bring into view" handling running before the TreeView-level handler, at the
+          ScrollViewer's own position along the event's bubble path — too unreliable to trust. Instead, the
+          horizontal scroll position is captured right after the click (before selection processing begins), and
+          restored once the whole selection/focus-change pipeline has settled — scheduled via
+          <code class="inline">DispatcherPriority.ContextIdle</code>, draining the lower-priority queue first. This
+          reliably preserves the horizontal position regardless of exactly which mechanism caused it to move (the
+          default bring-into-view, or the <code class="inline">Focus()</code> call inside
+          <code class="inline">SelectBookmarkRowAtY</code>, the fallback used when a row's margin — with no actual
+          control — is clicked). The vertical position is left alone, so keyboard navigation that selects an
+          off-screen row still scrolls it into view as before. Clicks on the horizontal scrollbar itself
+          (<code class="inline">ScrollBar</code>) are excluded, so dragging it to scroll is never snapped back.
         </p>
       </div>
 

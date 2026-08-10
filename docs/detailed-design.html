@@ -1512,6 +1512,7 @@
             <tr><td>タイトル列幅の再計算</td><td class="mono">RecomputeTitleColumnWidth / MeasureTextWidth</td></tr>
             <tr><td>ツールバー操作(追加・削除・レベル上限等)の中継</td><td class="mono">OnAdd*BookmarkClick / OnSetLevelCapClick 等</td></tr>
             <tr><td>結合前ページ数テキストボックスのリセット <span class="badge ok">新機能</span></td><td class="mono">OnResetPreOffsetPageNumberClick</td></tr>
+            <tr><td>行クリック時の横スクロール位置維持 <span class="badge warn">v1.2.0</span></td><td class="mono">PreserveBookmarkTreeHorizontalScrollPosition</td></tr>
           </tbody>
         </table>
       </div>
@@ -1526,6 +1527,21 @@
         <code class="inline">PreOffsetPageNumber.Value = OriginalPageNumber</code>を書き戻していたが、これでは
         リセット対象の行より前のページへの編集が残ってしまうため、<code class="inline">BookmarkTreeViewModel.ResetFilePageNumbers(node)</code>
         を呼び出す形に改めた(対象ノードが属するファイル全体の編集を一括で取り消す)。
+      </p>
+      <p>
+        <span class="badge warn">v1.2.0</span> <code class="inline">PreserveBookmarkTreeHorizontalScrollPosition</code>は
+        しおり行クリック時の意図しない横スクロールを防ぐ。しおり編集ツリーの1行は多数のコントロールを横に
+        並べた幅広の内容のため、狭いウィンドウでは横スクロールバーが表示されるが、この状態で行をクリックすると
+        WPF・Avalonia双方の既定動作(選択・フォーカス変更に伴う「対象を画面内へ収める」処理)が行全体を
+        表示しようとして横スクロール位置を動かしてしまう不具合があった。WPFの
+        <code class="inline">RequestBringIntoView</code>を横方向のみ差し替える方式も検討したが、既定の処理が
+        ルーテッドイベントのバブル経路上でTreeViewより先(ScrollViewer側)に実行される可能性を排除できず
+        断念し、代わりにマウス押下時点(<code class="inline">OnBookmarkTreePreviewMouseLeftButtonDown</code>/
+        <code class="inline">OnBookmarkTreePointerPressed</code>)の横スクロール位置を保存し、
+        <code class="inline">DispatcherPriority.ContextIdle</code>まで低優先度キューを空にしたタイミングで
+        元の位置へ復元する方式を採った。縦方向は復元しないため、キーボード操作で画面外の行を選択した場合の
+        縦方向の自動スクロールは従来どおり機能する。横スクロールバー自体(<code class="inline">ScrollBar</code>)上の
+        クリックは対象外にし、スクロールバーのドラッグ操作自体を巻き戻さないようにしている。
       </p>
       <p style="font-size: 13.5px; color: var(--ink-soft);">
         ファイル一覧が空の間に表示するヒントテキストの実装方法もフレームワークごとに異なる。WPF版は
