@@ -137,6 +137,7 @@
   <data name="StatusNoLoadableFiles" xml:space="preserve"><value>No PDF files could be loaded. Please check the files.</value></data>
   <data name="StatusLoadedAllSucceededFormat" xml:space="preserve"><value>Loaded {0} file(s). Edit the bookmarks, then run the merge.</value></data>
   <data name="StatusLoadedWithFailuresFormat" xml:space="preserve"><value>Loaded {0} file(s) ({1} file(s) were skipped).</value></data>
+  <data name="StatusUpdatingBookmarkTree" xml:space="preserve"><value>Updating bookmark information...</value></data>
   <data name="DefaultMergedFileName" xml:space="preserve"><value>merged-result.pdf</value></data>
   <data name="StatusMerging" xml:space="preserve"><value>Merging PDFs...</value></data>
   <data name="StatusMergeCompleteFormat" xml:space="preserve"><value>Merge complete: {0}</value></data>

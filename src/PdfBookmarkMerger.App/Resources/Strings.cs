@@ -89,6 +89,7 @@ public static class Strings
     public static string StatusNoLoadableFiles => Get(nameof(StatusNoLoadableFiles));
     public static string StatusLoadedAllSucceededFormat => Get(nameof(StatusLoadedAllSucceededFormat));
     public static string StatusLoadedWithFailuresFormat => Get(nameof(StatusLoadedWithFailuresFormat));
+    public static string StatusUpdatingBookmarkTree => Get(nameof(StatusUpdatingBookmarkTree));
     public static string DefaultMergedFileName => Get(nameof(DefaultMergedFileName));
     public static string StatusMerging => Get(nameof(StatusMerging));
     public static string StatusMergeCompleteFormat => Get(nameof(StatusMergeCompleteFormat));

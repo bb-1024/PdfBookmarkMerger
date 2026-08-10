@@ -999,6 +999,43 @@ Directory.Build.props                   <span class="c"># ソリューション�
         リセット対象より手前にある行への編集)が残ってしまうため、ファイル単位で完全に元へ戻す設計とした。
         リセットもUndo対象になる(そのファイルに編集が1件も無い場合は何もしない=Undo履歴も積まない)。
       </p>
+
+      <h3>大量のしおりに対する編集・追加・削除・元に戻す操作の応答性 <span class="badge ok">v1.2.0で修正</span></h3>
+      <p>
+        上記の結合前ページ数の連鎖計算(<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>、
+        旧称<code class="inline">RecomputeAllPageNumberDisplays</code>)は、編集・追加・削除・レベル上限切り詰め・
+        元に戻す(Undo)など、しおりツリーを変更しうる操作のたびにツリー全体を2回走査(結合順の
+        累積差分計算+各ノードへの書き戻し)する。しおりが大量にある状態では、この走査(特に各ノードの
+        <code class="inline">ReactivePropertySlim</code>への書き戻しに伴うUIバインディング更新)が
+        UIスレッドを長時間占有し、しかも同期的に実行されるため<code class="inline">IsBusy</code>相当の
+        表示すら描画される機会が無く、フリーズしたように見えたまま進捗も一切更新されない不具合があった。
+      </p>
+      <p>
+        対象ノード数が<code class="inline">BookmarkTreeViewModel.RecomputeChunkSize</code>(200件)を
+        超える場合のみ、書き戻しループを<code class="inline">RecomputeChunkSize</code>件ごとの
+        チャンクに分割し、各チャンクの合間に<code class="inline">await Task.Yield()</code>でUIスレッドへ
+        制御を返す。この間、新設した<code class="inline">BookmarkTreeViewModel.IsBusy</code>/
+        <code class="inline">BusyProgress</code>(手順1のファイル読込で使っているものと同じ
+        <code class="inline">BusyProgressInfo</code>型)を更新し、<code class="inline">MainWindowViewModel</code>が
+        これを自身の<code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>へそのまま
+        転送することで、専用のUIを新設せずファイル読込時と同じ処理中オーバーレイ・進捗表示をそのまま
+        再利用している(転送中は元の<code class="inline">StatusMessage</code>を退避し、busy終了後に復元する)。
+        このオーバーレイはしおり編集画面全体を覆いマウス操作を受け付けなくなるため、チャンク処理中に
+        同じ再計算が別の編集操作から重ねて起動される心配はない。
+        対象ノード数がしきい値以下の小規模なツリーでは、内部で一度も<code class="inline">await</code>が
+        発生せず(<code class="inline">Task.Yield()</code>まで到達しない)、これまでどおり同期的に完結する。
+      </p>
+      <p>
+        <code class="inline">AddRoot</code>/<code class="inline">AddChild</code>/
+        <code class="inline">AddSiblingAfter</code>/<code class="inline">Remove</code>/
+        <code class="inline">Undo</code>など、再計算を末尾で呼び出していた各メソッドの公開シグネチャは
+        変更していない。これらは内部で新設した<code class="inline">private async void TriggerRecompute()</code>
+        (=再計算の完了を待たずに戻る、いわゆるfire-and-forget呼び出し)を経由するよう変更するのみで、
+        呼び出し元(コードビハインド・既存テスト)は無改修のまま動作する
+        (小規模なツリーでは実質的に同期的に完了するため、既存の同期呼び出し前提のテストの結果も従来と変わらない)。
+        既にasyncだった<code class="inline">SetChildLevelCapAsync</code>のみ、内部で
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync</code>を直接<code class="inline">await</code>する。
+      </p>
     </section>
 
     <section id="settings-logging">
@@ -1200,8 +1237,9 @@ Directory.Build.props                   <span class="c"># ソリューション�
             <tr><td class="mono">PdfMergeServiceTests</td><td>しおり付き2ファイル+しおりなし1ファイルを結合し、結合結果を再オープンしてページ数・しおり階層・ジャンプ先ページ・プロパティを検証(統合テスト)</td></tr>
             <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>宣言行の厳密一致、フラット/入れ子構造のPage・Action属性、Fit/FitH/FitV/XYZ各表示方法の引数(未設定時は0を代入)、MergedPageIndex未算出時のOriginalPageIndexへのフォールバック</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>フォルダ直下のみ展開・子フォルダ除外、非PDF無視、存在しないパスの無視</td></tr>
-            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと。しおり設定ファイル保存(既定ファイル名・エクスポート呼び出し・キャンセル時未呼び出し)。結合前ページ数編集時に<code class="inline">MergeCommand</code>のみ非活性化、不整合時は<code class="inline">SaveBookmarkSettingsCommand</code>も非活性化されること</td></tr>
+            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>メタデータ読込に失敗したファイルが、しおりツリーだけでなく実際の結合対象からも一貫して除外されること</strong>(回帰テスト)。全ファイル失敗時にEditBookmarksへ進まないこと。しおり設定ファイル保存(既定ファイル名・エクスポート呼び出し・キャンセル時未呼び出し)。結合前ページ数編集時に<code class="inline">MergeCommand</code>のみ非活性化、不整合時は<code class="inline">SaveBookmarkSettingsCommand</code>も非活性化されること。<strong><code class="inline">BookmarkTree.IsBusy</code>/<code class="inline">BusyProgress</code>が自身のIsBusy/BusyProgressへ転送され、busy終了後にStatusMessageが元へ復元されること</strong></td></tr>
             <tr><td class="mono">BookmarkTreeViewModelTests</td><td>同一階層内の並べ替え・異なる親間の再親子付け・自分の子孫への移動拒否、レベル上限切り詰め(自身のレベル選択時の全削除を含む)、ForceFitForAll時の非破壊クローン(<code class="inline">ToModel</code>)、PromoteLevel/DemoteLevel境界条件、Undo(構造操作・プロパティ編集のコアレス・LIFO順の複数回Undo)、<strong>結合前ページ数編集</strong>(同一ファイル内の該当ページ以降のみへの一律反映、ファイル横断的な結合後ページ数の連鎖、編集の正味ゼロへの復帰によるHasPageNumberEditsの解除、不整合時のHasPageNumberInconsistency、IsPageNumberEditedが影響を受けたノードのみtrueになること、Undoによる復元、テキストボックスへ手動で編集前の値を入力し直した場合の連鎖の巻き戻し、<code class="inline">ToExportModel</code>への連鎖分の反映)、<strong><code class="inline">ResetFilePageNumbers</code></strong>(リセット対象より前のページへの編集も含めファイル全体を一括リセットすること、別ファイルへは影響しないこと、そのファイルに編集が無い場合は何もせずUndo履歴も積まないこと、Undoによる復元)</td></tr>
+            <tr><td class="mono">BookmarkTreeLargePageNumberRecomputeTests</td><td><strong>大量しおりでの編集・元に戻す操作のフリーズ修正</strong>(回帰テスト)。ノード数がRecomputeChunkSize以下では<code class="inline">IsBusy</code>が一度もtrueにならず同期的に完了すること、超える場合はIsBusyがtrueになり<code class="inline">BusyProgress</code>で完了未満の途中経過が最低1回報告されること、5000ノードの大規模ツリーへの<code class="inline">AddRoot</code>が重い再計算の完了を待たず短時間で戻ること、大規模ツリーでの編集→Undoが最終的に正しい表示へ復元されること</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>複数選択ブロックの一括上下移動、境界・非連続選択でのボタン活性状態(<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO順の取り出し、合計サイズ上限超過時の最古エントリからの破棄、最新1件は上限超過でも保持</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Strings.Cultureの切替による日英リソース解決、未設定時の自動判定・一度だけの永続化、既存設定値の保持</td></tr>
@@ -1211,7 +1249,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
         </table>
       </div>
 
-      <p><span class="badge ok">結果</span> 全128テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
+      <p><span class="badge ok">結果</span> 全133テスト成功(<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>)。</p>
     </section>
 
     <section id="windows-release-build">

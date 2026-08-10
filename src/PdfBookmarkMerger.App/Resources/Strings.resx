@@ -137,6 +137,7 @@
   <data name="StatusNoLoadableFiles" xml:space="preserve"><value>読み込めるPDFファイルがありませんでした。ファイルを確認してください。</value></data>
   <data name="StatusLoadedAllSucceededFormat" xml:space="preserve"><value>{0}ファイルを読み込みました。しおりを編集し、結合を実行してください。</value></data>
   <data name="StatusLoadedWithFailuresFormat" xml:space="preserve"><value>{0}ファイルを読み込みました({1}ファイルはスキップされました)。</value></data>
+  <data name="StatusUpdatingBookmarkTree" xml:space="preserve"><value>しおりの情報を更新しています...</value></data>
   <data name="DefaultMergedFileName" xml:space="preserve"><value>結合結果.pdf</value></data>
   <data name="StatusMerging" xml:space="preserve"><value>PDFを結合しています...</value></data>
   <data name="StatusMergeCompleteFormat" xml:space="preserve"><value>結合が完了しました: {0}</value></data>

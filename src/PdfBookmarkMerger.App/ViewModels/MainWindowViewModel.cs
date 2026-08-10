@@ -50,6 +50,29 @@ public sealed class MainWindowViewModel : ViewModelBase
         StatusMessage = new ReactivePropertySlim<string>(Strings.StatusReady).AddTo(Disposables);
         BusyProgress = new ReactivePropertySlim<BusyProgressInfo?>(null).AddTo(Disposables);
 
+        // しおりが大量にある状態での編集・追加・削除・元に戻す操作は、BookmarkTree内部で
+        // 結合前ページ数の再計算(BookmarkTreeViewModel.RecomputeAllPageNumberDisplaysAsync)を
+        // 伴いBookmarkTree.IsBusyがtrueになりうる。専用のUIを新設する代わりに、既存の処理中
+        // オーバーレイ・CanExecuteゲート(canEdit等、下記)をそのまま再利用できるよう、
+        // BookmarkTree側のIsBusy/BusyProgressをこちらのIsBusy/BusyProgressへ転送する。
+        string? statusMessageBeforeBookmarkTreeBusy = null;
+        BookmarkTree.IsBusy.Subscribe(busy =>
+        {
+            if (busy)
+            {
+                statusMessageBeforeBookmarkTreeBusy = StatusMessage.Value;
+                StatusMessage.Value = Strings.StatusUpdatingBookmarkTree;
+            }
+            else if (statusMessageBeforeBookmarkTreeBusy is not null)
+            {
+                StatusMessage.Value = statusMessageBeforeBookmarkTreeBusy;
+                statusMessageBeforeBookmarkTreeBusy = null;
+            }
+
+            IsBusy.Value = busy;
+        }).AddTo(Disposables);
+        BookmarkTree.BusyProgress.Subscribe(p => BusyProgress.Value = p).AddTo(Disposables);
+
         var canConfirm = FileList.HasFiles.CombineLatest(IsBusy, (hasFiles, busy) => hasFiles && !busy);
         ConfirmFilesCommand = new AsyncReactiveCommand(canConfirm).AddTo(Disposables);
         ConfirmFilesCommand.Subscribe(async () => await ConfirmFilesAsync()).AddTo(Disposables);

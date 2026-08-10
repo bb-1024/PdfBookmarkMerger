@@ -39,10 +39,18 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
     /// <summary>
     /// trueの間、PreOffsetPageNumberの変更通知(OnPreOffsetPageNumberChanged)を無視する。
-    /// RecomputeAllPageNumberDisplaysが再計算結果を各ノードへ書き戻す際、その書き戻し自体が
+    /// RecomputeAllPageNumberDisplaysAsyncが再計算結果を各ノードへ書き戻す際、その書き戻し自体が
     /// ユーザー編集として二重に処理・再帰してしまうのを防ぐ。
     /// </summary>
     private bool _isRecomputingPageNumbers;
+
+    /// <summary>
+    /// RecomputeAllPageNumberDisplaysAsyncが1回のawait区間で処理するノード数。この件数ごとに
+    /// await Task.Yield()でUIスレッドへ制御を返し、描画・入力処理の機会を与える。
+    /// ノード総数がこの値以下のツリーでは一度もawaitが発生せず、これまで通り同期的に完了する
+    /// (小規模なツリーでの不要なオーバーヘッド・ちらつきを避けるため)。
+    /// </summary>
+    internal const int RecomputeChunkSize = 200;
 
     public BookmarkTreeViewModel(IDialogService dialogService)
     {
@@ -60,6 +68,9 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
         HasPageNumberEdits = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         HasPageNumberInconsistency = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
+
+        IsBusy = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
+        BusyProgress = new ReactivePropertySlim<BusyProgressInfo?>(null).AddTo(Disposables);
     }
 
     /// <summary>タイトル列の既定幅(px)。実際の幅はUI側でタイトル文字列の実測幅に応じて拡張される。</summary>
@@ -104,6 +115,17 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     public ReactivePropertySlim<bool> HasPageNumberInconsistency { get; }
 
     /// <summary>
+    /// 結合前ページ数の再計算(RecomputeAllPageNumberDisplaysAsync)が大量のノードを対象に
+    /// バックグラウンドで進行中か。しおりが大量にある状態での編集・追加・削除・元に戻す操作は
+    /// この再計算を伴うため、trueの間はMainWindowViewModel側のIsBusyへ転送され、既存の
+    /// 処理中オーバーレイで操作をブロックしつつ進捗を表示する(小規模なツリーでは一度もtrueにならない)。
+    /// </summary>
+    public ReactivePropertySlim<bool> IsBusy { get; }
+
+    /// <summary>IsBusy中の詳細進捗(完了/総ノード数)。IsBusyがfalseの間はnull。</summary>
+    public ReactivePropertySlim<BusyProgressInfo?> BusyProgress { get; }
+
+    /// <summary>
     /// 新規ドキュメントの読み込み。前のドキュメントのUndo履歴は引き継がない(クリアする)。
     /// orderedFileIdsは結合順のファイルID一覧(結合後ページ数の連鎖計算に使う、しおりツリー上の
     /// 表示順ではなくファイル一覧の並び順)。
@@ -133,7 +155,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             RootNodes.Add(new BookmarkNodeViewModel(node, name, null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot, OnPreOffsetPageNumberChanged));
         }
 
-        RecomputeAllPageNumberDisplays();
+        TriggerRecompute();
     }
 
     /// <summary>
@@ -324,7 +346,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         PushUndoSnapshot();
         TruncateBelowLevel(node, absoluteLevel - node.LevelNumber);
         node.SyncChildOrderToModel();
-        RecomputeAllPageNumberDisplays();
+        await RecomputeAllPageNumberDisplaysAsync();
     }
 
     private static void TruncateBelowLevel(BookmarkNodeViewModel node, int remainingLevels)
@@ -431,7 +453,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             }
         });
 
-        RecomputeAllPageNumberDisplays();
+        TriggerRecompute();
     }
 
     /// <summary>
@@ -467,25 +489,55 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             }
         });
 
-        RecomputeAllPageNumberDisplays();
+        TriggerRecompute();
     }
+
+    /// <summary>
+    /// RecomputeAllPageNumberDisplaysAsyncを実行して結果を待たず、呼び出し元(構造編集メソッド群)へ
+    /// 即座に制御を返す。ノード数の少ないツリーでは内部で一度もawaitが発生しないため、このメソッドから
+    /// 戻った時点で実質的に処理は完了している(既存の同期呼び出し前提のテスト・コードビハインドは無改修で動く)。
+    /// ノード数が多いツリーでは内部でIsBusy/BusyProgressを更新しながらUIスレッドへ制御を返しつつ進行するため、
+    /// 呼び出し元がその完了を待つ必要はない(結果はReactivePropertySlim経由でUIへ反映される)。
+    /// 例外はasync voidの通例どおりSynchronizationContext経由でアプリ全体の未処理例外ハンドラに届く。
+    /// </summary>
+    private async void TriggerRecompute() => await RecomputeAllPageNumberDisplaysAsync();
 
     /// <summary>
     /// 全ノードのPreOffsetPageNumber/DisplayMergedPageNumberを、現在のPageOffset設定に基づいて
     /// 再計算し各ノードへ書き戻す。あわせてHasPageNumberEdits/HasPageNumberInconsistencyも更新する。
     /// ツリー構造・PageOffsetを変更しうるすべての操作(読込・Undo・追加・削除・移動・編集)の後に呼ぶ。
+    /// しおりが大量にある場合、この処理(特にノードごとのプロパティ書き戻しに伴うUIバインディング更新)は
+    /// UIスレッドを長時間占有しうる。RecomputeChunkSize件処理するごとにawait Task.Yield()で制御を返し、
+    /// その間はIsBusy/BusyProgressで進捗を報告する(MainWindowViewModel経由で既存の処理中オーバーレイに
+    /// 反映される)。このオーバーレイはしおり編集画面(手順2/3)全体を覆いマウス操作を受け付けなくなるため、
+    /// 実行中に本メソッドの別呼び出しが(ユーザー操作起点で)重ねて発生することは想定していない。
+    /// このViewModel自身が書き戻す値(PreOffsetPageNumber等)からの再帰は_isRecomputingPageNumbersで防ぐ。
+    /// internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。
     /// </summary>
-    private void RecomputeAllPageNumberDisplays()
+    internal async Task RecomputeAllPageNumberDisplaysAsync()
     {
         _isRecomputingPageNumbers = true;
         try
         {
             var cumulativeBeforeFile = ComputeCumulativeDeltaBeforeFile();
 
+            var allNodes = new List<BookmarkNodeViewModel>();
+            WalkAll(RootNodes, allNodes.Add);
+            var total = allNodes.Count;
+            var showProgress = total > RecomputeChunkSize;
+
+            if (showProgress)
+            {
+                IsBusy.Value = true;
+                BusyProgress.Value = new BusyProgressInfo(0, total, []);
+                await Task.Yield();
+            }
+
             var hasEdits = false;
             var hasInconsistency = false;
-            WalkAll(RootNodes, vm =>
+            for (var i = 0; i < total; i++)
             {
+                var vm = allNodes[i];
                 var offset = vm.Model.PageOffset ?? 0;
                 vm.IsPageNumberEdited.Value = offset != 0;
                 if (offset != 0)
@@ -510,7 +562,13 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
                         hasInconsistency = true;
                     }
                 }
-            });
+
+                if (showProgress && (i + 1) % RecomputeChunkSize == 0)
+                {
+                    BusyProgress.Value = new BusyProgressInfo(i + 1, total, []);
+                    await Task.Yield();
+                }
+            }
 
             HasPageNumberEdits.Value = hasEdits;
             HasPageNumberInconsistency.Value = hasInconsistency;
@@ -518,6 +576,11 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         finally
         {
             _isRecomputingPageNumbers = false;
+            if (IsBusy.Value)
+            {
+                IsBusy.Value = false;
+                BusyProgress.Value = null;
+            }
         }
     }
 
@@ -572,7 +635,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
         RootNodes.Add(vm);
         _rootModel.Add(model);
-        RecomputeAllPageNumberDisplays();
+        TriggerRecompute();
         return vm;
     }
 
@@ -595,7 +658,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         parent.Children.Add(vm);
         parent.IsExpanded.Value = true;
         parent.SyncChildOrderToModel();
-        RecomputeAllPageNumberDisplays();
+        TriggerRecompute();
         return vm;
     }
 
@@ -629,7 +692,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             reference.Parent.SyncChildOrderToModel();
         }
 
-        RecomputeAllPageNumberDisplays();
+        TriggerRecompute();
         return vm;
     }
 
@@ -648,7 +711,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             node.Parent.SyncChildOrderToModel();
         }
 
-        RecomputeAllPageNumberDisplays();
+        TriggerRecompute();
     }
 
     /// <summary>ノードをnewParent(nullの場合はルート)のnewIndex位置へ移動する。ドラッグ&ドロップ並べ替え用。</summary>

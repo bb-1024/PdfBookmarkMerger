@@ -1034,6 +1034,46 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         page structure — so the reset is scoped to the whole file instead. The reset is an Undo target too (a no-op,
         pushing no Undo entry, when that file has no active edits).
       </p>
+
+      <h3>Responsiveness of edit/add/remove/undo operations on a large number of bookmarks <span class="badge ok">Fixed in v1.2.0</span></h3>
+      <p>
+        The pre-merge page number cascade computation above
+        (<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>, formerly
+        <code class="inline">RecomputeAllPageNumberDisplays</code>) walks the entire tree twice — once to compute
+        the cross-file cumulative delta, once to write the result back to every node — on every operation that can
+        change the tree (edit, add, remove, level-cap truncation, Undo, ...). With a large number of bookmarks, this
+        walk (particularly the UI-binding updates triggered by writing each node's
+        <code class="inline">ReactivePropertySlim</code> values) could occupy the UI thread for a long time, and
+        because it ran fully synchronously, there was never a chance to even render an <code class="inline">IsBusy</code>
+        indicator — the app appeared to freeze with no progress feedback at all.
+      </p>
+      <p>
+        The write-back loop is now split into chunks of
+        <code class="inline">BookmarkTreeViewModel.RecomputeChunkSize</code> (200) nodes, but only when the node
+        count exceeds that threshold; between chunks it yields to the UI thread via
+        <code class="inline">await Task.Yield()</code>. During that time, the newly added
+        <code class="inline">BookmarkTreeViewModel.IsBusy</code>/<code class="inline">BusyProgress</code> (the same
+        <code class="inline">BusyProgressInfo</code> type already used for step 1's file loading) are updated, and
+        <code class="inline">MainWindowViewModel</code> forwards them straight into its own
+        <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code> — reusing the existing busy
+        overlay and progress display from file loading instead of building new UI (the prior
+        <code class="inline">StatusMessage</code> is saved off while forwarding is active and restored once it ends).
+        That overlay covers the whole bookmark-edit screen and blocks mouse input, so there is no risk of the same
+        recompute being re-triggered by another edit while a chunk is in flight. For trees at or below the
+        threshold, the method never hits an <code class="inline">await</code> (it never reaches
+        <code class="inline">Task.Yield()</code>) and completes synchronously exactly as before.
+      </p>
+      <p>
+        The public signatures of the methods that used to call the recompute at their tail
+        (<code class="inline">AddRoot</code>/<code class="inline">AddChild</code>/
+        <code class="inline">AddSiblingAfter</code>/<code class="inline">Remove</code>/<code class="inline">Undo</code>,
+        etc.) are unchanged. They now go through a new
+        <code class="inline">private async void TriggerRecompute()</code> (a fire-and-forget call that returns
+        before the recompute necessarily finishes), so callers — code-behind and existing tests — needed no changes
+        (for small trees the work is still effectively synchronous by the time control returns, so existing
+        synchronous-call-site tests keep passing unmodified). Only <code class="inline">SetChildLevelCapAsync</code>,
+        which was already async, awaits <code class="inline">RecomputeAllPageNumberDisplaysAsync</code> directly.
+      </p>
     </section>
 
     <section id="settings-logging">
@@ -1240,8 +1280,9 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
             <tr><td class="mono">PdfMergeServiceTests</td><td>Merges 2 files with bookmarks plus 1 without, reopens the merged result, and verifies page count, bookmark hierarchy, jump-target pages, and properties (integration test)</td></tr>
             <tr><td class="mono">BookmarkSettingsExportServiceTests</td><td>Exact match of the declaration line, Page/Action attributes for flat and nested structures, the argument list for each of Fit/FitH/FitV/XYZ (substituting 0 when unset), and falling back to OriginalPageIndex when MergedPageIndex has not been computed</td></tr>
             <tr><td class="mono">PdfFileCollectorServiceTests</td><td>Expanding only files directly under a folder while excluding subfolders, ignoring non-PDF files, and ignoring nonexistent paths</td></tr>
-            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails. Saving the bookmark settings file (default file name, export invocation, no invocation on cancel). That editing the pre-merge page number disables only <code class="inline">MergeCommand</code>, and disables <code class="inline">SaveBookmarkSettingsCommand</code> too once an inconsistency results</td></tr>
+            <tr><td class="mono">MainWindowViewModelTests</td><td><strong>That a file whose metadata failed to load is consistently excluded not only from the bookmark tree but also from the actual merge target</strong> (regression test). That EditBookmarks is not entered when every file fails. Saving the bookmark settings file (default file name, export invocation, no invocation on cancel). That editing the pre-merge page number disables only <code class="inline">MergeCommand</code>, and disables <code class="inline">SaveBookmarkSettingsCommand</code> too once an inconsistency results. <strong>That <code class="inline">BookmarkTree.IsBusy</code>/<code class="inline">BusyProgress</code> are forwarded into its own IsBusy/BusyProgress, and StatusMessage is restored once busy ends</strong></td></tr>
             <tr><td class="mono">BookmarkTreeViewModelTests</td><td>Reordering within the same level, re-parenting between different parents, rejecting a move into one's own descendants, level-cap truncation (including deleting all children when the node's own level is selected), non-destructive cloning (<code class="inline">ToModel</code>) under ForceFitForAll, PromoteLevel/DemoteLevel boundary conditions, Undo (structural operations, property-edit coalescing, repeated Undo in LIFO order), and <strong>editing the pre-merge page number</strong> (applies only to same-file bookmarks at or after the edited page, cascades post-merge numbers across files, clears HasPageNumberEdits when the edit nets back to zero, sets HasPageNumberInconsistency on an invalid result, sets IsPageNumberEdited only on the nodes actually affected, is restored by Undo, that manually typing the original value back into the text box unwinds the cascade, and is reflected in <code class="inline">ToExportModel</code>), and <strong><code class="inline">ResetFilePageNumbers</code></strong> (resets the whole file at once, including edits on pages before the reset target; leaves other files untouched; is a no-op that pushes no Undo entry when that file has no active edits; is restored by Undo)</td></tr>
+            <tr><td class="mono">BookmarkTreeLargePageNumberRecomputeTests</td><td><strong>Regression test for the freeze on large bookmark trees during editing/undo.</strong> That <code class="inline">IsBusy</code> never becomes true and the operation completes synchronously at or below RecomputeChunkSize; that above it, IsBusy becomes true and <code class="inline">BusyProgress</code> reports at least one intermediate (not-yet-complete) value; that <code class="inline">AddRoot</code> on a 5,000-node tree returns quickly without waiting for the full recompute; that an edit followed by Undo on a large tree eventually settles into the correct displayed values</td></tr>
             <tr><td class="mono">FileListViewModelTests</td><td>Batch move up/down of a multi-selection block, and button-enabled state at the boundaries and for a non-contiguous selection (<code class="inline">GetMoveAvailability</code>)</td></tr>
             <tr><td class="mono">UndoHistoryTests</td><td>LIFO-order retrieval, discarding the oldest entries once the total size cap is exceeded, and always keeping the most recent entry even when the cap is exceeded</td></tr>
             <tr><td class="mono">StringsTests / AppLanguageBootstrapperTests</td><td>Resolving Japanese/English resources by switching Strings.Culture, auto-detection and one-time persistence when unset, and preserving an existing configured value</td></tr>
@@ -1251,7 +1292,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         </table>
       </div>
 
-      <p><span class="badge ok">Result</span> All 128 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
+      <p><span class="badge ok">Result</span> All 133 tests pass (<code class="inline">dotnet test PdfBookmarkMerger.slnx</code>).</p>
     </section>
 
     <section id="windows-release-build">

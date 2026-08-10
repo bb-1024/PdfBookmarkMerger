@@ -175,4 +175,37 @@ public sealed class MainWindowViewModelTests
         mainVm.MergeCommand.CanExecute().ShouldBeFalse();
         mainVm.SaveBookmarkSettingsCommand.CanExecute().ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task BookmarkTreeBusyState_IsForwardedToMainWindowViewModel_AndStatusMessageIsRestoredAfterward()
+    {
+        // しおりが大量にある状態でBookmarkTree.RecomputeAllPageNumberDisplaysAsyncがバックグラウンドへ
+        // 分岐する際、専用のUIを新設せず既存のIsBusy/BusyProgress/処理中オーバーレイをそのまま
+        // 再利用できるよう転送していることを確認する回帰テスト。
+        var (mainVm, metadata, _, _, _) = CreateSut();
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(entry.FilePath, pageCount: 1);
+        await mainVm.ConfirmFilesAsync();
+
+        var originalStatusMessage = mainVm.StatusMessage.Value;
+
+        var busyStates = new List<bool>();
+        using var busySub = mainVm.IsBusy.Subscribe(busyStates.Add);
+        var progressSnapshots = new List<BusyProgressInfo?>();
+        using var progressSub = mainVm.BusyProgress.Subscribe(progressSnapshots.Add);
+
+        await mainVm.BookmarkTree.RecomputeAllPageNumberDisplaysAsync();
+        // このヘルパーではノード数がしきい値以下のため実際にはbusyへ遷移しないが、直接IsBusy/
+        // BusyProgressを一度trueへ切り替えて転送経路を確認する。
+        mainVm.BookmarkTree.IsBusy.Value = true;
+        mainVm.BookmarkTree.BusyProgress.Value = new BusyProgressInfo(1, 500, []);
+        mainVm.BookmarkTree.IsBusy.Value = false;
+
+        busyStates.ShouldContain(true);
+        busyStates[^1].ShouldBeFalse();
+        progressSnapshots.ShouldContain(p => p != null && p.CompletedCount == 1 && p.TotalCount == 500);
+        mainVm.StatusMessage.Value.ShouldBe(originalStatusMessage, "busy終了後は元のステータスメッセージへ復元されるべき");
+    }
 }
