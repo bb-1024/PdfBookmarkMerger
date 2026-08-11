@@ -192,6 +192,26 @@ public sealed class BookmarkTreeViewModelTests
     }
 
     [Fact]
+    public async Task UndoCommand_CanExecute_IsFalseWhileIsBusy_EvenWithUndoHistory()
+    {
+        // RecomputeAllPageNumberDisplaysAsyncが大量ノードをチャンク処理している間は、処理中
+        // オーバーレイがクリックをブロックすることに加えて、CanExecute自体もfalseにしておくことで
+        // 進行中の再計算との競合を防ぐ(コードレビューで指摘・修正)。
+        var vm = CreateSut(out _);
+        vm.AddRoot();
+        vm.CanUndo.Value.ShouldBeTrue();
+        vm.UndoCommand.CanExecute().ShouldBeTrue();
+
+        vm.IsBusy.Value = true;
+        await Task.Yield();
+        vm.UndoCommand.CanExecute().ShouldBeFalse();
+
+        vm.IsBusy.Value = false;
+        await Task.Yield();
+        vm.UndoCommand.CanExecute().ShouldBeTrue();
+    }
+
+    [Fact]
     public void Undo_AfterAddRoot_RemovesTheAddedNodeAndDisablesFurtherUndo()
     {
         var vm = CreateSut(out _);

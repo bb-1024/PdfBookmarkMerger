@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reactive.Linq;
 using System.Text;
 using System.Text.Json;
 using PdfBookmarkMerger.App.Resources;
@@ -62,15 +63,19 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         GlobalExpandOverride.Subscribe(ApplyGlobalExpandOverride).AddTo(Disposables);
         TitleColumnBaseWidth = new ReactivePropertySlim<double>(DefaultTitleColumnBaseWidth).AddTo(Disposables);
 
+        IsBusy = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
+        BusyProgress = new ReactivePropertySlim<BusyProgressInfo?>(null).AddTo(Disposables);
+
         CanUndo = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
-        UndoCommand = new ReactiveCommand(CanUndo).AddTo(Disposables);
+        // RecomputeAllPageNumberDisplaysAsyncが大量ノードをチャンク処理している間(IsBusy中)は、
+        // 処理中オーバーレイがマウス操作をブロックすることを主な防御としているが、それだけに頼らず
+        // CanExecute自体もfalseにしておく(この間にUndoを実行すると、進行中の再計算と競合しうるため)。
+        var canUndo = CanUndo.CombineLatest(IsBusy, (canUndo, busy) => canUndo && !busy);
+        UndoCommand = new ReactiveCommand(canUndo).AddTo(Disposables);
         UndoCommand.Subscribe(Undo).AddTo(Disposables);
 
         HasPageNumberEdits = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         HasPageNumberInconsistency = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
-
-        IsBusy = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
-        BusyProgress = new ReactivePropertySlim<BusyProgressInfo?>(null).AddTo(Disposables);
     }
 
     /// <summary>タイトル列の既定幅(px)。実際の幅はUI側でタイトル文字列の実測幅に応じて拡張される。</summary>

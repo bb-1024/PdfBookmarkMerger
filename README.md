@@ -69,7 +69,7 @@ scripts/                         Release build scripts
 dotnet test PdfBookmarkMerger.slnx
 ```
 
-133 tests across three projects: `PdfBookmarkMerger.Core.Tests`, `PdfBookmarkMerger.App.Tests`, and `PdfBookmarkMerger.UiConverters.Tests` (which exercises both frontends' converter classes directly).
+134 tests across three projects: `PdfBookmarkMerger.Core.Tests`, `PdfBookmarkMerger.App.Tests`, and `PdfBookmarkMerger.UiConverters.Tests` (which exercises both frontends' converter classes directly).
 
 ---
 
@@ -138,4 +138,4 @@ scripts/                         リリースビルド用スクリプト
 dotnet test PdfBookmarkMerger.slnx
 ```
 
-`PdfBookmarkMerger.Core.Tests` / `PdfBookmarkMerger.App.Tests` / `PdfBookmarkMerger.UiConverters.Tests`(両フロントエンドのConverterを実際に実行するゴールデンテスト)の3プロジェクトで、計133件のテストを実施しています。
+`PdfBookmarkMerger.Core.Tests` / `PdfBookmarkMerger.App.Tests` / `PdfBookmarkMerger.UiConverters.Tests`(両フロントエンドのConverterを実際に実行するゴールデンテスト)の3プロジェクトで、計134件のテストを実施しています。
