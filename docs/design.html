@@ -529,7 +529,7 @@
       <li><a href="#related-docs">関連ドキュメント</a></li>
     </ol>
     <div class="toc-foot">
-      .NET 10 ・ 最終更新 2026-08-01<br />
+      .NET 10 ・ 最終更新 2026-08-12<br />
       対象: Windows(WPF-UI) / macOS(Avalonia)<br />
       <a href="design.en.html">English</a>
     </div>
@@ -537,7 +537,7 @@
 
   <main>
     <header class="doc-head" id="overview">
-      <div class="eyebrow">Design Document — v1.1.0</div>
+      <div class="eyebrow">Design Document — v1.2.1</div>
       <h1>複数PDFファイル結合ツール「PdfBookmarkMerger」設計ドキュメント</h1>
       <p class="sub">
         複数のPDFファイルをドラッグ&amp;ドロップで結合し、各ファイルのしおり(Outline)を
@@ -1000,7 +1000,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
         リセットもUndo対象になる(そのファイルに編集が1件も無い場合は何もしない=Undo履歴も積まない)。
       </p>
 
-      <h3>大量のしおりに対する編集・追加・削除・元に戻す操作の応答性 <span class="badge ok">v1.2.0で修正</span></h3>
+      <h3>大量のしおりに対する編集・追加・削除・元に戻す操作の応答性 <span class="badge ok">v1.2.1で修正</span></h3>
       <p>
         上記の結合前ページ数の連鎖計算(<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>、
         旧称<code class="inline">RecomputeAllPageNumberDisplays</code>)は、編集・追加・削除・レベル上限切り詰め・
@@ -1167,7 +1167,7 @@ Directory.Build.props                   <span class="c"># ソリューション�
       </div>
 
       <div class="card">
-        <h4>しおり行クリックで横スクロール位置が動く(WPF・Avalonia共通) <span class="badge warn">v1.2.0で修正</span></h4>
+        <h4>しおり行クリックで横スクロール位置が動く(WPF・Avalonia共通) <span class="badge warn">v1.2.1で修正</span></h4>
         <p>
           しおり編集ツリーの1行は多数のコントロールを横に並べた幅広の内容のため、ウィンドウが狭い場合は
           横スクロールバーが表示される(<code class="inline">ScrollViewer.HorizontalScrollBarVisibility="Auto"</code>)。
@@ -1237,9 +1237,9 @@ Directory.Build.props                   <span class="c"># ソリューション�
         <table>
           <thead><tr><th class="mono">プロジェクト</th><th>対象レイヤー</th><th>件数</th></tr></thead>
           <tbody>
-            <tr><td class="mono">PdfBookmarkMerger.Core.Tests</td><td>Core(PDF入出力・結合ロジック)。<code class="inline">SamplePdfFactory</code>がPDFsharpでサンプルPDFをその場で生成</td><td>15</td></tr>
-            <tr><td class="mono">PdfBookmarkMerger.App.Tests</td><td>App層ViewModel。<code class="inline">TestHelpers/FakeServices.cs</code>のフェイク実装(モックライブラリ不使用)でDIを差し替える</td><td>46</td></tr>
-            <tr><td class="mono">PdfBookmarkMerger.UiConverters.Tests</td><td>WPF/Avalonia双方のConverterクラスを実際に参照・実行するゴールデンテスト(net10.0-windows)</td><td>25</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.Core.Tests</td><td>Core(PDF入出力・結合ロジック)。<code class="inline">SamplePdfFactory</code>がPDFsharpでサンプルPDFをその場で生成</td><td>24</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.App.Tests</td><td>App層ViewModel。<code class="inline">TestHelpers/FakeServices.cs</code>のフェイク実装(モックライブラリ不使用)でDIを差し替える</td><td>77</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.UiConverters.Tests</td><td>WPF/Avalonia双方のConverterクラスを実際に参照・実行するゴールデンテスト(net10.0-windows)</td><td>33</td></tr>
           </tbody>
         </table>
       </div>

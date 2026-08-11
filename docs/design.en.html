@@ -529,7 +529,7 @@
       <li><a href="#related-docs">Related Documents</a></li>
     </ol>
     <div class="toc-foot">
-      .NET 10 · Last updated 2026-08-01<br />
+      .NET 10 · Last updated 2026-08-12<br />
       Scope: Windows (WPF-UI) / macOS (Avalonia)<br />
       <a href="design.html">日本語</a>
     </div>
@@ -537,7 +537,7 @@
 
   <main>
     <header class="doc-head" id="overview">
-      <div class="eyebrow">Design Document — v1.1.0</div>
+      <div class="eyebrow">Design Document — v1.2.1</div>
       <h1>Design Document for "PdfBookmarkMerger", a Multi-PDF File Merge Tool</h1>
       <p class="sub">
         A desktop application that merges multiple PDF files via drag &amp; drop, automatically extracting and
@@ -1035,7 +1035,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         pushing no Undo entry, when that file has no active edits).
       </p>
 
-      <h3>Responsiveness of edit/add/remove/undo operations on a large number of bookmarks <span class="badge ok">Fixed in v1.2.0</span></h3>
+      <h3>Responsiveness of edit/add/remove/undo operations on a large number of bookmarks <span class="badge ok">Fixed in v1.2.1</span></h3>
       <p>
         The pre-merge page number cascade computation above
         (<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>, formerly
@@ -1204,7 +1204,7 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
       </div>
 
       <div class="card">
-        <h4>Clicking a bookmark row moves the horizontal scroll position (WPF and Avalonia both) <span class="badge warn">Fixed in v1.2.0</span></h4>
+        <h4>Clicking a bookmark row moves the horizontal scroll position (WPF and Avalonia both) <span class="badge warn">Fixed in v1.2.1</span></h4>
         <p>
           Each row in the bookmark-edit tree is wide content — many controls laid out side by side — so when the
           window is narrow, a horizontal scrollbar appears
@@ -1282,9 +1282,9 @@ Directory.Build.props                   <span class="c"># Solution-wide version 
         <table>
           <thead><tr><th class="mono">Project</th><th>Target Layer</th><th>Count</th></tr></thead>
           <tbody>
-            <tr><td class="mono">PdfBookmarkMerger.Core.Tests</td><td>Core (PDF I/O and merge logic). <code class="inline">SamplePdfFactory</code> generates sample PDFs on the spot with PDFsharp</td><td>15</td></tr>
-            <tr><td class="mono">PdfBookmarkMerger.App.Tests</td><td>App-layer ViewModels. DI is swapped out using fake implementations in <code class="inline">TestHelpers/FakeServices.cs</code> (no mocking library)</td><td>46</td></tr>
-            <tr><td class="mono">PdfBookmarkMerger.UiConverters.Tests</td><td>Golden tests that actually reference and run both the WPF and Avalonia converter classes (net10.0-windows)</td><td>25</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.Core.Tests</td><td>Core (PDF I/O and merge logic). <code class="inline">SamplePdfFactory</code> generates sample PDFs on the spot with PDFsharp</td><td>24</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.App.Tests</td><td>App-layer ViewModels. DI is swapped out using fake implementations in <code class="inline">TestHelpers/FakeServices.cs</code> (no mocking library)</td><td>77</td></tr>
+            <tr><td class="mono">PdfBookmarkMerger.UiConverters.Tests</td><td>Golden tests that actually reference and run both the WPF and Avalonia converter classes (net10.0-windows)</td><td>33</td></tr>
           </tbody>
         </table>
       </div>

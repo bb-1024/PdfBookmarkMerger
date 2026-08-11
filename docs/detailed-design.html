@@ -253,7 +253,7 @@
       <li><a href="#file-map">ファイルマップ</a></li>
     </ol>
     <div class="toc-foot">
-      .NET 10 ・ 最終更新 2026-08-01<br />
+      .NET 10 ・ 最終更新 2026-08-12<br />
       <a href="design.html">← 設計ドキュメント</a><br />
       <a href="manual-verification-checklist.html">手動確認手順書 →</a><br />
       <a href="detailed-design.en.html">English</a>
@@ -262,7 +262,7 @@
 
   <main>
     <header class="doc-head" id="overview">
-      <div class="eyebrow">Detailed Design Document — v1.1.0</div>
+      <div class="eyebrow">Detailed Design Document — v1.2.1</div>
       <h1>PdfBookmarkMerger 詳細設計ドキュメント</h1>
       <p class="sub">
         <a href="design.html">設計ドキュメント</a>で述べたアーキテクチャ方針を前提に、実際のクラス構成・関数(メソッド)の
@@ -1299,7 +1299,7 @@
         <code class="inline">BusyProgress</code>(<code class="inline">ReactivePropertySlim&lt;BusyProgressInfo?&gt;</code>、<strong>v1.1.0</strong>)は
         <code class="inline">IsBusy</code>の間の詳細進捗を公開する。UI側は処理開始から5秒経過後にのみこの内容を表示する
         (<code class="inline">DispatcherTimer</code>、短時間処理での表示チラつき防止)。
-        <span class="badge ok">v1.2.0</span> あわせて、コンストラクタで
+        <span class="badge ok">v1.2.1</span> あわせて、コンストラクタで
         <code class="inline">BookmarkTree.IsBusy</code>/<code class="inline">BusyProgress</code>を購読し、
         そのままこちらの<code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>へ転送する
         (大量しおりでの結合前ページ数再計算がバックグラウンドへ分岐する間、専用のUIを新設せず
@@ -1344,11 +1344,11 @@
             <tr><td class="wrap-mono">Load(rootBookmarks, fileNames, orderedFileIds) <span class="badge ok">新機能でorderedFileIds追加</span></td><td>orderedFileIdsは結合順のファイルID一覧(しおりツリー上の表示順ではなく<code class="inline">FileListViewModel.Files</code>の並び順)。結合前ページ数編集時の結合後ページ数の連鎖計算(<code class="inline">ComputeCumulativeDeltaBeforeFile</code>)に使う</td></tr>
             <tr><td class="wrap-mono">HasPageNumberEdits <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> <span class="badge ok">新機能</span></td><td>ツリー内のいずれかのノードの<code class="inline">PageOffset</code>が非ゼロか。<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>の末尾で再計算される。<code class="inline">MainWindowViewModel.MergeCommand</code>のCanExecuteに組み込まれる</td></tr>
             <tr><td class="wrap-mono">HasPageNumberInconsistency <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> <span class="badge ok">新機能</span></td><td>結合前・結合後いずれかのページ数が1未満になっているノードが存在するか。<code class="inline">MainWindowViewModel</code>の<code class="inline">MergeCommand</code>・<code class="inline">SaveBookmarkSettingsCommand</code>双方のCanExecuteに組み込まれる</td></tr>
-            <tr><td class="wrap-mono">IsBusy <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> / BusyProgress <span class="mono">ReactivePropertySlim&lt;BusyProgressInfo?&gt;</span> <span class="badge ok">v1.2.0</span></td><td><code class="inline">RecomputeAllPageNumberDisplaysAsync</code>が大量ノードを対象にチャンク処理している間だけtrue/非nullになる。<code class="inline">MainWindowViewModel</code>が自身の同名プロパティへ転送し、手順1のファイル読込で使う処理中オーバーレイをそのまま再利用する</td></tr>
+            <tr><td class="wrap-mono">IsBusy <span class="mono">ReactivePropertySlim&lt;bool&gt;</span> / BusyProgress <span class="mono">ReactivePropertySlim&lt;BusyProgressInfo?&gt;</span> <span class="badge ok">v1.2.1</span></td><td><code class="inline">RecomputeAllPageNumberDisplaysAsync</code>が大量ノードを対象にチャンク処理している間だけtrue/非nullになる。<code class="inline">MainWindowViewModel</code>が自身の同名プロパティへ転送し、手順1のファイル読込で使う処理中オーバーレイをそのまま再利用する</td></tr>
             <tr><td class="wrap-mono">- OnPreOffsetPageNumberChanged(node, newValue) <span class="badge ok">新機能</span></td><td><code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code>の変更通知を受け取るコールバック。差分(newValue - 編集前の実効値)を、同一<code class="inline">SourceFileEntryId</code>を持ち<code class="inline">OriginalPageIndex</code>が編集ノード以上の全ノードの<code class="inline">PageOffset</code>へ一律加算する。直前にUndoスナップショットを積む(ノード単位でコアレス)。再計算中(<code class="inline">_isRecomputingPageNumbers</code>)は即returnし、書き戻し自体を編集として二重処理しない</td></tr>
             <tr><td class="wrap-mono">ResetFilePageNumbers(node) <span class="badge ok">v1.2.0</span></td><td>結合前ページ数テキストボックスの右クリックメニュー用。<code class="inline">node</code>と同一<code class="inline">SourceFileEntryId</code>を持つ全ノードの<code class="inline">PageOffset</code>を<code class="inline">null</code>へ戻す(<code class="inline">OnPreOffsetPageNumberChanged</code>のような<code class="inline">OriginalPageIndex</code>以降限定ではなく、そのファイル全体が対象)。そのファイルに<code class="inline">PageOffset</code>が非ゼロのノードが1件も無ければ何もせず、Undoスナップショットも積まない</td></tr>
-            <tr><td class="wrap-mono">- TriggerRecompute() <span class="badge ok">v1.2.0</span></td><td><code class="inline">async void</code>のfire-and-forgetラッパー。<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>の完了を待たず、<code class="inline">AddRoot</code>/<code class="inline">AddChild</code>/<code class="inline">AddSiblingAfter</code>/<code class="inline">Remove</code>/<code class="inline">RebuildTree</code>(Load・Undo経由)/<code class="inline">OnPreOffsetPageNumberChanged</code>/<code class="inline">ResetFilePageNumbers</code>から呼ばれる。これらのメソッドの公開シグネチャを変えずに済ませるための橋渡し(ノード数が閾値以下の場合は内部で一度もawaitしないため、呼び出し元が戻った時点で実質的に完了している)</td></tr>
-            <tr><td class="wrap-mono">RecomputeAllPageNumberDisplaysAsync() <span class="badge ok">v1.2.0でチャンク処理化</span></td><td>全ノードの<code class="inline">PreOffsetPageNumber</code>/<code class="inline">DisplayMergedPageNumber</code>を現在の<code class="inline">PageOffset</code>から再計算して書き戻し、<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>を更新する。読込・Undo・追加・削除・レベル上限切り詰め・編集・<code class="inline">ResetFilePageNumbers</code>の各操作の後に呼ばれる(Moveは<code class="inline">SourceFileEntryId</code>/<code class="inline">OriginalPageIndex</code>を変更しないため呼ばない)。対象ノード数が<code class="inline">RecomputeChunkSize</code>(200)を超える場合のみ、書き戻しをその件数ごとのチャンクに分割し<code class="inline">await Task.Yield()</code>を挟みつつ<code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>を更新する(旧<code class="inline">RecomputeAllPageNumberDisplays</code>の全面同期実行が、大量しおり環境でUIスレッドを長時間占有しフリーズして見える不具合の修正)。internal(テストから直接await可能)</td></tr>
+            <tr><td class="wrap-mono">- TriggerRecompute() <span class="badge ok">v1.2.1</span></td><td><code class="inline">async void</code>のfire-and-forgetラッパー。<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>の完了を待たず、<code class="inline">AddRoot</code>/<code class="inline">AddChild</code>/<code class="inline">AddSiblingAfter</code>/<code class="inline">Remove</code>/<code class="inline">RebuildTree</code>(Load・Undo経由)/<code class="inline">OnPreOffsetPageNumberChanged</code>/<code class="inline">ResetFilePageNumbers</code>から呼ばれる。これらのメソッドの公開シグネチャを変えずに済ませるための橋渡し(ノード数が閾値以下の場合は内部で一度もawaitしないため、呼び出し元が戻った時点で実質的に完了している)</td></tr>
+            <tr><td class="wrap-mono">RecomputeAllPageNumberDisplaysAsync() <span class="badge ok">v1.2.1でチャンク処理化</span></td><td>全ノードの<code class="inline">PreOffsetPageNumber</code>/<code class="inline">DisplayMergedPageNumber</code>を現在の<code class="inline">PageOffset</code>から再計算して書き戻し、<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>を更新する。読込・Undo・追加・削除・レベル上限切り詰め・編集・<code class="inline">ResetFilePageNumbers</code>の各操作の後に呼ばれる(Moveは<code class="inline">SourceFileEntryId</code>/<code class="inline">OriginalPageIndex</code>を変更しないため呼ばない)。対象ノード数が<code class="inline">RecomputeChunkSize</code>(200)を超える場合のみ、書き戻しをその件数ごとのチャンクに分割し<code class="inline">await Task.Yield()</code>を挟みつつ<code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>を更新する(旧<code class="inline">RecomputeAllPageNumberDisplays</code>の全面同期実行が、大量しおり環境でUIスレッドを長時間占有しフリーズして見える不具合の修正)。internal(テストから直接await可能)</td></tr>
             <tr><td class="wrap-mono">- ComputeCumulativeDeltaBeforeFile() <span class="badge ok">新機能</span></td><td>ファイルごとの「ファイル内で最もOriginalPageIndexが大きいノードのPageOffset」(=そのファイル全体に効く累積差分。どの編集も自身の位置以降=最終ページを含む範囲に及ぶため)を、<code class="inline">_orderedFileIds</code>の順に積算し、各ファイルについて「自分より前のファイルの累積差分の合計」を返す。<code class="inline">RecomputeAllPageNumberDisplaysAsync</code>と<code class="inline">ToExportModel</code>の双方から呼ばれる(こちらはチャンク分割していない一括処理のまま。プロパティ書き戻し・UIバインディング更新を伴わない読み取り専用の集計のため、実測上の負荷は書き戻しループよりずっと小さい)</td></tr>
           </tbody>
         </table>
@@ -1512,7 +1512,7 @@
             <tr><td>タイトル列幅の再計算</td><td class="mono">RecomputeTitleColumnWidth / MeasureTextWidth</td></tr>
             <tr><td>ツールバー操作(追加・削除・レベル上限等)の中継</td><td class="mono">OnAdd*BookmarkClick / OnSetLevelCapClick 等</td></tr>
             <tr><td>結合前ページ数テキストボックスのリセット <span class="badge ok">新機能</span></td><td class="mono">OnResetPreOffsetPageNumberClick</td></tr>
-            <tr><td>行クリック時の横スクロール位置維持 <span class="badge warn">v1.2.0</span></td><td class="mono">PreserveBookmarkTreeHorizontalScrollPosition</td></tr>
+            <tr><td>行クリック時の横スクロール位置維持 <span class="badge warn">v1.2.1</span></td><td class="mono">PreserveBookmarkTreeHorizontalScrollPosition</td></tr>
           </tbody>
         </table>
       </div>
@@ -1529,7 +1529,7 @@
         を呼び出す形に改めた(対象ノードが属するファイル全体の編集を一括で取り消す)。
       </p>
       <p>
-        <span class="badge warn">v1.2.0</span> <code class="inline">PreserveBookmarkTreeHorizontalScrollPosition</code>は
+        <span class="badge warn">v1.2.1</span> <code class="inline">PreserveBookmarkTreeHorizontalScrollPosition</code>は
         しおり行クリック時の意図しない横スクロールを防ぐ。しおり編集ツリーの1行は多数のコントロールを横に
         並べた幅広の内容のため、狭いウィンドウでは横スクロールバーが表示されるが、この状態で行をクリックすると
         WPF・Avalonia双方の既定動作(選択・フォーカス変更に伴う「対象を画面内へ収める」処理)が行全体を
