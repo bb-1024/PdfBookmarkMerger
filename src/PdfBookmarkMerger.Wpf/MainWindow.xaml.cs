@@ -725,6 +725,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
+    /// <summary>
+    /// ツリー開閉レベルテキストボックスがフォーカスを失った際に、入力値が数値以外またはツリーに
+    /// 含まれない数値であれば空欄へ正規化する(適用自体はBookmarkTreeViewModel.ExpandLevelInputの
+    /// 値変更購読が随時行う。WPFのTextBox.Textは既定でUpdateSourceTrigger=LostFocusのため、
+    /// 実質的にはこのタイミングで適用と正規化がまとめて行われる)。
+    /// </summary>
+    private void OnExpandLevelTextBoxLostFocus(object sender, RoutedEventArgs e) =>
+        ViewModel.BookmarkTree.NormalizeExpandLevelInput();
+
     private static T? FindAncestor<T>(DependencyObject current) where T : DependencyObject
     {
         while (current is not null)

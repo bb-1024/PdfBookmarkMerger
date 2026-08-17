@@ -74,12 +74,24 @@
         </Grid>
 
         <!-- 手順2・3: しおり編集 -->
-        <Grid Grid.Row="0" Margin="16" RowDefinitions="Auto,*,Auto"
+        <Grid Grid.Row="0" Margin="16" RowDefinitions="Auto,Auto,*,Auto"
               IsEnabled="{Binding !IsBusy.Value}"
               IsVisible="{Binding Step.Value, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=EditBookmarks}">
             <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"><Run Text="{x:Static resx:Strings.EditBookmarksInstructionLine1}" /><LineBreak /><Run Text="{x:Static resx:Strings.EditBookmarksInstructionLine2}" /></TextBlock>
 
-            <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
+            <!-- ツリー開閉コントロール: 全ノードを閉じる/レベル指定で開閉/全ノードを開く -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" Margin="0,0,0,8">
+                <Button Content="{x:Static resx:Strings.CollapseAllTreeButton}" Command="{Binding BookmarkTree.CollapseAllCommand}"
+                        ToolTip.Tip="{x:Static resx:Strings.CollapseAllTreeButtonTooltip}" MinWidth="32" />
+                <TextBlock Text="{x:Static resx:Strings.ExpandLevelLabel}" VerticalAlignment="Center" Margin="4,0" />
+                <TextBox Name="ExpandLevelTextBox" Text="{Binding BookmarkTree.ExpandLevelInput.Value, Mode=TwoWay}"
+                         ToolTip.Tip="{x:Static resx:Strings.ExpandLevelTextBoxTooltip}" Width="48"
+                         LostFocus="OnExpandLevelTextBoxLostFocus" />
+                <Button Content="{x:Static resx:Strings.ExpandAllTreeButton}" Command="{Binding BookmarkTree.ExpandAllCommand}"
+                        ToolTip.Tip="{x:Static resx:Strings.ExpandAllTreeButtonTooltip}" MinWidth="32" />
+            </StackPanel>
+
+            <Border Grid.Row="2" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
               <Grid>
                 <TreeView Name="BookmarkTreeView"
                           ItemsSource="{Binding BookmarkTree.RootNodes}"
@@ -170,7 +182,7 @@
               </Grid>
             </Border>
 
-            <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="8">
+            <StackPanel Grid.Row="3" Margin="0,12,0,0" Spacing="8">
                 <!-- 1段目: レベル上下・しおり追加(3種)・削除・レベル上限設定 -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Name="PromoteLevelButton" Content="{x:Static resx:Strings.PromoteLevelButton}" Click="OnPromoteLevelClick" IsEnabled="False" />

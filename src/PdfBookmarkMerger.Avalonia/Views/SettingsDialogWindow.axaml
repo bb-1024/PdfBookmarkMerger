@@ -47,6 +47,14 @@
         <CheckBox Content="{x:Static resx:Strings.ShowPropertiesDialogCheckbox}"
                   IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" Margin="0,0,0,8" />
 
+        <TextBlock HorizontalAlignment="Right" FontSize="11" Foreground="Gray">
+            <TextBlock.Text>
+                <MultiBinding StringFormat="{x:Static resx:Strings.AppVersionFormat}">
+                    <Binding Path="AppVersion" />
+                </MultiBinding>
+            </TextBlock.Text>
+        </TextBlock>
+
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
             <Button Content="{x:Static resx:Strings.CancelButton}" Click="OnCancelClick" />
             <Button Content="{x:Static resx:Strings.OkButton}" Click="OnOkClick" />

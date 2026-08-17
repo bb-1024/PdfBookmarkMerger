@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Reactive.Linq;
 using System.Text;
 using System.Text.Json;
@@ -76,6 +77,17 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
 
         HasPageNumberEdits = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         HasPageNumberInconsistency = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
+
+        ExpandLevelInput = new ReactivePropertySlim<string>(string.Empty).AddTo(Disposables);
+        ExpandLevelInput.Subscribe(OnExpandLevelInputChanged).AddTo(Disposables);
+
+        // レベル指定と同じくIsBusy中のチャンク処理と競合しうるため、UndoCommand同様!IsBusyもCanExecuteに含める。
+        var canToggleTreeExpansion = IsBusy.Select(busy => !busy);
+        CollapseAllCommand = new ReactiveCommand(canToggleTreeExpansion).AddTo(Disposables);
+        CollapseAllCommand.Subscribe(() => SetExpandLevelInput(0)).AddTo(Disposables);
+
+        ExpandAllCommand = new ReactiveCommand(canToggleTreeExpansion).AddTo(Disposables);
+        ExpandAllCommand.Subscribe(() => SetExpandLevelInput(ComputeMaxLevel())).AddTo(Disposables);
     }
 
     /// <summary>タイトル列の既定幅(px)。実際の幅はUI側でタイトル文字列の実測幅に応じて拡張される。</summary>
@@ -100,6 +112,24 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     /// true/falseの間、個々のIsOpenを一時的に上書きし元の値をキャッシュする。nullに戻すと復元する。
     /// </summary>
     public ReactivePropertySlim<bool?> GlobalExpandOverride { get; }
+
+    /// <summary>
+    /// ツリー開閉レベルテキストボックスの入力値。テキストボックスと双方向バインドする。
+    /// 有効な数値(0以上、現在のツリーに含まれる最大レベル以下の整数)へ変わるたびに、その数値以下の
+    /// レベルのノードをIsExpanded=true、それを超えるノードをIsExpanded=falseに変更する
+    /// (OnExpandLevelInputChanged経由でApplyExpandLevelAsyncを起動)。数値以外・範囲外の入力は
+    /// 即座には無視され(ツリーの表示はそれまでの状態を保つ)、テキストボックスがフォーカスを失った際に
+    /// コードビハインドがNormalizeExpandLevelInputを呼ぶことで初めて空文字へ正規化される。しおり側の
+    /// 構造編集(追加・削除・移動・レベル上限切り詰め・読込・元に戻す)によって現在値がツリーに
+    /// 含まれなくなった場合も、各操作の末尾からNormalizeExpandLevelInputを呼び同様に空へ戻す。
+    /// </summary>
+    public ReactivePropertySlim<string> ExpandLevelInput { get; }
+
+    /// <summary>ツリー上の全ノード(サブノード含む)を閉じた状態にする。</summary>
+    public ReactiveCommand CollapseAllCommand { get; }
+
+    /// <summary>ツリー上の全ノード(サブノード含む)を開いた状態にする。</summary>
+    public ReactiveCommand ExpandAllCommand { get; }
 
     /// <summary>元に戻せる履歴が存在するか。「元に戻す」ボタンのIsEnabledに直接バインドする。</summary>
     public ReactivePropertySlim<bool> CanUndo { get; }
@@ -161,6 +191,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         }
 
         TriggerRecompute();
+        NormalizeExpandLevelInput();
     }
 
     /// <summary>
@@ -352,6 +383,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         TruncateBelowLevel(node, absoluteLevel - node.LevelNumber);
         node.SyncChildOrderToModel();
         await RecomputeAllPageNumberDisplaysAsync();
+        NormalizeExpandLevelInput();
     }
 
     private static void TruncateBelowLevel(BookmarkNodeViewModel node, int remainingLevels)
@@ -589,6 +621,98 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         }
     }
 
+    private void SetExpandLevelInput(int level) => ExpandLevelInput.Value = level.ToString(CultureInfo.InvariantCulture);
+
+    private void OnExpandLevelInputChanged(string text)
+    {
+        if (int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var level))
+        {
+            TriggerApplyExpandLevel(level);
+        }
+    }
+
+    /// <summary>
+    /// ApplyExpandLevelAsyncを実行して結果を待たず即座に制御を返す(TriggerRecomputeと同様のfire-and-forgetラッパー)。
+    /// </summary>
+    private async void TriggerApplyExpandLevel(int level) => await ApplyExpandLevelAsync(level);
+
+    /// <summary>
+    /// 全ノードのIsExpandedを、自身のLevelNumberがlevel以下ならtrue、それを超えるならfalseに一括変更する
+    /// (例: level=3なら、レベル1〜3のノードは開いた状態、レベル4以降は閉じた状態になる)。
+    /// RecomputeAllPageNumberDisplaysAsyncと同様、対象ノード数がRecomputeChunkSizeを超える場合のみ
+    /// チャンク処理してIsBusy/BusyProgressを更新し、大量しおりでのUIフリーズを避ける。
+    /// internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。
+    /// </summary>
+    internal async Task ApplyExpandLevelAsync(int level)
+    {
+        var allNodes = new List<BookmarkNodeViewModel>();
+        WalkAll(RootNodes, allNodes.Add);
+        var total = allNodes.Count;
+        var showProgress = total > RecomputeChunkSize;
+
+        if (showProgress)
+        {
+            IsBusy.Value = true;
+            BusyProgress.Value = new BusyProgressInfo(0, total, []);
+            await Task.Yield();
+        }
+
+        try
+        {
+            for (var i = 0; i < total; i++)
+            {
+                allNodes[i].IsExpanded.Value = allNodes[i].LevelNumber <= level;
+
+                if (showProgress && (i + 1) % RecomputeChunkSize == 0)
+                {
+                    BusyProgress.Value = new BusyProgressInfo(i + 1, total, []);
+                    await Task.Yield();
+                }
+            }
+        }
+        finally
+        {
+            if (IsBusy.Value)
+            {
+                IsBusy.Value = false;
+                BusyProgress.Value = null;
+            }
+        }
+    }
+
+    /// <summary>ツリー内の絶対レベル(ルート=1)の最大値を返す。ツリーが空の場合は0。</summary>
+    private int ComputeMaxLevel()
+    {
+        var max = 0;
+        WalkAll(RootNodes, vm =>
+        {
+            if (vm.LevelNumber > max)
+            {
+                max = vm.LevelNumber;
+            }
+        });
+
+        return max;
+    }
+
+    /// <summary>開閉レベルテキストボックスの入力値が有効(0以上、現在のツリーの最大レベル以下の整数)かを返す。</summary>
+    private bool IsValidExpandLevelInput(string text) =>
+        int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var level) && level <= ComputeMaxLevel();
+
+    /// <summary>
+    /// 開閉レベルテキストボックスがフォーカスを失った際にコードビハインドから呼ぶ。現在の入力値が数値以外、
+    /// または現在のツリーに含まれない数値(最大レベルを超える値)の場合は空文字へ正規化する。しおり側の
+    /// 構造編集によって現在値がツリーに含まれなくなった場合の正規化にも、各構造編集メソッドの末尾から
+    /// このメソッドを共通で使う。
+    /// </summary>
+    public void NormalizeExpandLevelInput()
+    {
+        if (!IsValidExpandLevelInput(ExpandLevelInput.Value))
+        {
+            ExpandLevelInput.Value = string.Empty;
+        }
+    }
+
     /// <summary>
     /// ファイルごとの「そのファイル全体に効く累積差分(FileTotalDelta)」を、結合順(_orderedFileIds)に
     /// 沿って積み上げ、各ファイルについて「自分より前にあるファイルの累積差分の合計」を返す。
@@ -641,6 +765,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         RootNodes.Add(vm);
         _rootModel.Add(model);
         TriggerRecompute();
+        NormalizeExpandLevelInput();
         return vm;
     }
 
@@ -664,6 +789,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         parent.IsExpanded.Value = true;
         parent.SyncChildOrderToModel();
         TriggerRecompute();
+        NormalizeExpandLevelInput();
         return vm;
     }
 
@@ -698,6 +824,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         }
 
         TriggerRecompute();
+        NormalizeExpandLevelInput();
         return vm;
     }
 
@@ -717,6 +844,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         }
 
         TriggerRecompute();
+        NormalizeExpandLevelInput();
     }
 
     /// <summary>ノードをnewParent(nullの場合はルート)のnewIndex位置へ移動する。ドラッグ&ドロップ並べ替え用。</summary>
@@ -768,6 +896,8 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
             newParent.SyncChildOrderToModel();
             newParent.IsExpanded.Value = true;
         }
+
+        NormalizeExpandLevelInput();
     }
 
     /// <summary>ノードのレベルを1つ上げられるか(親を持つか)。ルート直下の要素は既に最上位のためfalse。</summary>

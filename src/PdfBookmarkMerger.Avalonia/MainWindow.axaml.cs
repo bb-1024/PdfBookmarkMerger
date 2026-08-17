@@ -718,4 +718,12 @@ public partial class MainWindow : Window
             ViewModel.BookmarkTree.ResetFilePageNumbers(node);
         }
     }
+
+    /// <summary>
+    /// ツリー開閉レベルテキストボックスがフォーカスを失った際に、入力値が数値以外またはツリーに
+    /// 含まれない数値であれば空欄へ正規化する。適用自体はBookmarkTreeViewModel.ExpandLevelInputの
+    /// 値変更購読が(Avaloniaでは入力のたびに)随時行う。
+    /// </summary>
+    private void OnExpandLevelTextBoxLostFocus(object? sender, RoutedEventArgs e) =>
+        ViewModel.BookmarkTree.NormalizeExpandLevelInput();
 }

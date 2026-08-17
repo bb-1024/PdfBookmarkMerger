@@ -35,6 +35,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <ui:TitleBar Grid.Row="0" Title="{x:Static resx:Strings.SettingsDialogTitle}" Margin="-16,-40,-16,8" VerticalAlignment="Top">
@@ -80,7 +81,16 @@
                       IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" />
         </StackPanel>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+        <TextBlock Grid.Row="4" Margin="0,0,0,8" HorizontalAlignment="Right"
+                   FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
+            <TextBlock.Text>
+                <MultiBinding StringFormat="{x:Static resx:Strings.AppVersionFormat}">
+                    <Binding Path="AppVersion" Mode="OneTime" />
+                </MultiBinding>
+            </TextBlock.Text>
+        </TextBlock>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
             <ui:Button Content="{x:Static resx:Strings.CancelButton}" Click="OnCancelClick" Margin="0,0,8,0" />
             <ui:Button Content="{x:Static resx:Strings.OkButton}" Appearance="Primary" Click="OnOkClick" />
         </StackPanel>

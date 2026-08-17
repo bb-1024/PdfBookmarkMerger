@@ -1,3 +1,4 @@
+using System.Reflection;
 using PdfBookmarkMerger.App.Options;
 using Reactive.Bindings;
 using Reactive.Bindings.Extensions;
@@ -20,6 +21,16 @@ public sealed class SettingsViewModel : ViewModelBase
         ShowPropertiesDialogOnMerge = new ReactivePropertySlim<bool>(initial.ShowPropertiesDialogOnMerge).AddTo(Disposables);
         Language = new ReactivePropertySlim<AppLanguage>(initial.Language ?? AppLanguage.Japanese).AddTo(Disposables);
     }
+
+    /// <summary>
+    /// リリース版のバージョン表示(例: "1.2.2")。Directory.Build.propsの&lt;Version&gt;がビルド時に
+    /// AssemblyInformationalVersionAttributeへ書き込まれる値をそのまま使う(WPF版・Avalonia版いずれも
+    /// 同じDirectory.Build.propsを参照するため、App.dllのバージョンで代表できる)。
+    /// </summary>
+    public string AppVersion { get; } =
+        Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+        ?? string.Empty;
 
     public ReactivePropertySlim<ThemeMode> ThemeMode { get; }
 

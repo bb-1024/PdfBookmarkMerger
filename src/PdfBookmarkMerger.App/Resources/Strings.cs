@@ -44,6 +44,12 @@ public static class Strings
     public static string ResetPageNumberMenuItem => Get(nameof(ResetPageNumberMenuItem));
     public static string PromoteLevelButton => Get(nameof(PromoteLevelButton));
     public static string DemoteLevelButton => Get(nameof(DemoteLevelButton));
+    public static string CollapseAllTreeButton => Get(nameof(CollapseAllTreeButton));
+    public static string CollapseAllTreeButtonTooltip => Get(nameof(CollapseAllTreeButtonTooltip));
+    public static string ExpandAllTreeButton => Get(nameof(ExpandAllTreeButton));
+    public static string ExpandAllTreeButtonTooltip => Get(nameof(ExpandAllTreeButtonTooltip));
+    public static string ExpandLevelLabel => Get(nameof(ExpandLevelLabel));
+    public static string ExpandLevelTextBoxTooltip => Get(nameof(ExpandLevelTextBoxTooltip));
     public static string AddRootButton => Get(nameof(AddRootButton));
     public static string AddChildButton => Get(nameof(AddChildButton));
     public static string AddSiblingButton => Get(nameof(AddSiblingButton));
@@ -72,6 +78,7 @@ public static class Strings
     public static string ThemeModeLabel => Get(nameof(ThemeModeLabel));
     public static string LanguageLabel => Get(nameof(LanguageLabel));
     public static string ShowPropertiesDialogCheckbox => Get(nameof(ShowPropertiesDialogCheckbox));
+    public static string AppVersionFormat => Get(nameof(AppVersionFormat));
     public static string ThemeModeLight => Get(nameof(ThemeModeLight));
     public static string ThemeModeDark => Get(nameof(ThemeModeDark));
     public static string ThemeModeSystem => Get(nameof(ThemeModeSystem));

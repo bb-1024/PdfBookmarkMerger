@@ -86,6 +86,12 @@
   <data name="ResetPageNumberMenuItem" xml:space="preserve"><value>このファイルの結合前ページ数をリセット</value></data>
   <data name="PromoteLevelButton" xml:space="preserve"><value>レベルを上げる</value></data>
   <data name="DemoteLevelButton" xml:space="preserve"><value>レベルを下げる</value></data>
+  <data name="CollapseAllTreeButton" xml:space="preserve"><value>-</value></data>
+  <data name="CollapseAllTreeButtonTooltip" xml:space="preserve"><value>ツリー上の全ノード(サブノード含む)を閉じた状態にします</value></data>
+  <data name="ExpandAllTreeButton" xml:space="preserve"><value>+</value></data>
+  <data name="ExpandAllTreeButtonTooltip" xml:space="preserve"><value>ツリー上の全ノード(サブノード含む)を開いた状態にします</value></data>
+  <data name="ExpandLevelLabel" xml:space="preserve"><value>開閉レベル:</value></data>
+  <data name="ExpandLevelTextBoxTooltip" xml:space="preserve"><value>数値を入力すると、そのレベル以下のノードを開き、それより下位のノードを閉じます(例: 3 → レベル1〜3を開き、レベル4以降を閉じる)。ツリーに含まれない数値を入力した場合、フォーカスを外すと空欄に戻ります。</value></data>
   <data name="AddRootButton" xml:space="preserve"><value>ルートに追加</value></data>
   <data name="AddChildButton" xml:space="preserve"><value>子(下位レベル)として追加</value></data>
   <data name="AddSiblingButton" xml:space="preserve"><value>兄弟(同レベル)として追加</value></data>
@@ -117,6 +123,7 @@
   <data name="ThemeModeLabel" xml:space="preserve"><value>表示モード</value></data>
   <data name="LanguageLabel" xml:space="preserve"><value>表示言語</value></data>
   <data name="ShowPropertiesDialogCheckbox" xml:space="preserve"><value>PDF結合時にプロパティ編集ダイアログを表示する</value></data>
+  <data name="AppVersionFormat" xml:space="preserve"><value>バージョン: {0}</value></data>
   <data name="ThemeModeLight" xml:space="preserve"><value>ライト</value></data>
   <data name="ThemeModeDark" xml:space="preserve"><value>ダーク</value></data>
   <data name="ThemeModeSystem" xml:space="preserve"><value>システム設定(既定)</value></data>
