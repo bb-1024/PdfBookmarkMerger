@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger Design Documentation — 01. Architecture</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>Design Docs</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">Overview</a></li>
+      <li><a href="01-architecture.html" class="current">Architecture</a></li>
+      <li><a href="02-core-design.html">Core Layer Design</a></li>
+      <li><a href="03-app-design.html">App Layer Design</a></li>
+      <li><a href="04-ui-design.html">UI Frontend Design</a></li>
+      <li><a href="05-version-history.html">Version History</a></li>
+    </ol>
+    <div class="toc-foot">
+      as of v1.2.2<br />
+      <a href="../index.html">&larr; Index</a><br />
+      <a href="../ja/01-architecture.html">日本語</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 01 / 06</div>
+      <h1>Architecture</h1>
+    </header>
+
+    <section id="layers">
+      <h2><span class="num">1</span>Layer structure</h2>
+      <figure class="diagram-wrap">
+        <img src="../diagrams/architecture.svg" alt="Layer / project dependency diagram" />
+        <figcaption>Dependencies across Core / App / Wpf / Avalonia, and the matching test projects</figcaption>
+      </figure>
+      <ul>
+        <li><strong><code class="inline">PdfBookmarkMerger.Core</code></strong>: the domain layer that reads/writes PDFs, extracts bookmarks, and performs the merge logic. Depends only on <code class="inline">PdfSharp</code>; references no WPF/Avalonia UI types at all.</li>
+        <li><strong><code class="inline">PdfBookmarkMerger.App</code></strong>: the ViewModels and shared app services (settings persistence, i18n, Undo, Generic Host assembly). References no UI-framework-specific types; instead it delegates to each frontend through interfaces such as <code class="inline">IDialogService</code> (dependency inversion).</li>
+        <li><strong><code class="inline">PdfBookmarkMerger.Wpf</code> / <code class="inline">PdfBookmarkMerger.Avalonia</code></strong>: bind the <code class="inline">App</code> layer's ViewModels on top of their respective UI framework, and implement framework-specific concerns such as drag &amp; drop, dialog presentation, and value converters.</li>
+      </ul>
+      <p>
+        Dependencies always flow one way &mdash; &ldquo;UI framework &rarr; App &rarr; Core&rdquo; &mdash; which keeps
+        Core and App easy to test (they run without a real window) and keeps the blast radius of swapping or adding
+        a UI framework relatively contained.
+      </p>
+    </section>
+
+    <section id="di">
+      <h2><span class="num">2</span>DI and host assembly</h2>
+      <p>
+        <code class="inline">PdfBookmarkMergerHostFactory.Build(args, configureUiServices)</code>
+        (<code class="inline">src/PdfBookmarkMerger.App/PdfBookmarkMergerHostFactory.cs</code>) is the shared
+        host-assembly routine used by both the WPF and Avalonia builds.
+      </p>
+      <ol>
+        <li>Creates <code class="inline">AppPaths.AppDataDirectory</code> / <code class="inline">AppPaths.LogDirectory</code> (under <code class="inline">%AppData%/PdfBookmarkMerger</code>; the registry is never used).</li>
+        <li>Loads <code class="inline">IConfiguration</code> from <code class="inline">appsettings.json</code> (shipped with the executable), then the user settings file (<code class="inline">settings.json</code>), in that order (the latter wins).</li>
+        <li>Configures Serilog (daily rolling file, 14-day retention; console sink added only in Debug builds).</li>
+        <li>Binds <code class="inline">PdfBookmarkMergerOptions</code> to the <code class="inline">"PdfBookmarkMerger"</code> section of the configuration.</li>
+        <li>Registers the Core and App layers' services/ViewModels (all Singleton) via <code class="inline">Core.ServiceCollectionExtensions.AddPdfBookmarkMergerCore()</code> and <code class="inline">App.ServiceCollectionExtensions.AddPdfBookmarkMergerApp()</code>.</li>
+        <li>Lets the caller (<code class="inline">Wpf.App</code> / <code class="inline">AvaloniaApp.App</code>) register the <code class="inline">IDialogService</code> implementation (<code class="inline">WpfDialogService</code> / <code class="inline">AvaloniaDialogService</code>) and <code class="inline">MainWindow</code> via the <code class="inline">configureUiServices</code> callback.</li>
+      </ol>
+      <p>Services/ViewModels registered (excerpt):</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Layer</th><th>Registrations</th></tr></thead>
+          <tbody>
+            <tr><td>Core</td><td class="mono">IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService, IBookmarkSettingsExportService</td></tr>
+            <tr><td>App</td><td class="mono">IUserSettingsService, FileListViewModel, BookmarkTreeViewModel, MainWindowViewModel</td></tr>
+            <tr><td>UI-framework side</td><td class="mono">IDialogService, MainWindow</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="startup">
+      <h2><span class="num">3</span>Startup sequence</h2>
+      <p>
+        The WPF build (<code class="inline">Wpf.App.OnStartup</code>) and the Avalonia build
+        (<code class="inline">AvaloniaApp.App.OnFrameworkInitializationCompleted</code>) follow nearly identical
+        steps.
+      </p>
+      <ol>
+        <li>Build and <code class="inline">Start()</code> the host via <code class="inline">PdfBookmarkMergerHostFactory.Build(...)</code>.</li>
+        <li>Synchronously wait for <code class="inline">AppLanguageBootstrapper.ApplyAsync(userSettings)</code> to finish <strong>before constructing <code class="inline">MainWindow</code></strong>, so the display language (<code class="inline">Strings.Culture</code>) is settled first (XAML <code class="inline">x:Static</code> references are fixed at the time the window/XAML is constructed/loaded and cannot be changed later).</li>
+        <li>Resolve <code class="inline">MainWindow</code> from the DI container, apply the theme (light/dark/system) via <code class="inline">ThemeApplier.Apply(...)</code>, then show it.</li>
+      </ol>
+      <p>
+        Unhandled exceptions are hooked as early as possible &mdash; in the <code class="inline">Wpf.App</code>
+        constructor and in the Avalonia build's <code class="inline">Program.Main</code>, respectively &mdash;
+        and always logged through Serilog via
+        <code class="inline">PdfBookmarkMergerHostFactory.LogUnhandledException(...)</code>, so the app never
+        crashes silently with nothing left in the logs. Avalonia has no equivalent of WPF's
+        <code class="inline">DispatcherUnhandledException</code> (a UI-thread-specific hook), so the entire
+        <code class="inline">StartWithClassicDesktopLifetime(args)</code> call is wrapped in a
+        <code class="inline">try/catch</code> instead.
+      </p>
+    </section>
+
+    <section id="cross-cutting">
+      <h2><span class="num">4</span>Cross-cutting concerns</h2>
+
+      <div class="card">
+        <h4>4.1 i18n (Japanese/English)</h4>
+        <ul>
+          <li>The auto-generated <code class="inline">Strings</code> class (from <code class="inline">App/Resources/Strings.resx</code> &mdash; default Japanese &mdash; and <code class="inline">Strings.en.resx</code> &mdash; English) switches which string set it resolves via its <code class="inline">Culture</code> property.</li>
+          <li><code class="inline">AppLanguageBootstrapper.ApplyAsync</code> runs once at startup: it uses the saved language (<code class="inline">PdfBookmarkMergerOptions.Language</code>) if present, otherwise auto-detects it from the OS UI language and persists the result.</li>
+          <li>Changing the language in the Settings dialog switches <code class="inline">Strings.Culture</code> immediately via <code class="inline">AppLanguageBootstrapper.ApplyImmediate</code>, then <strong>reconstructs and swaps in a new <code class="inline">MainWindow</code> that carries the same ViewModel instance forward</strong> (<code class="inline">ReplaceMainWindowForLanguageChange</code> in <code class="inline">WpfDialogService</code>/<code class="inline">AvaloniaDialogService</code>). <code class="inline">x:Static</code> references are fixed at window-construction time, so an existing window's text cannot be rewritten in place.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>4.2 Undo</h4>
+        <p>
+          <code class="inline">App/Undo/UndoHistory&lt;T&gt;</code> (a generic snapshot stack) is used by
+          <code class="inline">BookmarkTreeViewModel</code> specialized to <code class="inline">string</code>
+          (the whole tree serialized as JSON). See
+          <a href="03-app-design.html#undo">03-app-design.html</a> for detail.
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>4.3 Busy / progress display</h4>
+        <p>
+          <code class="inline">MainWindowViewModel.IsBusy</code> / <code class="inline">BusyProgress</code>
+          (<code class="inline">ReactivePropertySlim&lt;BusyProgressInfo?&gt;</code>) is treated as the single
+          source of truth for "processing," and the same UI (a busy overlay, plus a detail progress text that
+          only appears after 5 seconds) is reused across all of the following:
+        </p>
+        <ul>
+          <li>File loading (<code class="inline">ConfirmFilesAsync</code>)</li>
+          <li>Merging the PDF (<code class="inline">MergeAsync</code>)</li>
+          <li><strong>Forwarding <code class="inline">BookmarkTreeViewModel.IsBusy</code>/<code class="inline">BusyProgress</code></strong>
+            <span class="badge ok">since v1.2.1</span> &mdash; the chunked recompute triggered by editing/undoing on
+            a large bookmark set. See <a href="03-app-design.html#recompute">03-app-design.html</a> and
+            <a href="05-version-history.html#v121">05-version-history.html</a></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>4.4 Where settings and logs live</h4>
+        <p>
+          <code class="inline">AppPaths</code> (<code class="inline">src/PdfBookmarkMerger.App/AppPaths.cs</code>)
+          keeps the settings file (<code class="inline">settings.json</code>) and logs (<code class="inline">logs/</code>)
+          together under <code class="inline">%AppData%/PdfBookmarkMerger/</code>. It never touches the registry
+          and never depends on the executable's own folder (which could be read-only). Writing the settings file
+          goes through an atomic write-then-move (<code class="inline">UserSettingsService.SaveAsync</code>: write
+          to a temp file in the same folder, then <code class="inline">File.Move(..., overwrite: true)</code>) so
+          a process kill mid-write can't corrupt the JSON.
+        </p>
+      </div>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="00-overview.html"><span class="dir">Previous</span>00. Overview</a>
+      <a class="next" href="02-core-design.html"><span class="dir">Next</span>02. Core Layer Design</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger Design Documentation &middot;
+      <a href="../ja/01-architecture.html">日本語</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

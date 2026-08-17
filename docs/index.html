@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント / Design Documentation</title>
+<link rel="stylesheet" href="assets/style.css" />
+<style>
+  .landing {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 64px 24px 100px;
+  }
+  .landing .brand-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .landing .brand-row .mark {
+    width: 30px;
+    height: 36px;
+    border-radius: 2px 2px 6px 6px;
+    background: var(--surface);
+    border: 1.5px solid var(--line-strong);
+    position: relative;
+    flex: none;
+  }
+  .landing .brand-row .mark::after {
+    content: "";
+    position: absolute;
+    top: -1px;
+    right: 5px;
+    width: 8px;
+    height: 17px;
+    background: var(--ribbon);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+  }
+  .landing .brand-row .word { font-weight: 700; font-size: 17px; }
+  .landing h1 { font-size: 30px; margin: 0 0 12px; line-height: 1.35; text-wrap: balance; }
+  .landing .sub { color: var(--ink-soft); font-size: 16px; max-width: 66ch; margin-bottom: 36px; }
+  .lang-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 640px) {
+    .lang-grid { grid-template-columns: 1fr; }
+  }
+  .lang-card {
+    display: block;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 22px 24px;
+    text-decoration: none;
+    color: var(--ink);
+  }
+  .lang-card:hover { border-color: var(--teal); }
+  .lang-card .kicker {
+    font-family: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ribbon);
+    margin-bottom: 8px;
+  }
+  .lang-card .title { font-size: 19px; font-weight: 700; margin-bottom: 6px; }
+  .lang-card .desc { color: var(--ink-soft); font-size: 13.5px; }
+  .landing h2 {
+    font-size: 19px;
+    margin: 40px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+</style>
+</head>
+<body>
+<div class="landing">
+  <div class="brand-row">
+    <div class="mark" aria-hidden="true"></div>
+    <div class="word">PdfBookmarkMerger</div>
+  </div>
+
+  <h1>設計ドキュメント<br />Design Documentation</h1>
+  <p class="sub">
+    リポジトリのタグ付きバージョン(<code class="inline">v1.0.0</code> 〜 現行版)の実ソースコード・
+    コミット履歴を出発点として書き起こした設計ドキュメントです。<br /><br />
+    Grounded in the actual source code and commit history of the repository's tagged versions
+    (<code class="inline">v1.0.0</code> through the current release).
+  </p>
+
+  <div class="lang-grid">
+    <a class="lang-card" href="ja/00-overview.html">
+      <div class="kicker">日本語版</div>
+      <div class="title">概要から読む &rarr;</div>
+      <div class="desc">00. 概要 &middot; 01. アーキテクチャ &middot; 02. Core層設計 &middot; 03. App層設計 &middot; 04. UIフロントエンド設計 &middot; 05. バージョン間の差分</div>
+    </a>
+    <a class="lang-card" href="en/00-overview.html">
+      <div class="kicker">English Edition</div>
+      <div class="title">Start with the Overview &rarr;</div>
+      <div class="desc">00. Overview &middot; 01. Architecture &middot; 02. Core Layer Design &middot; 03. App Layer Design &middot; 04. UI Frontend Design &middot; 05. Version History</div>
+    </a>
+  </div>
+
+  <h2>ドキュメント構成 / Document Structure</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>日本語</th><th>English</th><th>内容 / Content</th></tr></thead>
+      <tbody>
+        <tr><td class="mono"><a href="ja/00-overview.html">00-overview</a></td><td class="mono"><a href="en/00-overview.html">00-overview</a></td><td>概要・技術スタック・プロジェクト構成 / Overview, tech stack, project layout</td></tr>
+        <tr><td class="mono"><a href="ja/01-architecture.html">01-architecture</a></td><td class="mono"><a href="en/01-architecture.html">01-architecture</a></td><td>レイヤー構成・DI・横断的関心事 / Layer structure, DI, cross-cutting concerns</td></tr>
+        <tr><td class="mono"><a href="ja/02-core-design.html">02-core-design</a></td><td class="mono"><a href="en/02-core-design.html">02-core-design</a></td><td>Core層設計 / Core layer design</td></tr>
+        <tr><td class="mono"><a href="ja/03-app-design.html">03-app-design</a></td><td class="mono"><a href="en/03-app-design.html">03-app-design</a></td><td>App層設計 / App layer design</td></tr>
+        <tr><td class="mono"><a href="ja/04-ui-design.html">04-ui-design</a></td><td class="mono"><a href="en/04-ui-design.html">04-ui-design</a></td><td>UIフロントエンド設計 / UI frontend design</td></tr>
+        <tr><td class="mono"><a href="ja/05-version-history.html">05-version-history</a></td><td class="mono"><a href="en/05-version-history.html">05-version-history</a></td><td>バージョン間の差分・確認方法 / Version diffs, how to verify</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>図 / Diagrams</h2>
+  <p>
+    <code class="inline">diagrams/</code> 配下のSVG3点(<code class="inline">architecture.svg</code>・
+    <code class="inline">merge-pipeline.svg</code>・<code class="inline">recompute-flow.svg</code>)は
+    日英両版から共有参照しています。/ The three SVGs under <code class="inline">diagrams/</code> are shared
+    by both language editions.
+  </p>
+
+  <footer class="doc-foot" style="margin-top: 40px;">
+    PdfBookmarkMerger 設計ドキュメント &middot; v1.2.2時点
+  </footer>
+</div>
+</body>
+</html>

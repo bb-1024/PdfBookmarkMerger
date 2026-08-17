@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント — 01. アーキテクチャ</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>設計ドキュメント</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">概要</a></li>
+      <li><a href="01-architecture.html" class="current">アーキテクチャ</a></li>
+      <li><a href="02-core-design.html">Core層設計</a></li>
+      <li><a href="03-app-design.html">App層設計</a></li>
+      <li><a href="04-ui-design.html">UIフロントエンド設計</a></li>
+      <li><a href="05-version-history.html">バージョン間の差分</a></li>
+    </ol>
+    <div class="toc-foot">
+      v1.2.2時点<br />
+      <a href="../index.html">&larr; 索引</a><br />
+      <a href="../en/01-architecture.html">English</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 01 / 06</div>
+      <h1>アーキテクチャ</h1>
+    </header>
+
+    <section id="layers">
+      <h2><span class="num">1</span>レイヤー構成</h2>
+      <figure class="diagram-wrap">
+        <img src="../diagrams/architecture.svg" alt="レイヤー・プロジェクト依存関係図" />
+        <figcaption>Core / App / Wpf / Avalonia の依存関係と、対応するテストプロジェクト</figcaption>
+      </figure>
+      <ul>
+        <li><strong><code class="inline">PdfBookmarkMerger.Core</code></strong>: PDFの読み書き・しおり抽出・結合ロジックを持つドメイン層。<code class="inline">PdfSharp</code> にのみ依存し、WPF/AvaloniaいずれのUI関連型も参照しない。</li>
+        <li><strong><code class="inline">PdfBookmarkMerger.App</code></strong>: ViewModel群とアプリ共通サービス(設定保存、i18n、Undo、Generic Hostの組み立て)を持つ層。UIフレームワーク固有の型は一切参照せず、代わりに <code class="inline">IDialogService</code> などのインターフェースを介して各フロントエンドに実装を委ねる(依存性逆転)。</li>
+        <li><strong><code class="inline">PdfBookmarkMerger.Wpf</code> / <code class="inline">PdfBookmarkMerger.Avalonia</code></strong>: それぞれのUIフレームワーク上で <code class="inline">App</code> 層のViewModelをバインドし、D&amp;D・ダイアログ表示・Converterなどフレームワーク固有の処理を実装する。</li>
+      </ul>
+      <p>
+        依存の向きは常に「UIフレームワーク &rarr; App &rarr; Core」の一方向であり、Core・Appはテストしやすく
+        (実ウィンドウなしで動作確認できる)、UIフレームワークの差し替え・追加も比較的局所化される。
+      </p>
+    </section>
+
+    <section id="di">
+      <h2><span class="num">2</span>DIとホスト組み立て</h2>
+      <p>
+        <code class="inline">PdfBookmarkMergerHostFactory.Build(args, configureUiServices)</code>
+        (<code class="inline">src/PdfBookmarkMerger.App/PdfBookmarkMergerHostFactory.cs</code>)
+        がWPF版・Avalonia版共通のホスト組み立て処理を担う。
+      </p>
+      <ol>
+        <li><code class="inline">AppPaths.AppDataDirectory</code> / <code class="inline">AppPaths.LogDirectory</code> を作成する(<code class="inline">%AppData%/PdfBookmarkMerger</code> 配下。レジストリは使わない)。</li>
+        <li><code class="inline">appsettings.json</code>(実行ファイル同梱)&rarr; ユーザー設定ファイル(<code class="inline">settings.json</code>)の順に <code class="inline">IConfiguration</code> へ読み込む(後段が優先)。</li>
+        <li>Serilogを構成する(日次ローリングファイル、14日保持、Debug構成のみコンソール追加)。</li>
+        <li><code class="inline">PdfBookmarkMergerOptions</code> をConfigurationの <code class="inline">"PdfBookmarkMerger"</code> セクションへバインドする。</li>
+        <li><code class="inline">Core.ServiceCollectionExtensions.AddPdfBookmarkMergerCore()</code> と <code class="inline">App.ServiceCollectionExtensions.AddPdfBookmarkMergerApp()</code> でCore・App層のサービス/ViewModelを登録する(いずれもSingleton)。</li>
+        <li>呼び出し元(<code class="inline">Wpf.App</code> / <code class="inline">AvaloniaApp.App</code>)が渡す <code class="inline">configureUiServices</code> コールバックで、<code class="inline">IDialogService</code> の実装(<code class="inline">WpfDialogService</code> / <code class="inline">AvaloniaDialogService</code>)と <code class="inline">MainWindow</code> を登録する。</li>
+      </ol>
+      <p>登録されるサービス/ViewModel(抜粋):</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>層</th><th>登録内容</th></tr></thead>
+          <tbody>
+            <tr><td>Core</td><td class="mono">IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService, IBookmarkSettingsExportService</td></tr>
+            <tr><td>App</td><td class="mono">IUserSettingsService, FileListViewModel, BookmarkTreeViewModel, MainWindowViewModel</td></tr>
+            <tr><td>UIフレームワーク側</td><td class="mono">IDialogService, MainWindow</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="startup">
+      <h2><span class="num">3</span>起動シーケンス</h2>
+      <p>
+        WPF版(<code class="inline">Wpf.App.OnStartup</code>)・Avalonia版
+        (<code class="inline">AvaloniaApp.App.OnFrameworkInitializationCompleted</code>)は
+        ほぼ同一の手順を踏む。
+      </p>
+      <ol>
+        <li><code class="inline">PdfBookmarkMergerHostFactory.Build(...)</code> でホストを構築・<code class="inline">Start()</code>。</li>
+        <li><code class="inline">AppLanguageBootstrapper.ApplyAsync(userSettings)</code> を<strong><code class="inline">MainWindow</code> を構築する前に</strong>同期的に待ち合わせて実行し、表示言語(<code class="inline">Strings.Culture</code>)を確定させる(XAMLの <code class="inline">x:Static</code> 参照はウィンドウ構築・XAML読込時点の値で固定されるため、後から切り替えることができない)。</li>
+        <li><code class="inline">MainWindow</code> をDIコンテナから取得し、<code class="inline">ThemeApplier.Apply(...)</code> でテーマ(ライト/ダーク/システム)を適用してから表示する。</li>
+      </ol>
+      <p>
+        未処理例外は、<code class="inline">Wpf.App</code> コンストラクタ / Avalonia版
+        <code class="inline">Program.Main</code> それぞれで可能な限り早期にグローバルフックへ登録し、
+        <code class="inline">PdfBookmarkMergerHostFactory.LogUnhandledException(...)</code> 経由でSerilogへ
+        必ず記録する(無言でクラッシュしてログに何も残らない状態を避けるため)。AvaloniaにはWPFの
+        <code class="inline">DispatcherUnhandledException</code> に相当するUIスレッド専用フックが存在しないため、
+        代わりに <code class="inline">StartWithClassicDesktopLifetime(args)</code> 呼び出し全体を
+        <code class="inline">try/catch</code>で囲んでいる。
+      </p>
+    </section>
+
+    <section id="cross-cutting">
+      <h2><span class="num">4</span>横断的関心事</h2>
+
+      <div class="card">
+        <h4>4.1 i18n(日本語/英語)</h4>
+        <ul>
+          <li><code class="inline">App/Resources/Strings.resx</code>(既定=日本語)・<code class="inline">Strings.en.resx</code>(英語)から自動生成される <code class="inline">Strings</code> クラスの <code class="inline">Culture</code> プロパティで、参照する文言セットを切り替える。</li>
+          <li><code class="inline">AppLanguageBootstrapper.ApplyAsync</code> が起動時に一度だけ、設定済み言語(<code class="inline">PdfBookmarkMergerOptions.Language</code>)があればそれを、無ければOSのUI言語から自動判定して確定・保存する。</li>
+          <li>設定ダイアログでの言語変更は、<code class="inline">AppLanguageBootstrapper.ApplyImmediate</code> で <code class="inline">Strings.Culture</code> を即座に切り替えた上で、<strong>同じViewModelインスタンスを引き継いだ新しい <code class="inline">MainWindow</code> を再構築して差し替える</strong>(<code class="inline">WpfDialogService</code>/<code class="inline">AvaloniaDialogService</code> の <code class="inline">ReplaceMainWindowForLanguageChange</code>)。<code class="inline">x:Static</code> 参照はウィンドウ構築時点で固定されるため、既存ウィンドウの文言をその場で書き換えることはできない。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>4.2 Undo</h4>
+        <p>
+          <code class="inline">App/Undo/UndoHistory&lt;T&gt;</code>(ジェネリックなスナップショットスタック)を
+          <code class="inline">BookmarkTreeViewModel</code> が <code class="inline">string</code>
+          (ツリー全体のJSON)特化で使用する。詳細は
+          <a href="03-app-design.html#undo">03-app-design.html</a> を参照。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>4.3 busy / progress の表示</h4>
+        <p>
+          <code class="inline">MainWindowViewModel.IsBusy</code> / <code class="inline">BusyProgress</code>
+          (<code class="inline">ReactivePropertySlim&lt;BusyProgressInfo?&gt;</code>)を唯一の「処理中」状態として扱い、
+          以下のいずれからも同じUI(処理中オーバーレイ、5秒経過後にのみ表示する詳細進捗テキスト)を再利用する。
+        </p>
+        <ul>
+          <li>ファイル読込(<code class="inline">ConfirmFilesAsync</code>)</li>
+          <li>PDF結合(<code class="inline">MergeAsync</code>)</li>
+          <li><strong><code class="inline">BookmarkTreeViewModel.IsBusy</code>/<code class="inline">BusyProgress</code> の転送</strong>
+            <span class="badge ok">v1.2.1&#12316;</span> — 大量しおりの編集・Undo時のチャンク処理。詳細は
+            <a href="03-app-design.html#recompute">03-app-design.html</a> と
+            <a href="05-version-history.html#v121">05-version-history.html</a> を参照)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>4.4 設定・ログの保存先</h4>
+        <p>
+          <code class="inline">AppPaths</code>(<code class="inline">src/PdfBookmarkMerger.App/AppPaths.cs</code>)が
+          <code class="inline">%AppData%/PdfBookmarkMerger/</code> 配下に設定ファイル(<code class="inline">settings.json</code>)・
+          ログ(<code class="inline">logs/</code>)をまとめる。レジストリは使用せず、実行ファイルの配置場所
+          (読み取り専用の可能性がある)にも依存しない。設定ファイルの書き込みは、同一フォルダの一時ファイルへ
+          書いてから <code class="inline">File.Move(..., overwrite: true)</code> で原子的に置き換える方式
+          (<code class="inline">UserSettingsService.SaveAsync</code>)で、書き込み中のプロセス強制終了による
+          JSON破損を避けている。
+        </p>
+      </div>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="00-overview.html"><span class="dir">前へ</span>00. 概要</a>
+      <a class="next" href="02-core-design.html"><span class="dir">次へ</span>02. Core層設計</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger 設計ドキュメント &middot;
+      <a href="../en/01-architecture.html">English</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

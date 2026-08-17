@@ -14,7 +14,7 @@
 
     単一ファイル発行でも、WPFの描画・入力用ネイティブ相互運用DLL
     (wpfgfx_cor3.dll 等)はexeへ埋め込めずフォルダ内に残る。「exe 1個のみ」には
-    ならない点に注意(詳細はdocs/design.htmlのWindows公開ビルド手順を参照)。
+    ならない点に注意(詳細はREADME.mdのビルド手順節を参照)。
 
     バージョンは Directory.Build.props の <Version> を単一の情報源として使用し、
     本スクリプト内では重複定義しない。

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント — 04. UIフロントエンド設計</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>設計ドキュメント</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">概要</a></li>
+      <li><a href="01-architecture.html">アーキテクチャ</a></li>
+      <li><a href="02-core-design.html">Core層設計</a></li>
+      <li><a href="03-app-design.html">App層設計</a></li>
+      <li><a href="04-ui-design.html" class="current">UIフロントエンド設計</a></li>
+      <li><a href="05-version-history.html">バージョン間の差分</a></li>
+    </ol>
+    <div class="toc-foot">
+      v1.2.2時点<br />
+      <a href="../index.html">&larr; 索引</a><br />
+      <a href="../en/04-ui-design.html">English</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 04 / 06</div>
+      <h1>UIフロントエンド設計(WPF / Avalonia)</h1>
+      <p class="sub">
+        WPF版(<code class="inline">PdfBookmarkMerger.Wpf</code>)・Avalonia版
+        (<code class="inline">PdfBookmarkMerger.Avalonia</code>)は、いずれも <code class="inline">App</code>
+        層のViewModelをそのままバインドし、次の3種のフレームワーク固有処理のみをそれぞれ独立に実装する。
+      </p>
+      <ol>
+        <li><code class="inline">IDialogService</code> の実装(<code class="inline">WpfDialogService</code> / <code class="inline">AvaloniaDialogService</code>)</li>
+        <li><code class="inline">MainWindow</code> のコードビハインド(D&amp;D、Undo検知に伴うタイトル列幅再計算、busy表示のタイマー制御、しおり行クリック時の横スクロール位置維持 等)</li>
+        <li><code class="inline">IValueConverter</code>によるXAMLバインディング変換</li>
+      </ol>
+    </header>
+
+    <section id="startup">
+      <h2><span class="num">1</span>アプリ起動〜ウィンドウ表示</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>WPF版</th><th>Avalonia版</th></tr></thead>
+          <tbody>
+            <tr><td>エントリポイント</td><td><code class="inline">App</code>(<code class="inline">Application</code> 派生)の <code class="inline">OnStartup</code></td><td><code class="inline">Program.Main</code> &rarr; <code class="inline">App.OnFrameworkInitializationCompleted</code></td></tr>
+            <tr><td>未処理例外フック</td><td><code class="inline">AppDomain.UnhandledException</code> / <code class="inline">DispatcherUnhandledException</code> / <code class="inline">TaskScheduler.UnobservedTaskException</code></td><td><code class="inline">AppDomain.UnhandledException</code> / <code class="inline">TaskScheduler.UnobservedTaskException</code> + <code class="inline">Program.Main</code> 全体を<code class="inline">try/catch</code>(UIスレッド専用フックがAvaloniaに存在しないための代替)</td></tr>
+            <tr><td><code class="inline">IDialogService</code> 実装</td><td class="mono">WpfDialogService</td><td class="mono">AvaloniaDialogService</td></tr>
+            <tr><td>テーマ適用</td><td><code class="inline">ThemeApplier.Apply(mainWindow, themeMode)</code>(<code class="inline">Wpf.Ui.Appearance.SystemThemeWatcher</code> 使用)</td><td><code class="inline">ThemeApplier.Apply(themeMode)</code>(Avaloniaの <code class="inline">RequestedThemeVariant</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        両者とも <code class="inline">MainWindow</code> を構築する前に
+        <code class="inline">AppLanguageBootstrapper.ApplyAsync(userSettings)</code> を同期的に待ち合わせて
+        完了させる(理由は <a href="01-architecture.html#startup">01-architecture.html &sect;3</a> 参照)。
+      </p>
+    </section>
+
+    <section id="mainwindow-responsibilities">
+      <h2><span class="num">2</span><span class="mono">MainWindow</span> コードビハインドの責務</h2>
+      <p>
+        WPF版(<code class="inline">MainWindow.xaml.cs</code>)・Avalonia版
+        (<code class="inline">MainWindow.axaml.cs</code>)は、構造がほぼ並行しており主な責務は以下の通り。
+      </p>
+
+      <h3 id="col-width">2.1 タイトル列幅の実測・共有</h3>
+      <p>
+        しおりツリーの各行はTreeView階層インデントの分だけタイトル列が縦にずれるため、
+        <code class="inline">RecomputeTitleColumnWidth()</code> が全ノードのタイトルを
+        <code class="inline">FormattedText</code> で実測し、最大幅を
+        <code class="inline">BookmarkTreeViewModel.TitleColumnBaseWidth</code> へ書き込む。各行の実際の幅は
+        <code class="inline">DepthToTitleWidthConverter</code>(WPF) / 同等ロジック(Avalonia)が
+        <code class="inline">BaseWidth - Depth&times;IndentPerLevel</code> として求める。
+        <strong>インデント定数はフレームワークごとに異なる</strong>(WPF: 19px、Avalonia: 16px、それぞれの
+        TreeViewItemが実際に適用するインデント幅に合わせてある)。この定数は
+        <code class="inline">OnBookmarkTitleTextChanged</code>・D&amp;D後・レベル操作後・Undo後など、
+        タイトルや階層が変わりうるすべての操作の後に再計算を呼ぶ形で反映される。
+      </p>
+
+      <h3>2.2 しおりツリーのD&amp;D(並べ替え・再親子付け)</h3>
+      <p>
+        行のドラッグ開始検知(<code class="inline">PreviewMouseLeftButtonDown</code>+<code class="inline">PreviewMouseMove</code>
+        の移動量しきい値判定(WPF)/ <code class="inline">PointerPressed</code>+<code class="inline">PointerMoved</code>
+        をTunnelフェーズで購読(Avalonia、理由は後述))から、ドロップ位置に応じた「子として挿入」/
+        「兄弟として挿入」の判定(<code class="inline">ResolveBookmarkDropPlan</code>、ヒットしたTreeViewItemの
+        ヘッダー領域の上半分/下半分で判定)、挿入位置インジケータ線の描画、ドラッグ中にカーソルが上端/下端
+        付近にある間の自動スクロール(<code class="inline">UpdateBookmarkAutoScroll</code>、
+        <code class="inline">DispatcherTimer</code> で一定間隔スクロール)までを一貫して実装する。
+      </p>
+      <p>
+        行の実要素(タイトル欄・ComboBox等)が存在しない部分(レベル表示の左側の余白、結合後ページ表示の
+        右側の余白)をクリック・ドロップした場合、既定のヒットテストでは対象が見つからない。
+        <code class="inline">SelectBookmarkRowAtY</code>/<code class="inline">ResolveBookmarkDropPlan</code>
+        は、カーソルのY座標から <code class="inline">FindTreeViewItemAtY</code> で幾何的に行を探すことで、
+        行の全幅でクリック・ドロップを受け付けるようにしている。
+      </p>
+      <p>
+        Avalonia版が <code class="inline">PointerPressed</code> を<strong>Tunnelフェーズ</strong>で明示的に
+        購読しているのは、<code class="inline">SelectingItemsControl</code> の既定の選択処理がBubbleフェーズで
+        先にイベントをハンドル済みにしてしまい、通常のXAMLイベント購読(Bubble)ではD&amp;D開始検知用の
+        ハンドラに一切イベントが届かないため(WPF版が <code class="inline">PreviewMouseLeftButtonDown</code>
+        というTunnelフェーズの専用ルーティングイベントを使っているのと同じ理由)。
+      </p>
+
+      <h3 id="scroll-fix">2.3 しおり行クリック時の横スクロール位置維持 <span class="badge warn">v1.2.1&#12316;</span></h3>
+      <p>
+        しおり編集ツリーの1行は多数のコントロールを横に並べた幅広の内容のため、ウィンドウが狭い場合は
+        横スクロールバーが表示される。この状態で行をクリックすると、WPF・Avalonia双方の既定動作
+        (選択・フォーカス変更に伴う「対象を画面内へ収める」処理)が行全体(横方向を含む)を表示しようとし、
+        意図せず横スクロール位置が動いてしまう不具合があった。
+      </p>
+      <div class="card">
+        <h4>検討したが採用しなかった案</h4>
+        <p>
+          WPFの <code class="inline">RequestBringIntoView</code> ルーテッドイベントを横方向のみ差し替えて
+          再要求する方式。既定の「対象を画面内へ収める」処理がイベントのバブル経路上でTreeView側の
+          ハンドラより先(ScrollViewer側)に実行される可能性を排除できず、確実性に欠けると判断して
+          不採用とした。
+        </p>
+      </div>
+      <div class="card">
+        <h4>採用した方式</h4>
+        <p>
+          クリック直後(選択処理が始まる前)の横スクロール位置を保存し
+          (<code class="inline">PreserveBookmarkTreeHorizontalScrollPosition</code>)、選択・フォーカス変更に
+          伴う一連の処理が完了した後のタイミング(WPF:
+          <code class="inline">Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, ...)</code>、Avalonia:
+          <code class="inline">Dispatcher.UIThread.Post(..., DispatcherPriority.ContextIdle)</code>)に元の
+          位置へ復元する。原因となる個々の処理(既定の自動スクロールか、
+          <code class="inline">SelectBookmarkRowAtY</code> 内の <code class="inline">Focus()</code> か等)を
+          問わず確実に横スクロール位置を保てる。縦方向は復元しないため、キーボード操作で画面外の行を
+          選択した場合の縦方向自動スクロールは従来どおり機能する。横スクロールバー自体の操作
+          (<code class="inline">ScrollBar</code> 上でのクリック・ドラッグ)は対象外とし、巻き戻してしまわない
+          ようにしている。
+        </p>
+      </div>
+
+      <h3>2.4 busy表示の詳細進捗タイマー</h3>
+      <p>
+        <code class="inline">ViewModel.IsBusy</code> の変化を購読し、busyがtrueになってから5秒
+        (<code class="inline">DispatcherTimer</code> の <code class="inline">Interval</code>)経過して初めて
+        詳細進捗テキスト(<code class="inline">BusyDetailText</code>)を表示する
+        (<code class="inline">OnIsBusyChanged</code>/<code class="inline">OnBusyDetailTimerTick</code>)。
+        短時間で終わる処理での表示のちらつきを防ぐための遅延表示。
+      </p>
+
+      <h3>2.5 ファイル一覧のD&amp;D・プレースホルダー表示</h3>
+      <p>
+        エクスプローラー等外部からのD&amp;D(<code class="inline">OnWindowDrop</code>)、ファイル一覧内での
+        D&amp;D並べ替え(<code class="inline">OnFileListDrop</code>)に加え、WPF版はファイル一覧が空の間
+        <code class="inline">AdornerLayer</code> 経由でヒントテキストを重ねる
+        (<code class="inline">UpdateFileListPlaceholder</code>、<code class="inline">PlaceholderTextAdorner</code>。
+        ListBoxの可視ツリー自体は変更しないためD&amp;Dのヒットテストに影響しない)。
+      </p>
+
+      <h3 id="expand-level-controls">2.6 ツリー開閉レベルの一括指定コントロール <span class="badge ok">v1.2.2&#12316;</span></h3>
+      <p>
+        しおり編集ツリー直上に「-」ボタン・レベル指定テキストボックス・「+」ボタンを追加している。
+        テキストボックスは <code class="inline">BookmarkTreeViewModel.ExpandLevelInput</code>(string)へ
+        双方向バインドする(ViewModel側のロジックは
+        <a href="03-app-design.html#expand-level">03-app-design.html &sect;2.7</a> を参照)。WPF版は
+        テキストボックスの既定の <code class="inline">Text</code> バインディング
+        (<code class="inline">UpdateSourceTrigger=LostFocus</code>)をそのまま使い、Avalonia版は他の
+        テキストボックス同様、入力のたびに反映される。両フロントエンドとも、テキストボックスの
+        <code class="inline">LostFocus</code> イベントをコードビハインドで購読し、
+        <code class="inline">BookmarkTreeViewModel.NormalizeExpandLevelInput()</code>
+        を呼んで不正な入力値を空欄へ正規化する。
+      </p>
+    </section>
+
+    <section id="converters">
+      <h2><span class="num">3</span>Converter一覧</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">Converter</th><th class="center">WPF</th><th class="center">Avalonia</th><th>役割</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">DepthToTitleWidthConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>階層深さ+基準幅からタイトル列幅を算出(インデント定数がWPF/Avaloniaで異なる、<a href="#col-width">&sect;2.1</a>参照)</td></tr>
+            <tr><td class="mono">PageNumberWidthConverter <span class="badge ok">v1.2.0&#12316;</span></td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>結合前ページ数の桁数からテキストボックス幅を算出</td></tr>
+            <tr><td class="mono">EditedHighlightBrushConverter <span class="badge ok">v1.2.0&#12316;</span></td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>結合前ページ数編集済み行の強調背景色(半透明)</td></tr>
+            <tr><td class="mono">ZoomPercentToStringConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>PDFのZoom倍率(1.0=100%)&hArr;UI表示用パーセント文字列</td></tr>
+            <tr><td class="mono">NullableDoubleToStringConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>座標(<code class="inline">double?</code>)&hArr;テキストボックス文字列</td></tr>
+            <tr><td class="mono">BusyProgressToTextConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td><code class="inline">BusyProgressInfo</code> &rArr;「12 / 340件 (処理中: a.pdf, b.pdf)」等の表示文字列</td></tr>
+            <tr><td class="mono">PageCountToTextConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>ページ数(<code class="inline">int?</code>)&rArr;「12ページ」等の表示文字列</td></tr>
+            <tr><td class="mono">ThemeModeToLabelConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td><code class="inline">ThemeMode</code> &rArr; 表示ラベル(i18n対応)</td></tr>
+            <tr><td class="mono">AppLanguageToLabelConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td><code class="inline">AppLanguage</code> &rArr; 表示ラベル(i18n対応)</td></tr>
+            <tr><td class="mono">EnumToVisibilityConverter(WPF) / EnumEqualsConverter(Avalonia)</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>Enum値の一致判定(WPFは<code class="inline">Visibility</code>を返す、Avaloniaはboolを返し<code class="inline">IsVisible</code>にバインド)</td></tr>
+            <tr><td class="mono">InverseBooleanConverter</td><td class="center">&#9679;</td><td class="center">&mdash;</td><td>bool反転。WPFのみ存在(Avaloniaは<code class="inline">!Property</code>というバインディング構文を直接サポートするため不要)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        すべて <code class="inline">PdfBookmarkMerger.UiConverters.Tests</code> の
+        <code class="inline">ConverterParityTests</code> で、WPF/Avalonia双方の実装を直接インスタンス化して
+        ゴールデンテストする(意図的に「両実装の計算結果が一致する」ことを検証するのではなく、
+        <code class="inline">DepthToTitleWidthConverter</code> のようにインデント定数自体が異なる
+        コンバータについては「各実装が自身の正しい定数通りに計算しているか」を検証する形にしている点に
+        注意)。
+      </p>
+    </section>
+
+    <section id="dialogs">
+      <h2><span class="num">4</span>ダイアログウィンドウ</h2>
+      <p>
+        <code class="inline">PropertiesDialogWindow</code>・<code class="inline">SettingsDialogWindow</code>・<code class="inline">LevelCapDialogWindow</code>
+        (WPF: <code class="inline">.xaml</code>/<code class="inline">.xaml.cs</code>、Avalonia:
+        <code class="inline">.axaml</code>/<code class="inline">.axaml.cs</code>)は、対応する
+        <code class="inline">*ViewModel</code>(App層、UI非依存)を受け取って
+        <code class="inline">DataContext</code>/<code class="inline">Owner</code> を設定するだけの薄い
+        ラッパー。エラー/情報表示は専用ウィンドウを持たず、WPF版は
+        <code class="inline">Wpf.Ui.Controls.MessageBox</code>、Avalonia版は自前の
+        <code class="inline">AlertWindow</code> を都度生成する。
+      </p>
+    </section>
+
+    <section id="language-switch">
+      <h2><span class="num">5</span>言語切り替え時のウィンドウ再構築</h2>
+      <p>
+        設定ダイアログで表示言語を変更すると、<code class="inline">AppLanguageBootstrapper.ApplyImmediate</code>
+        で <code class="inline">Strings.Culture</code> を切り替えた直後、
+        <code class="inline">WpfDialogService.ReplaceMainWindowForLanguageChange</code> /
+        <code class="inline">AvaloniaDialogService.ReplaceMainWindowForLanguageChange</code> が、
+        <strong>同じ <code class="inline">MainWindowViewModel</code> インスタンス</strong>
+        (読み込み済みファイル・編集中のしおりツリー等の状態を保持)を引き継いだ新しい
+        <code class="inline">MainWindow</code> を構築し、位置・サイズ・ウィンドウ状態をコピーした上で
+        旧ウィンドウを閉じる。旧ウィンドウの <code class="inline">Closed</code> イベントで
+        <code class="inline">_viewModelSubscriptions</code>(<code class="inline">CompositeDisposable</code>)を
+        破棄し、古いウィンドウのコールバックがViewModelの変化のたびに実行され続けることを防ぐ。WPF版は
+        さらに <code class="inline">Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(oldWindow)</code> を
+        明示的に呼ぶ必要がある(監視対象から外れないと、閉じたはずの旧ウィンドウがプロセス生存中ずっと
+        参照され続ける)。
+      </p>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="03-app-design.html"><span class="dir">前へ</span>03. App層設計</a>
+      <a class="next" href="05-version-history.html"><span class="dir">次へ</span>05. バージョン間の差分</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger 設計ドキュメント &middot;
+      <a href="../en/04-ui-design.html">English</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

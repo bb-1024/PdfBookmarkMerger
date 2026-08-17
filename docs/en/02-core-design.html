@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger Design Documentation — 02. Core Layer Design</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>Design Docs</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">Overview</a></li>
+      <li><a href="01-architecture.html">Architecture</a></li>
+      <li><a href="02-core-design.html" class="current">Core Layer Design</a></li>
+      <li><a href="03-app-design.html">App Layer Design</a></li>
+      <li><a href="04-ui-design.html">UI Frontend Design</a></li>
+      <li><a href="05-version-history.html">Version History</a></li>
+    </ol>
+    <div class="toc-foot">
+      as of v1.2.2<br />
+      <a href="../index.html">&larr; Index</a><br />
+      <a href="../ja/02-core-design.html">日本語</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 02 / 06</div>
+      <h1>Core Layer Design</h1>
+      <p class="sub">
+        <code class="inline">PdfBookmarkMerger.Core</code> is the UI-framework-independent domain layer that owns
+        PDF I/O and the bookmark-merging logic. Every public service is registered as a Singleton via
+        <code class="inline">Core/ServiceCollectionExtensions.AddPdfBookmarkMergerCore()</code>.
+      </p>
+    </header>
+
+    <section id="models">
+      <h2><span class="num">1</span>Models (<span class="mono">Core/Models</span>)</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">Type</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">BookmarkNode</td><td>A single bookmark. Holds <code class="inline">Title</code>, <code class="inline">DestinationType</code>, coordinates (<code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>), <code class="inline">IsOpen</code>, and <code class="inline">Children</code>. The pair <code class="inline">SourceFileEntryId</code> + <code class="inline">OriginalPageIndex</code> is the immutable identity that pins down the jump-target page inside the source PDF. <code class="inline">MergedPageIndex</code> is the page number within the merged PDF (a display-only, secondary value). <code class="inline">PageOffset</code> is the delta from directly editing the pre-merge page number in the editor (null when unedited; a write/display-only adjustment that never affects the actual merge). <code class="inline">Clone()</code> returns a deep copy of itself plus descendants (with fresh Ids).</td></tr>
+            <tr><td class="mono">PdfFileEntry</td><td>One entry in the merge-target file list. <code class="inline">FilePath</code>, <code class="inline">PageCount</code> (null until resolved).</td></tr>
+            <tr><td class="mono">PdfFileMetadata</td><td>The <code class="inline">PageCount</code>, <code class="inline">Bookmarks</code>, and <code class="inline">Properties</code> read from a single file.</td></tr>
+            <tr><td class="mono">PdfDocumentPropertiesModel</td><td>Title/Author/Subject/Keywords/Creator. The default properties for the merged output reuse the first merge-target PDF's values.</td></tr>
+            <tr><td class="mono">PdfMergeRequest</td><td>Input to <code class="inline">PdfMergeService.MergeAsync</code> (file order, the edited bookmark tree, output properties, output path).</td></tr>
+            <tr><td class="mono">MergeProgress</td><td><code class="inline">record(int CompletedFileCount, int TotalFileCount, string CurrentFileName)</code> &mdash; progress notification for the merge process.</td></tr>
+            <tr><td class="mono">BookmarkDestinationType</td><td>Only 4 values: <code class="inline">XYZ</code> / <code class="inline">Fit</code> / <code class="inline">FitH</code> / <code class="inline">FitV</code> (the bounding-box variants <code class="inline">FitB*</code> and the rectangle variant <code class="inline">FitR</code> aren't exposed in the UI and get simplified on read).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code class="inline">BookmarkNode</code> deliberately separates "where it sits in the bookmark tree"
+        (<code class="inline">SourceFileEntryId</code> + <code class="inline">OriginalPageIndex</code>) from
+        "where it displays after merging" (<code class="inline">MergedPageIndex</code>). That way, reordering the
+        merge order or adding/removing files never changes the identity used to pin down the jump-target page.
+      </p>
+    </section>
+
+    <section id="services">
+      <h2><span class="num">2</span>Domain services (<span class="mono">Core/Services</span>)</h2>
+
+      <h3><code class="inline">PdfFileCollectorService</code></h3>
+      <p>
+        <code class="inline">ExpandToPdfFilePaths(droppedPaths)</code> &mdash; expands the paths handed over
+        from D&amp;D/dialogs (a mix of files and folders) into an actual list of PDF file paths. Folders are
+        scanned non-recursively (only their direct contents); anything that isn't a <code class="inline">.pdf</code>
+        or doesn't exist is ignored and logged.
+      </p>
+
+      <h3><code class="inline">PdfMetadataService</code></h3>
+      <ul>
+        <li><code class="inline">ReadPageCountAsync(filePath)</code> &mdash; reads only the page count, quickly (used for the provisional page count shown right after adding a file to the list).</li>
+        <li><code class="inline">ReadMetadataAsync(file)</code> &mdash; reads page count, bookmark tree, and document properties together (used during bookmark extraction).</li>
+      </ul>
+      <p>
+        Bookmark extraction (<code class="inline">ExtractOutlines</code>) walks the
+        <code class="inline">PdfOutlineCollection</code> recursively, resolving each outline's jump-target page
+        via a dictionary built once by reference comparison (<code class="inline">BuildPageIndexLookup</code>,
+        using <code class="inline">ReferenceEqualityComparer</code>). A bookmark whose target page can't be
+        resolved is logged as a warning and skipped.
+      </p>
+      <p>Two known PDFsharp 6.2.4 workarounds are contained inside this service.</p>
+      <ol>
+        <li><strong>Normalizing NaN coordinates</strong> (<code class="inline">AsFiniteOrNull</code>) &mdash; depending on the destination type, <code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code> can come back as NaN/Infinity. Keeping that as-is would throw when the Undo snapshot is JSON-serialized, and would also get written back into the output PDF as an invalid value, so it's normalized to <code class="inline">null</code> (meaning "unspecified").</li>
+        <li><strong>Reading the open/closed state</strong> (<code class="inline">ReadOpened</code>) &mdash; <code class="inline">PdfOutline.Opened</code> has a known bug where it misreads the sign of <code class="inline">/Count</code> (the field that encodes open/closed state), even though <code class="inline">/Count</code> itself is written correctly. The workaround reads <code class="inline">/Count</code> directly, falling back to the library's default for leaf nodes and the like where <code class="inline">/Count</code> doesn't exist.</li>
+      </ol>
+
+      <h3><code class="inline">MissingBookmarkFallback</code></h3>
+      <p>
+        <code class="inline">ResolveEffectiveBookmarks(orderedFiles, metadataByFileId)</code> &mdash; for each
+        PDF that has zero bookmarks, resolves an "effective bookmark list" that fills in a single bookmark
+        titled after the filename (without extension). Its destination type follows the previous file's setting
+        (coordinates are not carried over). Non-destructive: it never touches its input, always returning a
+        freshly built result.
+      </p>
+
+      <h3><code class="inline">BookmarkOffsetCalculator</code></h3>
+      <p>
+        <code class="inline">ComputeMergedBookmarks(orderedFiles, effectiveBookmarksByFileId, metadataByFileId)</code>
+        &mdash; computes a cumulative page-count offset following the merge order, and returns a cloned tree
+        (concatenated in file order) with each bookmark's <code class="inline">MergedPageIndex</code> set. Never
+        mutates its input.
+      </p>
+
+      <h3><code class="inline">PdfMergeService</code></h3>
+      <p><code class="inline">MergeAsync(request, progress, ct)</code> runs in two phases.</p>
+      <ol>
+        <li><strong>Phase 1 (parallel)</strong>: opens each input PDF via <code class="inline">PdfReader.Open</code> (disk I/O + structure parsing). A <code class="inline">SemaphoreSlim</code> caps concurrency at <code class="inline">Math.Clamp(Environment.ProcessorCount, 1, 8)</code> to avoid thread-pool exhaustion and too many open file handles.</li>
+        <li><strong>Phase 2 (single-threaded)</strong>: appends each opened PDF's pages onto the output <code class="inline">PdfDocument</code> (<code class="inline">AddPage</code>, mostly fast in-memory copying). Reports <code class="inline">MergeProgress</code> after every page addition.</li>
+      </ol>
+      <p>
+        <code class="inline">ApplyBookmarks</code> then rebuilds the outline on the output side using a
+        <code class="inline">(SourceFileEntryId, OriginalPageIndex)</code> &rarr; actual-page map. For nodes
+        that have children, it works around a known PDFsharp 6.2.4 bug where <code class="inline">/Count</code>
+        (the open/closed state) doesn't get written for any level below the first, by calling
+        <code class="inline">Elements.SetInteger("/Count", ...)</code> directly before saving.
+      </p>
+      <p>
+        Even if only some files managed to open in Phase 1 (password-protected/corrupted/locked by another
+        process, or a cancellation), everything opened so far is still guaranteed to get
+        <code class="inline">Dispose</code>d, since Phases 1 and 2 are wrapped together in a single
+        <code class="inline">try/finally</code>.
+      </p>
+
+      <h3><code class="inline">BookmarkSettingsExportService</code> <span class="badge ok">since v1.2.0</span></h3>
+      <p>
+        <code class="inline">ExportAsync(bookmarks, outputPath, ct)</code> &mdash; writes the bookmark tree out
+        per the "bookmark settings file spec" (UTF-8 XML, nested
+        <code class="inline">&lt;Title Page="..." Action="GoTo"&gt;</code> elements directly under a root
+        <code class="inline">&lt;Bookmark&gt;</code>). The <code class="inline">Page</code> attribute is written
+        with the same argument order as the PDF Reference's destination types (Fit/FitH/FitV/XYZ); an unset
+        (null) argument is filled with <code class="inline">0</code>, since the spec treats that as equivalent to
+        null. The XML declaration line is written by hand, because <code class="inline">XmlWriter</code>'s
+        default output (lowercase <code class="inline">"utf-8"</code>) doesn't match the spec's example verbatim.
+      </p>
+
+      <h3><code class="inline">BookmarkDestinationTypeMapper</code> <span class="tag">internal</span></h3>
+      <p>
+        Converts between <code class="inline">Core.Models.BookmarkDestinationType</code> and PDFsharp's
+        <code class="inline">PdfPageDestinationType</code>. The conversion logic lives in the Services layer
+        specifically to keep Models free of any library dependency.
+      </p>
+    </section>
+
+    <section id="pipeline">
+      <h2><span class="num">3</span>The Core layer's processing pipeline, end to end</h2>
+      <figure class="diagram-wrap">
+        <img src="../diagrams/merge-pipeline.svg" alt="Core layer processing pipeline" />
+        <figcaption>File collection &rarr; metadata extraction &rarr; fallback &rarr; offset calculation &rarr; editing &rarr; merge/XML export</figcaption>
+      </figure>
+      <p>
+        In the diagram, the four stages above the dashed line (<code class="inline">PdfFileCollectorService</code>
+        &rarr; <code class="inline">PdfMetadataService</code> &rarr; <code class="inline">MissingBookmarkFallback</code>
+        &rarr; <code class="inline">BookmarkOffsetCalculator</code>) are all read-only, non-mutating transforms
+        (built on <code class="inline">Clone()</code>). Only once the result reaches
+        <code class="inline">BookmarkTreeViewModel.Load</code> does it become an editable object (in the App
+        layer). The edited tree is then handed back to Core-layer services in two shapes:
+        <code class="inline">ToModel()</code> (for the PDF merge) and <code class="inline">ToExportModel()</code>
+        (for the bookmark settings file export, with the pre-merge page-number edit cascade already baked in).
+      </p>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="01-architecture.html"><span class="dir">Previous</span>01. Architecture</a>
+      <a class="next" href="03-app-design.html"><span class="dir">Next</span>03. App Layer Design</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger Design Documentation &middot;
+      <a href="../ja/02-core-design.html">日本語</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger Design Documentation — 04. UI Frontend Design</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>Design Docs</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">Overview</a></li>
+      <li><a href="01-architecture.html">Architecture</a></li>
+      <li><a href="02-core-design.html">Core Layer Design</a></li>
+      <li><a href="03-app-design.html">App Layer Design</a></li>
+      <li><a href="04-ui-design.html" class="current">UI Frontend Design</a></li>
+      <li><a href="05-version-history.html">Version History</a></li>
+    </ol>
+    <div class="toc-foot">
+      as of v1.2.2<br />
+      <a href="../index.html">&larr; Index</a><br />
+      <a href="../ja/04-ui-design.html">日本語</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 04 / 06</div>
+      <h1>UI Frontend Design (WPF / Avalonia)</h1>
+      <p class="sub">
+        Both the WPF build (<code class="inline">PdfBookmarkMerger.Wpf</code>) and the Avalonia build
+        (<code class="inline">PdfBookmarkMerger.Avalonia</code>) bind the <code class="inline">App</code> layer's
+        ViewModels as-is, and each independently implements only these three kinds of framework-specific work:
+      </p>
+      <ol>
+        <li>The <code class="inline">IDialogService</code> implementation (<code class="inline">WpfDialogService</code> / <code class="inline">AvaloniaDialogService</code>)</li>
+        <li><code class="inline">MainWindow</code> code-behind (D&amp;D, recomputing the title column width on Undo, busy-display timer control, preserving horizontal scroll position on a bookmark-row click, etc.)</li>
+        <li><code class="inline">IValueConverter</code>s that drive XAML bindings</li>
+      </ol>
+    </header>
+
+    <section id="startup">
+      <h2><span class="num">1</span>From app startup to the window showing</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>WPF build</th><th>Avalonia build</th></tr></thead>
+          <tbody>
+            <tr><td>Entry point</td><td><code class="inline">App</code> (an <code class="inline">Application</code> subclass) <code class="inline">OnStartup</code></td><td><code class="inline">Program.Main</code> &rarr; <code class="inline">App.OnFrameworkInitializationCompleted</code></td></tr>
+            <tr><td>Unhandled-exception hooks</td><td><code class="inline">AppDomain.UnhandledException</code> / <code class="inline">DispatcherUnhandledException</code> / <code class="inline">TaskScheduler.UnobservedTaskException</code></td><td><code class="inline">AppDomain.UnhandledException</code> / <code class="inline">TaskScheduler.UnobservedTaskException</code> + wrapping all of <code class="inline">Program.Main</code> in <code class="inline">try/catch</code> (since Avalonia has no UI-thread-specific hook)</td></tr>
+            <tr><td><code class="inline">IDialogService</code> implementation</td><td class="mono">WpfDialogService</td><td class="mono">AvaloniaDialogService</td></tr>
+            <tr><td>Theme application</td><td><code class="inline">ThemeApplier.Apply(mainWindow, themeMode)</code> (uses <code class="inline">Wpf.Ui.Appearance.SystemThemeWatcher</code>)</td><td><code class="inline">ThemeApplier.Apply(themeMode)</code> (Avalonia's <code class="inline">RequestedThemeVariant</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Both builds synchronously wait for <code class="inline">AppLanguageBootstrapper.ApplyAsync(userSettings)</code>
+        to finish before constructing <code class="inline">MainWindow</code> (see
+        <a href="01-architecture.html#startup">01-architecture.html &sect;3</a> for why).
+      </p>
+    </section>
+
+    <section id="mainwindow-responsibilities">
+      <h2><span class="num">2</span>What <span class="mono">MainWindow</span> code-behind is responsible for</h2>
+      <p>
+        The WPF build's <code class="inline">MainWindow.xaml.cs</code> and the Avalonia build's
+        <code class="inline">MainWindow.axaml.cs</code> are structured almost identically. Their main
+        responsibilities:
+      </p>
+
+      <h3 id="col-width">2.1 Measuring and sharing the title column's width</h3>
+      <p>
+        Because each bookmark-tree row is shifted horizontally by the TreeView's hierarchy indent, the title
+        column would otherwise not line up vertically. <code class="inline">RecomputeTitleColumnWidth()</code>
+        measures every node's title with <code class="inline">FormattedText</code> and writes the maximum width
+        into <code class="inline">BookmarkTreeViewModel.TitleColumnBaseWidth</code>. Each row's actual width is
+        then derived by <code class="inline">DepthToTitleWidthConverter</code> (WPF) / the equivalent logic
+        (Avalonia) as <code class="inline">BaseWidth - Depth&times;IndentPerLevel</code>. <strong>The indent
+        constant differs between frameworks</strong> (WPF: 19px, Avalonia: 16px &mdash; matched to what each
+        framework's own <code class="inline">TreeViewItem</code> actually applies). This recompute is triggered
+        after every operation that can change a title or the hierarchy &mdash;
+        <code class="inline">OnBookmarkTitleTextChanged</code>, after D&amp;D, after level operations, after
+        Undo, and so on.
+      </p>
+
+      <h3>2.2 Bookmark-tree D&amp;D (reordering and re-parenting)</h3>
+      <p>
+        From detecting the start of a row drag (WPF: <code class="inline">PreviewMouseLeftButtonDown</code> + a
+        movement-threshold check in <code class="inline">PreviewMouseMove</code>; Avalonia:
+        <code class="inline">PointerPressed</code> + <code class="inline">PointerMoved</code> subscribed on the
+        Tunnel phase, explained below), through deciding "insert as child" vs. "insert as sibling" based on
+        drop position (<code class="inline">ResolveBookmarkDropPlan</code>, checking whether the hit
+        <code class="inline">TreeViewItem</code>'s header was struck in its top or bottom half), drawing the
+        insertion-point indicator line, to auto-scrolling while the cursor sits near the top/bottom edge during
+        a drag (<code class="inline">UpdateBookmarkAutoScroll</code>, ticked by a
+        <code class="inline">DispatcherTimer</code>) &mdash; all of it is implemented consistently end to end.
+      </p>
+      <p>
+        Clicking or dropping on a part of a row with no actual element underneath it (the margin to the left
+        of the level indicator, or to the right of the post-merge page display) finds nothing under the
+        default hit test. <code class="inline">SelectBookmarkRowAtY</code>/<code class="inline">ResolveBookmarkDropPlan</code>
+        instead locate the row geometrically from the cursor's Y coordinate via
+        <code class="inline">FindTreeViewItemAtY</code>, so clicks and drops are accepted across a row's full
+        width.
+      </p>
+      <p>
+        The Avalonia build subscribes <code class="inline">PointerPressed</code> explicitly on the
+        <strong>Tunnel phase</strong> because <code class="inline">SelectingItemsControl</code>'s built-in
+        selection handling already marks the event handled during the Bubble phase, so a normal XAML event
+        subscription (Bubble) never sees it in time to detect a drag start (the same reason the WPF build uses
+        <code class="inline">PreviewMouseLeftButtonDown</code>, a Tunnel-phase routed event).
+      </p>
+
+      <h3 id="scroll-fix">2.3 Preserving horizontal scroll position on a bookmark-row click <span class="badge warn">since v1.2.1</span></h3>
+      <p>
+        Each row in the bookmark editor is wide &mdash; many controls laid out side by side &mdash; so a narrow
+        window shows a horizontal scrollbar. Clicking a row in that state used to trigger both WPF's and
+        Avalonia's default "bring the target fully into view on selection/focus change" behavior, which tried
+        to reveal the entire row (including its horizontal extent) and moved the horizontal scroll position
+        unexpectedly.
+      </p>
+      <div class="card">
+        <h4>An approach that was considered and rejected</h4>
+        <p>
+          Rewriting WPF's <code class="inline">RequestBringIntoView</code> routed event to request only the
+          vertical component. It was ruled out because the default "bring into view" handling could execute
+          earlier in the bubble path (on the <code class="inline">ScrollViewer</code> side) than a
+          TreeView-level handler, with no reliable way to guarantee ordering.
+        </p>
+      </div>
+      <div class="card">
+        <h4>The approach actually used</h4>
+        <p>
+          Capture the horizontal scroll position right after the click (before selection processing starts)
+          via <code class="inline">PreserveBookmarkTreeHorizontalScrollPosition</code>, then restore it once
+          the whole selection/focus-change pipeline has settled &mdash; at a low-priority dispatch point (WPF:
+          <code class="inline">Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, ...)</code>; Avalonia:
+          <code class="inline">Dispatcher.UIThread.Post(..., DispatcherPriority.ContextIdle)</code>). This
+          reliably preserves the horizontal position regardless of which specific mechanism caused the change
+          (the default auto-scroll, or <code class="inline">Focus()</code> inside
+          <code class="inline">SelectBookmarkRowAtY</code>). Vertical position is deliberately left untouched,
+          so keyboard navigation still auto-scrolls a selected off-screen row into view as before. Clicks on
+          the <code class="inline">ScrollBar</code> itself are excluded, so dragging the scrollbar isn't
+          snapped back.
+        </p>
+      </div>
+
+      <h3>2.4 Busy-display detail-progress timer</h3>
+      <p>
+        Subscribes to <code class="inline">ViewModel.IsBusy</code>, and only shows the detail progress text
+        (<code class="inline">BusyDetailText</code>) once busy has been <code class="inline">true</code> for 5
+        seconds (a <code class="inline">DispatcherTimer</code> with that <code class="inline">Interval</code>)
+        &mdash; <code class="inline">OnIsBusyChanged</code>/<code class="inline">OnBusyDetailTimerTick</code>.
+        This delay avoids a flicker of detail text on short-lived operations.
+      </p>
+
+      <h3>2.5 File-list D&amp;D and the placeholder hint</h3>
+      <p>
+        Handles D&amp;D from outside the app (<code class="inline">OnWindowDrop</code>) as well as reordering
+        within the file list (<code class="inline">OnFileListDrop</code>); the WPF build additionally overlays
+        a hint text via <code class="inline">AdornerLayer</code> while the file list is empty
+        (<code class="inline">UpdateFileListPlaceholder</code>, <code class="inline">PlaceholderTextAdorner</code>
+        &mdash; this never touches the ListBox's own visual tree, so it doesn't affect D&amp;D hit testing).
+      </p>
+
+      <h3 id="expand-level-controls">2.6 Bulk expand/collapse-by-level controls <span class="badge ok">since v1.2.2</span></h3>
+      <p>
+        Added a "-" button, a level-number text box, and a "+" button directly above the bookmark tree.
+        The text box is two-way bound to <code class="inline">BookmarkTreeViewModel.ExpandLevelInput</code>
+        (string) (see <a href="03-app-design.html#expand-level">03-app-design.html &sect;2.7</a> for the
+        ViewModel-side logic). The WPF build uses the text box's default <code class="inline">Text</code>
+        binding (<code class="inline">UpdateSourceTrigger=LostFocus</code>) as-is; the Avalonia build, like
+        its other text boxes, applies the value as the user types. Both frontends subscribe to the text
+        box's <code class="inline">LostFocus</code> event in code-behind and call
+        <code class="inline">BookmarkTreeViewModel.NormalizeExpandLevelInput()</code> to normalize an
+        invalid value back to empty.
+      </p>
+    </section>
+
+    <section id="converters">
+      <h2><span class="num">3</span>Converters</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">Converter</th><th class="center">WPF</th><th class="center">Avalonia</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">DepthToTitleWidthConverter</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td>Title column width from hierarchy depth + base width (the indent constant differs between WPF/Avalonia, see <a href="#col-width">&sect;2.1</a>)</td></tr>
+            <tr><td class="mono">PageNumberWidthConverter <span class="badge ok">since v1.2.0</span></td><td class="center">&#10003;</td><td class="center">&#10003;</td><td>Text-box width for the pre-merge page number, from its digit count</td></tr>
+            <tr><td class="mono">EditedHighlightBrushConverter <span class="badge ok">since v1.2.0</span></td><td class="center">&#10003;</td><td class="center">&#10003;</td><td>Highlight background (semi-transparent) for a row with an edited pre-merge page number</td></tr>
+            <tr><td class="mono">ZoomPercentToStringConverter</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td>PDF Zoom ratio (1.0 = 100%) &hArr; percent string shown in the UI</td></tr>
+            <tr><td class="mono">NullableDoubleToStringConverter</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td>A coordinate (<code class="inline">double?</code>) &hArr; text-box string</td></tr>
+            <tr><td class="mono">BusyProgressToTextConverter</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td><code class="inline">BusyProgressInfo</code> &rArr; a display string like "12 / 340 (processing: a.pdf, b.pdf)"</td></tr>
+            <tr><td class="mono">PageCountToTextConverter</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td>Page count (<code class="inline">int?</code>) &rArr; a display string like "12 pages"</td></tr>
+            <tr><td class="mono">ThemeModeToLabelConverter</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td><code class="inline">ThemeMode</code> &rArr; localized display label</td></tr>
+            <tr><td class="mono">AppLanguageToLabelConverter</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td><code class="inline">AppLanguage</code> &rArr; localized display label</td></tr>
+            <tr><td class="mono">EnumToVisibilityConverter (WPF) / EnumEqualsConverter (Avalonia)</td><td class="center">&#10003;</td><td class="center">&#10003;</td><td>Enum equality check (WPF returns <code class="inline">Visibility</code>; Avalonia returns bool, bound to <code class="inline">IsVisible</code>)</td></tr>
+            <tr><td class="mono">InverseBooleanConverter</td><td class="center">&#10003;</td><td class="center">&mdash;</td><td>bool negation. WPF-only (Avalonia supports the <code class="inline">!Property</code> binding syntax directly, so it doesn't need one)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        All of them are golden-tested against real instances of both the WPF and Avalonia implementations in
+        <code class="inline">PdfBookmarkMerger.UiConverters.Tests</code>' <code class="inline">ConverterParityTests</code>
+        &mdash; note that the intent is deliberately <strong>not</strong> always "both implementations compute
+        the same result." For a converter like <code class="inline">DepthToTitleWidthConverter</code>, where
+        the indent constant itself legitimately differs between frameworks, the test instead checks that "each
+        implementation computes correctly per its own, correct constant."
+      </p>
+    </section>
+
+    <section id="dialogs">
+      <h2><span class="num">4</span>Dialog windows</h2>
+      <p>
+        <code class="inline">PropertiesDialogWindow</code>, <code class="inline">SettingsDialogWindow</code>,
+        and <code class="inline">LevelCapDialogWindow</code> (WPF:
+        <code class="inline">.xaml</code>/<code class="inline">.xaml.cs</code>; Avalonia:
+        <code class="inline">.axaml</code>/<code class="inline">.axaml.cs</code>) are thin wrappers that take
+        the corresponding <code class="inline">*ViewModel</code> (App layer, UI-independent) and set
+        <code class="inline">DataContext</code>/<code class="inline">Owner</code>. Error/info messages have no
+        dedicated window of their own: the WPF build uses <code class="inline">Wpf.Ui.Controls.MessageBox</code>,
+        and the Avalonia build constructs its own <code class="inline">AlertWindow</code>, freshly each time.
+      </p>
+    </section>
+
+    <section id="language-switch">
+      <h2><span class="num">5</span>Rebuilding the window on a language switch</h2>
+      <p>
+        Changing the display language in the Settings dialog first switches <code class="inline">Strings.Culture</code>
+        via <code class="inline">AppLanguageBootstrapper.ApplyImmediate</code>, then
+        <code class="inline">WpfDialogService.ReplaceMainWindowForLanguageChange</code> /
+        <code class="inline">AvaloniaDialogService.ReplaceMainWindowForLanguageChange</code> constructs a new
+        <code class="inline">MainWindow</code> that carries forward <strong>the same
+        <code class="inline">MainWindowViewModel</code> instance</strong> (preserving loaded files, the tree
+        being edited, and so on), copies position/size/window state across, and closes the old window. The old
+        window's <code class="inline">Closed</code> event disposes
+        <code class="inline">_viewModelSubscriptions</code> (a <code class="inline">CompositeDisposable</code>),
+        so its callbacks don't keep firing against a now-closed window's UI elements on every subsequent
+        ViewModel change. The WPF build additionally has to call
+        <code class="inline">Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(oldWindow)</code> explicitly &mdash;
+        without it, the closed window stays referenced by the watch list for the rest of the process's
+        lifetime.
+      </p>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="03-app-design.html"><span class="dir">Previous</span>03. App Layer Design</a>
+      <a class="next" href="05-version-history.html"><span class="dir">Next</span>05. Version History</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger Design Documentation &middot;
+      <a href="../ja/04-ui-design.html">日本語</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

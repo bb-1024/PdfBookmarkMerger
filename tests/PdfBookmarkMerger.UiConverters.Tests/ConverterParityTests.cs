@@ -8,7 +8,7 @@ namespace PdfBookmarkMerger.UiConverters.Tests;
 
 /// <summary>
 /// PdfBookmarkMerger.Wpf と PdfBookmarkMerger.Avalonia は、UIフレームワーク(WPF-UI/Avalonia)の違いにより
-/// Converter類を独立して実装している(design.htmlに明記された意図的な構成)。この二重実装は
+/// Converter類を独立して実装している(docs/ja/04-ui-design.htmlに明記された意図的な構成)。この二重実装は
 /// 「片方だけ修正して挙動が食い違う」事故が起きやすい一方、それを検知する自動テストが無かった。
 /// ここでは両実装に同じ入力を与え、変換結果が一致することをゴールデンテストとして固定する。
 /// 乖離が起きた場合はこのテストが失敗し、意図した変更か・修正漏れかをその場で判別できる。

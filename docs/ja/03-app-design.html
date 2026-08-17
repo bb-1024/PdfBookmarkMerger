@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント — 03. App層設計</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>設計ドキュメント</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">概要</a></li>
+      <li><a href="01-architecture.html">アーキテクチャ</a></li>
+      <li><a href="02-core-design.html">Core層設計</a></li>
+      <li><a href="03-app-design.html" class="current">App層設計</a></li>
+      <li><a href="04-ui-design.html">UIフロントエンド設計</a></li>
+      <li><a href="05-version-history.html">バージョン間の差分</a></li>
+    </ol>
+    <div class="toc-foot">
+      v1.2.2時点<br />
+      <a href="../index.html">&larr; 索引</a><br />
+      <a href="../en/03-app-design.html">English</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 03 / 06</div>
+      <h1>App層設計</h1>
+      <p class="sub">
+        <code class="inline">PdfBookmarkMerger.App</code> はUIフレームワークに依存しないViewModel層・
+        アプリ共通サービス層。<code class="inline">ServiceCollectionExtensions.AddPdfBookmarkMergerApp()</code>
+        で <code class="inline">IUserSettingsService</code> / <code class="inline">FileListViewModel</code> /
+        <code class="inline">BookmarkTreeViewModel</code> / <code class="inline">MainWindowViewModel</code> を
+        Singleton登録する。いずれのViewModelも <code class="inline">ViewModelBase</code>
+        (<code class="inline">CompositeDisposable Disposables</code> を持つだけの薄い基底クラス)を継承し、
+        <a href="https://github.com/runceel/ReactiveProperty">Reactive.Bindings</a> の
+        <code class="inline">ReactivePropertySlim&lt;T&gt;</code> / <code class="inline">ReactiveCommand</code> /
+        <code class="inline">AsyncReactiveCommand</code> でプロパティ・コマンドを公開する。
+      </p>
+    </header>
+
+    <section id="main-window-vm">
+      <h2><span class="num">1</span><span class="mono">MainWindowViewModel</span></h2>
+      <p>
+        メインウィンドウ全体を統括し、<code class="inline">Step</code>
+        (<code class="inline">WorkflowStep.SelectFiles</code> &rarr; <code class="inline">EditBookmarks</code>)
+        の遷移と4つの主要コマンドを管理する。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">コマンド</th><th class="mono">CanExecute</th><th>処理</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">ConfirmFilesCommand</td><td class="mono">HasFiles &amp;&amp; !IsBusy</td><td>全ファイルのメタデータを並列読込 &rarr; しおり抽出・結合後ページ番号計算 &rarr; <code class="inline">BookmarkTree.Load</code> &rarr; <code class="inline">Step = EditBookmarks</code></td></tr>
+            <tr><td class="mono">MergeCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberEdits</td><td>保存先ダイアログ&rarr;(設定により)プロパティ編集ダイアログ&rarr;<code class="inline">PdfMergeService.MergeAsync</code></td></tr>
+            <tr><td class="mono">SaveBookmarkSettingsCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberInconsistency</td><td>保存先ダイアログ&rarr;<code class="inline">BookmarkSettingsExportService.ExportAsync</code></td></tr>
+            <tr><td class="mono">BackToFileListCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy</td><td><code class="inline">Step = SelectFiles</code> に戻る</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code class="inline">ConfirmFilesAsync</code> は各ファイルのメタデータ読込を
+        <code class="inline">SemaphoreSlim</code>(上限 <code class="inline">Math.Clamp(Environment.ProcessorCount, 1, 8)</code>)
+        で並列化し、<code class="inline">Task.WhenEach</code> で完了順に結果を反映する。一部ファイルの読込失敗は
+        <code class="inline">PdfFileEntryViewModel.LoadFailed</code> へ記録され、以後のしおりツリー構築・
+        実際のPDF結合(<code class="inline">MergeAsync</code>)の<strong>両方</strong>から一貫して除外される
+        (過去の回帰: しおりツリーからは除外されるが結合対象には残ってしまうバグの再発防止テストあり)。
+      </p>
+      <p>
+        <code class="inline">MergeCommand</code> が <code class="inline">!HasPageNumberEdits</code> を
+        要求するのは、結合前ページ数編集中は結合後PDFの実際のページ位置と画面表示・書き出し内容が
+        食い違うため。<code class="inline">SaveBookmarkSettingsCommand</code> が
+        <code class="inline">!HasPageNumberInconsistency</code> を要求するのは、編集の結果ページ数が1未満に
+        なるような不整合が起きている場合、正しいXMLを書き出せないため
+        (<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>は
+        <code class="inline">BookmarkTreeViewModel</code> 側で管理、後述)。
+      </p>
+
+      <h3>1.1 busy / progress の転送 <span class="badge ok">v1.2.1&#12316;</span></h3>
+      <pre class="code">BookmarkTree.IsBusy.Subscribe(busy =&gt; { ...; IsBusy.Value = busy; });
+BookmarkTree.BusyProgress.Subscribe(p =&gt; BusyProgress.Value = p);</pre>
+      <p>
+        コンストラクタでこの2行を購読することで、<code class="inline">BookmarkTreeViewModel</code> 内部の
+        大量ノード再計算(後述 <a href="#recompute">&sect;2.6</a>)による busy状態を、ファイル読込・PDF結合と
+        同じ <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code> 経由でUI
+        (処理中オーバーレイ)へそのまま反映する。busy開始時は現在の <code class="inline">StatusMessage</code>
+        を退避して「しおりの情報を更新しています&hellip;」に差し替え、終了時に復元する。
+      </p>
+    </section>
+
+    <section id="bookmark-tree-vm">
+      <h2><span class="num">2</span><span class="mono">BookmarkTreeViewModel</span></h2>
+      <p>
+        しおり編集ツリー(手順2/3)の中心ViewModel。D&amp;Dによる並べ替え・再親子付け、追加・削除・
+        レベル操作、タイトル等の編集結果を <code class="inline">Core.Models.BookmarkNode</code> ツリー
+        (<code class="inline">_rootModel</code>)へ同期する。
+      </p>
+
+      <h3>2.1 公開プロパティ</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">プロパティ</th><th class="mono">型</th><th>役割</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">RootNodes</td><td class="mono">ObservableCollection&lt;BookmarkNodeViewModel&gt;</td><td>ルート直下のノード一覧(UIバインド対象)</td></tr>
+            <tr><td class="mono">ForceFitForAll</td><td class="mono">ReactivePropertySlim&lt;bool&gt;</td><td>オンの間、全ノードの表示方法・座標コントロールを不活性化し結合時は一律Fit扱い(個々の設定値自体は変更しない)</td></tr>
+            <tr><td class="mono">GlobalExpandOverride</td><td class="mono">ReactivePropertySlim&lt;bool?&gt;</td><td>「一律で展開表示を設定」の3状態(true=全展開/false=全収納/null=個別設定に従う)</td></tr>
+            <tr><td class="mono">CanUndo / UndoCommand</td><td>&mdash;</td><td>後述 <a href="#undo">&sect;2.4</a></td></tr>
+            <tr><td class="mono">HasPageNumberEdits / HasPageNumberInconsistency</td><td class="mono">ReactivePropertySlim&lt;bool&gt;</td><td>結合前ページ数編集の状態(<code class="inline">MainWindowViewModel</code> のCanExecuteへ伝播)</td></tr>
+            <tr><td class="mono">IsBusy / BusyProgress</td><td class="mono">ReactivePropertySlim&lt;bool&gt; / ReactivePropertySlim&lt;BusyProgressInfo?&gt;</td><td>後述 <a href="#recompute">&sect;2.6</a></td></tr>
+            <tr><td class="mono">TitleColumnBaseWidth</td><td class="mono">ReactivePropertySlim&lt;double&gt;</td><td>タイトル列の共有基準幅。実測はUI側(<code class="inline">MainWindow.xaml.cs</code>等)が行う</td></tr>
+            <tr><td class="mono">ExpandLevelInput / CollapseAllCommand / ExpandAllCommand</td><td>&mdash;</td><td>後述 <a href="#expand-level">&sect;2.7</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>2.2 構造編集(追加・削除・移動・レベル操作)</h3>
+      <p>
+        <code class="inline">AddRoot</code> / <code class="inline">AddChild</code> /
+        <code class="inline">AddSiblingAfter</code> / <code class="inline">Remove</code> /
+        <code class="inline">Move</code> はいずれも「Undoスナップショットを積む &rarr;
+        <code class="inline">RootNodes</code>(UI用ObservableCollection)と <code class="inline">_rootModel</code>
+        (Coreモデル)の両方を更新 &rarr; <code class="inline">TriggerRecompute()</code>」という共通パターンを
+        踏む。<code class="inline">Move</code> は同一コレクション内移動時のインデックス補正、および移動先が
+        自身の子孫でないことの検証(<code class="inline">IsDescendantOf</code>)を行う。
+      </p>
+      <p>
+        <code class="inline">PromoteLevel</code>/<code class="inline">DemoteLevel</code> は実体としては
+        いずれも <code class="inline">Move</code> の特殊形(親の直後の兄弟へ/直前の兄弟の末尾の子へ、
+        それぞれ再配置)として実装されている。
+      </p>
+      <p>
+        <code class="inline">SetChildLevelCapAsync(node)</code> はダイアログで選択された絶対レベルより
+        深い下位要素を <code class="inline">TruncateBelowLevel</code> で一括削除する。
+      </p>
+      <p>
+        新規追加ノードには、その時点で有効な「一律でFitに設定」「一律で展開表示を設定」の上書きを
+        即座に適用する(<code class="inline">ApplyCurrentOverridesToNewNode</code>)。この適用自体は
+        追加操作の一部として扱われ、独立したUndoスナップショットにはならない
+        (<code class="inline">_suppressUndoSnapshots</code> で抑止)。
+      </p>
+
+      <h3>2.3 結合前ページ数編集</h3>
+      <p>
+        <code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code> が編集されると
+        <code class="inline">BookmarkTreeViewModel.OnPreOffsetPageNumberChanged(node, newValue)</code>
+        が呼ばれ、
+      </p>
+      <ol>
+        <li>差分 <code class="inline">delta = newValue - 編集前の実効値</code> を求める(0なら何もしない)。</li>
+        <li>同一ファイル(<code class="inline">SourceFileEntryId</code>)内で、編集されたノードの
+          <code class="inline">OriginalPageIndex</code> <strong>以降</strong>(ツリー上の表示順ではなく、
+          抽出元PDFのページ構造上の位置基準)にある全ノードの <code class="inline">PageOffset</code>
+          へ一律加算する。</li>
+        <li><code class="inline">TriggerRecompute()</code> を呼ぶ。</li>
+      </ol>
+      <p>
+        <code class="inline">ResetFilePageNumbers(node)</code> は、個々のノード単位のリセット
+        (そのノード以降のみ戻す)ではリセット対象より前のページへの過去編集が残ってしまうため、
+        <strong>同一ファイル全体</strong>の <code class="inline">PageOffset</code> を一括で
+        <code class="inline">null</code> へ戻す。そのファイルに編集が1件もなければ何もせずUndo履歴も積まない。
+      </p>
+      <p>
+        結合後ページ数への反映は <code class="inline">ComputeCumulativeDeltaBeforeFile()</code> が担う。
+        ファイルごとに「そのファイル内で最も <code class="inline">OriginalPageIndex</code> が大きいノードの
+        <code class="inline">PageOffset</code>」(=そのファイル全体に効く累積差分。どの編集も自身の位置以降=
+        最終ページを含む範囲に及ぶため)を求め、結合順(<code class="inline">_orderedFileIds</code>)に沿って
+        積算することで、各ファイルについて「自分より前のファイルの累積差分の合計」を得る。この関数は
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync</code> と <code class="inline">ToExportModel</code>
+        の両方から呼ばれる、読み取り専用の集計処理(チャンク分割はしていない。プロパティ書き戻しを伴わない
+        ため実測負荷は書き戻しループよりずっと小さい)。
+      </p>
+
+      <h3 id="undo">2.4 Undo</h3>
+      <p>
+        <code class="inline">App/Undo/UndoHistory&lt;T&gt;</code> は、スナップショットの推定サイズ(バイト)を
+        積算し、合計が上限(既定100MB)を超えたら最新の1件を除き最古から破棄する、メモリ量ベースのスタック。
+        <code class="inline">BookmarkTreeViewModel</code> はこれを <code class="inline">string</code>
+        (<code class="inline">_rootModel</code> のJSONシリアライズ)特化で使用する。
+      </p>
+      <ul>
+        <li><code class="inline">PushUndoSnapshot()</code>(引数なし) &mdash; 構造操作の直前に呼ぶ、常に1件積むコアレスなし版。</li>
+        <li><code class="inline">PushUndoSnapshot(coalesceKey)</code> &mdash; プロパティ編集用。同一キーへの連続呼び出しが800ms(<code class="inline">SnapshotCoalesceWindow</code>)以内なら1回の編集とみなし、履歴を積み増さない(テキスト入力中の1文字ごとの履歴増殖を防ぐ)。</li>
+        <li><code class="inline">Undo()</code> &mdash; 最新スナップショットをJSONデシリアライズし <code class="inline">RebuildTree</code> へ渡す(履歴自体はPopされ消費される。LIFO順)。</li>
+      </ul>
+      <p>
+        <code class="inline">BookmarkNodeViewModel</code> の各プロパティ(<code class="inline">Title</code>/<code class="inline">IsOpen</code>/<code class="inline">DestinationType</code>/座標)は、
+        構築時の初回リプレイ値を <code class="inline">Skip(1)</code> で除外した上で変更ごとに
+        <code class="inline">RequestUndoSnapshot</code> を呼ぶ。「一律でFitに設定」「一律で展開表示を設定」の
+        上書き適用自体は表示上の一時的な変更(オフに戻すと自動復元)でありUndo対象の「編集内容」ではないため、
+        <code class="inline">_suppressUndoSnapshots</code> で抑止する。
+      </p>
+
+      <h3>2.5 <span class="mono">CanUndo</span>/<span class="mono">UndoCommand</span> のCanExecute <span class="badge ok">v1.2.1&#12316;</span></h3>
+      <pre class="code">var canUndo = CanUndo.CombineLatest(IsBusy, (canUndo, busy) =&gt; canUndo &amp;&amp; !busy);
+UndoCommand = new ReactiveCommand(canUndo);</pre>
+      <p>
+        大量ノードのチャンク処理中(<code class="inline">IsBusy</code>)は、処理中オーバーレイがマウス操作を
+        ブロックすることが主な防御だが、それだけに頼らず <code class="inline">UndoCommand</code> 自身の
+        CanExecuteにも <code class="inline">!IsBusy</code> を組み込んでいる(オーバーレイを経由しない将来の
+        入力経路、例えばキーボードショートカット等から進行中の再計算と競合する余地を理論上残さないための
+        多重防御。コードレビューで追加)。
+      </p>
+
+      <h3 id="recompute">2.6 大量しおり時の応答性 &mdash; チャンク処理 <span class="badge ok">v1.2.1&#12316;</span></h3>
+      <figure class="diagram-wrap">
+        <img src="../diagrams/recompute-flow.svg" alt="チャンク再計算とbusyオーバーレイのフロー" />
+        <figcaption>大量ノードの編集/Undoからチャンク再計算・busyオーバーレイ転送までのシーケンス</figcaption>
+      </figure>
+      <p>
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync()</code>(旧称
+        <code class="inline">RecomputeAllPageNumberDisplays</code>、内部
+        <code class="inline">_isRecomputingPageNumbers</code> フラグで自己書き戻しからの再帰を防ぐ)は、
+        ツリー構造・<code class="inline">PageOffset</code> を変更しうるすべての操作(読込・Undo・追加・削除・
+        レベル上限切り詰め・編集)の後に呼ばれ、全ノードの <code class="inline">PreOffsetPageNumber</code>/
+        <code class="inline">DisplayMergedPageNumber</code>/<code class="inline">IsPageNumberEdited</code>
+        を再計算して書き戻し、<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>
+        を更新する。
+      </p>
+      <p>
+        対象ノード数が <code class="inline">RecomputeChunkSize</code>(200件)を超える場合のみ、書き戻し
+        ループを200件ごとのチャンクに分割し、各チャンクの合間に <code class="inline">await Task.Yield()</code>
+        でUIスレッドへ制御を返す。この間 <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>
+        を更新し、<code class="inline">MainWindowViewModel</code> が自身の同名プロパティへ転送することで、
+        専用UIを新設せずファイル読込時と同じ処理中オーバーレイ・進捗表示を再利用する。200件以下の小規模な
+        ツリーでは内部で一度も <code class="inline">await</code> が発生せず、これまでどおり完全に同期的に
+        完了する(小規模ツリーでの不要なオーバーヘッド・ちらつきを避けるため)。
+      </p>
+      <p>
+        構造編集メソッド群(<code class="inline">AddRoot</code>等)は同期メソッドのままシグネチャを変えずに
+        済ませるため、<code class="inline">TriggerRecompute()</code>(<code class="inline">async void</code>
+        のfire-and-forgetラッパー)を経由して呼び出す。
+      </p>
+      <pre class="code">private async void TriggerRecompute() =&gt; await RecomputeAllPageNumberDisplaysAsync();</pre>
+      <p>
+        小規模ツリーでは内部で一度もawaitしないため、このメソッドから戻った時点で実質的に処理は完了して
+        おり、既存の同期呼び出し前提のテスト・コードビハインドは無改修で動作する。大規模ツリーでは処理中
+        オーバーレイがしおり編集画面全体を覆いマウス操作を受け付けなくなるため、実行中に本メソッドの別呼び
+        出しが(ユーザー操作起点で)重ねて発生することは想定していない。
+      </p>
+
+      <h3 id="expand-level">2.7 ツリー開閉レベルの一括指定 <span class="badge ok">v1.2.2&#12316;</span></h3>
+      <p>しおり編集ツリー直上の「-」ボタン・レベル指定テキストボックス・「+」ボタンを支えるロジック。</p>
+      <ul>
+        <li><code class="inline">ExpandLevelInput</code>(<code class="inline">ReactivePropertySlim&lt;string&gt;</code>) &mdash; テキストボックスと双方向バインドする。値が有効な数値(0以上、現在のツリーに含まれる最大レベル以下の整数)に変わるたびに、その数値以下のレベルのノードを <code class="inline">IsExpanded=true</code>、それを超えるノードを <code class="inline">IsExpanded=false</code> に変更する(例: <code class="inline">"3"</code> ならレベル1〜3が開き、レベル4以降が閉じる)。適用処理自体(<code class="inline">ApplyExpandLevelAsync</code>)は <a href="#recompute">&sect;2.6</a> の <code class="inline">RecomputeAllPageNumberDisplaysAsync</code> と同じチャンク処理・<code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code> の枠組みをそのまま再利用しており、大量しおりのツリーでも一括開閉でUIがフリーズしない。</li>
+        <li><code class="inline">CollapseAllCommand</code>(「-」ボタン) &mdash; <code class="inline">ExpandLevelInput</code> を <code class="inline">"0"</code> に設定する(全ノードのレベルは1以上のため、<code class="inline">LevelNumber &lt;= 0</code> は常に偽になり全ノードが閉じる)。</li>
+        <li><code class="inline">ExpandAllCommand</code>(「+」ボタン) &mdash; <code class="inline">ExpandLevelInput</code> をツリーの現在の最大レベルに設定する(全ノードの <code class="inline">LevelNumber</code> が必ずその値以下になるため全ノードが開く)。両コマンドとも <code class="inline">UndoCommand</code> と同様 <code class="inline">!IsBusy</code> をCanExecuteに含める。</li>
+        <li><code class="inline">NormalizeExpandLevelInput()</code>(public) &mdash; 数値以外、またはツリーに含まれない数値(現在の最大レベルを超える値)が入力された場合に空文字へ正規化する。テキストボックスのLostFocus時にコードビハインドから呼ばれるほか、<code class="inline">AddRoot</code>/<code class="inline">AddChild</code>/<code class="inline">AddSiblingAfter</code>/<code class="inline">Remove</code>/<code class="inline">Move</code>/<code class="inline">SetChildLevelCapAsync</code>/読込・元に戻す各操作の内部からも呼ばれ、しおり側の構造編集によって現在値がツリーに含まれなくなった場合も自動的に空へ戻す。</li>
+      </ul>
+    </section>
+
+    <section id="bookmark-node-vm">
+      <h2><span class="num">3</span><span class="mono">BookmarkNodeViewModel</span></h2>
+      <p>
+        しおりツリーの1ノード分のViewModel。<code class="inline">Title</code>/<code class="inline">IsOpen</code>/<code class="inline">DestinationType</code>/<code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>
+        の各 <code class="inline">ReactivePropertySlim&lt;T&gt;</code> は、値が変わるたびに対応する
+        <code class="inline">Model</code>(<code class="inline">BookmarkNode</code>)へ直接反映しつつ、
+        <code class="inline">BookmarkTreeViewModel</code> へUndoスナップショット要求を送る。構築時の初回
+        リプレイ(<code class="inline">ReactivePropertySlim.Subscribe</code> は購読直後に現在値を1回
+        リプレイする)を <code class="inline">Skip(1)</code> で除外しないと、ノード生成のたびに実際の変更なし
+        でUndo履歴が積まれてしまう(Undo自体がツリーを再構築するため、無限増殖するバグになる)。
+      </p>
+      <p>
+        <code class="inline">PreOffsetPageNumber</code> だけは他プロパティと異なり <code class="inline">Model</code>
+        へ直接反映しない。編集後の値をどのノードへどう波及させるか(同一ファイル内の後続・後続ファイルへの
+        結合後ページ数の連鎖)は <code class="inline">BookmarkTreeViewModel</code> 側でまとめて計算する必要が
+        あるため、変更通知のみを上位へ渡す。
+      </p>
+      <p>
+        <code class="inline">IsDestinationTypeEditable</code>/<code class="inline">IsLeftEditable</code>/<code class="inline">IsTopEditable</code>/<code class="inline">IsZoomEditable</code>
+        は、選択中の表示方法(<code class="inline">XYZ</code>/<code class="inline">Fit</code>/<code class="inline">FitH</code>/<code class="inline">FitV</code>)
+        に応じて実際にPDFへ反映される座標コントロールのみを活性化する派生プロパティ
+        (<code class="inline">ForceFitForAll</code> がオンの間はすべて不活性化)。
+      </p>
+    </section>
+
+    <section id="file-list-vm">
+      <h2><span class="num">4</span><span class="mono">FileListViewModel</span></h2>
+      <p>
+        結合対象PDFファイル一覧(手順1)。D&amp;D/ダイアログでの追加(<code class="inline">AddPaths</code>)、
+        選択ブロック単位の上下移動(<code class="inline">MoveSelectionUp</code>/<code class="inline">MoveSelectionDown</code>、
+        選択が連続していない場合は何もしない)、D&amp;D並べ替え(<code class="inline">MoveTo</code>)を扱う。
+        <code class="inline">GetMoveAvailability</code> は選択が空または非連続なら両ボタンとも非活性を返す。
+      </p>
+    </section>
+
+    <section id="services">
+      <h2><span class="num">5</span>サービス</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">型</th><th>役割</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">IDialogService(実装はWpf/Avalonia側)</td><td>ファイル/フォルダ選択・保存・プロパティ/設定/レベル上限ダイアログの表示</td></tr>
+            <tr><td class="mono">IUserSettingsService / UserSettingsService</td><td>ユーザー設定の読み取り(<code class="inline">IOptionsMonitor</code> 経由)・原子的な保存</td></tr>
+            <tr><td class="mono">AppLanguageBootstrapper</td><td>起動時の表示言語確定・設定ダイアログでの即時切替</td></tr>
+            <tr><td class="mono">AppPaths</td><td>設定・ログの保存先パス解決</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="supporting-vm">
+      <h2><span class="num">6</span>補助的なViewModel</h2>
+      <p>
+        <code class="inline">PdfFileEntryViewModel</code>(ファイル一覧の1行、<code class="inline">PageCount</code>/<code class="inline">LoadFailed</code> を保持)、
+        <code class="inline">PropertiesDialogViewModel</code>・<code class="inline">SettingsViewModel</code>・<code class="inline">LevelCapDialogViewModel</code>
+        (各ダイアログの入力値をViewModel化したもの、WPF/Avalonia共通で <code class="inline">IDialogService</code>
+        の実装から生成・破棄される)。<code class="inline">SettingsViewModel</code> は
+        <span class="badge ok">v1.2.2&#12316;</span>、設定ダイアログに表示する
+        <code class="inline">AppVersion</code>(string)も公開する。
+        <code class="inline">Assembly.GetExecutingAssembly()</code> の
+        <code class="inline">AssemblyInformationalVersionAttribute</code> から取得した値で、
+        <code class="inline">Directory.Build.props</code> の <code class="inline">&lt;Version&gt;</code>
+        がビルド時にそのまま書き込まれたものを使う。
+      </p>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="02-core-design.html"><span class="dir">前へ</span>02. Core層設計</a>
+      <a class="next" href="04-ui-design.html"><span class="dir">次へ</span>04. UIフロントエンド設計</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger 設計ドキュメント &middot;
+      <a href="../en/03-app-design.html">English</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

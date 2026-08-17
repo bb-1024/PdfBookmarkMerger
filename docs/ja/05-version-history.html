@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント — 05. バージョン間の差分</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>設計ドキュメント</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">概要</a></li>
+      <li><a href="01-architecture.html">アーキテクチャ</a></li>
+      <li><a href="02-core-design.html">Core層設計</a></li>
+      <li><a href="03-app-design.html">App層設計</a></li>
+      <li><a href="04-ui-design.html">UIフロントエンド設計</a></li>
+      <li><a href="05-version-history.html" class="current">バージョン間の差分</a></li>
+    </ol>
+    <div class="toc-foot">
+      v1.2.2時点<br />
+      <a href="../index.html">&larr; 索引</a><br />
+      <a href="../en/05-version-history.html">English</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 05 / 06</div>
+      <h1>バージョン間の設計差分(v1.0.0 &rarr; v1.2.2)</h1>
+      <p class="sub">
+        このドキュメントは、<code class="inline">git diff --name-status &lt;前バージョン&gt; &lt;対象バージョン&gt; -- src tests</code>
+        で洗い出した変更ファイル一覧と、該当コミットの内容(<code class="inline">git show &lt;commit&gt;</code>)
+        を個別に確認した上でまとめています。末尾の「確認方法」の節にあるコマンドで、誰でも同じ手順を
+        再現できます。
+      </p>
+    </header>
+
+    <section id="tags">
+      <h2><span class="num">&mdash;</span>タグ一覧</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">タグ</th><th>日付</th><th class="mono">コミット</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">v1.0.0</td><td>2026-07-27</td><td class="mono">12611ca</td></tr>
+            <tr><td class="mono">v1.1.0</td><td>2026-08-01</td><td class="mono">4fc46b1</td></tr>
+            <tr><td class="mono">v1.2.0</td><td>2026-08-03</td><td class="mono">9822c18</td></tr>
+            <tr><td class="mono">v1.2.1</td><td>2026-08-12</td><td class="mono">b61d2ee</td></tr>
+            <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v100">
+      <h2><span class="num">v1.0.0</span>2026-07-27 &mdash; 初版</h2>
+      <p>
+        最初のタグ付きリリース。<a href="00-overview.html">00-overview.html</a> 〜
+        <a href="04-ui-design.html">04-ui-design.html</a> に記載した設計のうち、以下は
+        <strong>この時点でまだ存在しない</strong>(後続バージョンで追加された)点に注意。
+      </p>
+      <ul>
+        <li>日英切り替え(i18n) &mdash; <code class="inline">AppLanguageBootstrapper</code> / <code class="inline">Strings.resx</code> 系は v1.1.0 で追加</li>
+        <li>Undo &mdash; <code class="inline">UndoHistory&lt;T&gt;</code> は v1.1.0 で追加</li>
+        <li>busyオーバーレイ・進捗表示 &mdash; <code class="inline">BusyProgressInfo</code> / <code class="inline">IsBusy</code> は v1.1.0 で追加</li>
+        <li>しおり設定ファイル(XML)出力 &mdash; <code class="inline">BookmarkSettingsExportService</code> は v1.2.0 で追加</li>
+        <li>結合前ページ数の編集 &mdash; <code class="inline">BookmarkNode.PageOffset</code> は v1.2.0 で追加</li>
+      </ul>
+      <p>
+        v1.0.0時点で既に存在した主な機能: PDFファイル/フォルダのD&amp;D追加、しおり自動抽出
+        (<code class="inline">PdfMetadataService</code>)としおり無しPDFへのファイル名補完
+        (<code class="inline">MissingBookmarkFallback</code>)、しおりツリーの基本編集(タイトル・表示方法・
+        座標・追加/削除/D&amp;D並べ替え・レベル上限切り詰め)、PDF結合(<code class="inline">PdfMergeService</code>)
+        とプロパティ編集ダイアログ、設定・ログの保存(Serilog日次ローリング)、グローバル未処理例外の
+        ログ記録。
+      </p>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v110">
+      <h2><span class="num">v1.1.0</span>2026-08-01</h2>
+      <p>
+        v1.0.0から28個のコミットが積まれた、機能追加・不具合修正ともに最も多い区間。
+        <code class="inline">git diff --name-status v1.0.0 v1.1.0 -- src tests</code> で56ファイルが
+        変更されている。
+      </p>
+
+      <h3>追加された機能</h3>
+      <ul>
+        <li><strong>日英i18n</strong>(<code class="inline">822a2d8</code>) &mdash; <code class="inline">Strings.resx</code>/<code class="inline">Strings.en.resx</code>、<code class="inline">AppLanguageBootstrapper</code> による初回起動時の自動言語判定・保存。設定ダイアログでの即時切替は後発の <code class="inline">7e49524</code> で対応(テーマモードと同じ扱いへ統一)。</li>
+        <li><strong>Undo</strong>(<code class="inline">b9ad0c5</code>) &mdash; RAM使用量ベースで上限管理する <code class="inline">UndoHistory&lt;T&gt;</code> をしおりツリー編集に追加。</li>
+        <li><strong>一括読込・結合の高速化 + busyオーバーレイ</strong>(<code class="inline">6db6849</code>) &mdash; <code class="inline">ConfirmFilesAsync</code>(メタデータ並列読込)・<code class="inline">PdfMergeService</code>(PDFオープン並列化)を上限付き並列実行化し、処理中は全コントロールを不活性化するbusyオーバーレイ+5秒経過後の詳細進捗(完了/総数・処理中ファイル名)を導入。<strong>この「busyオーバーレイ+<code class="inline">BusyProgressInfo</code>」という枠組みが、v1.2.1で<code class="inline">BookmarkTreeViewModel</code>のチャンク処理からも再利用されることになる(<a href="#v121">v1.2.1の節</a>参照)。</strong></li>
+        <li>レベル上げ/下げボタン(<code class="inline">57d531a</code>)、レベル上限ダイアログに自身のレベルを選択肢へ含める(<code class="inline">1daaf72</code>)、空白余白クリックでの行選択(<code class="inline">23f3d38</code>)、D&amp;D中のツリー端での自動スクロール(<code class="inline">0b42ad5</code>)。</li>
+        <li>ファイル一覧: 複数選択ブロックのまとめ移動(<code class="inline">87c85ac</code>)、境界での上下移動ボタン非活性化(<code class="inline">65b6817</code>)。</li>
+        <li>ダイアログをEscapeでキャンセル可能に(<code class="inline">f8ac748</code>)、初期ウィンドウの拡大・ボタン再配置(<code class="inline">1bf3602</code>)。</li>
+      </ul>
+
+      <h3>修正された不具合(3件の異なる「フリーズ」系不具合)</h3>
+      <p>これらは症状としてはいずれも「操作するとアプリが固まる」ように見えるが、<strong>原因はそれぞれ異なる</strong>。</p>
+      <ol>
+        <li>
+          <strong>初回起動時にウィンドウが一切表示されないデッドロック</strong>(<code class="inline">28a4dce</code>)
+          &mdash; <code class="inline">UserSettingsService.SaveAsync</code> が
+          <code class="inline">File.WriteAllTextAsync</code> を <code class="inline">ConfigureAwait(false)</code>
+          無しでawaitしていた。初回起動時は
+          <code class="inline">AppLanguageBootstrapper.ApplyAsync(...).GetAwaiter().GetResult()</code>
+          経由でUIスレッドを同期的にブロックした状態からこのメソッドが呼ばれるため、継続処理が
+          (ブロックされて塞がっている)UIスレッドへの復帰を試みてデッドロックし、
+          <code class="inline">OnStartup</code> が永久に返らずウィンドウが一切表示されないまま固まっていた。
+          <code class="inline">settings.json.tmp</code>(原子的置き換えの一時ファイル)がリネームされずに
+          残っていたことが、停止位置を直接示す証拠だった。修正は該当箇所へ
+          <code class="inline">ConfigureAwait(false)</code> を追加するのみ。
+        </li>
+        <li>
+          <strong>NaN座標によるしおりツリー編集のフリーズ</strong>(<code class="inline">87a2de7</code>)
+          &mdash; PDFsharpの <code class="inline">PdfOutline.Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>
+          は、宛先タイプによって該当項目が無い場合NaNを返す。これをそのまま
+          <code class="inline">BookmarkNode</code> へ保持していたため、構造編集(<code class="inline">Move</code>/<code class="inline">PromoteLevel</code>/<code class="inline">DemoteLevel</code>/<code class="inline">SetChildLevelCapAsync</code>)
+          のたびに呼ばれる <code class="inline">PushUndoSnapshotCore</code> のJSON化
+          (<code class="inline">System.Text.Json</code>は非有限のdoubleで例外を投げる)で未処理例外になり、
+          実際に抽出したPDFに対する最初の編集操作がフリーズしたように見えていた。
+          <code class="inline">PdfMetadataService</code> に <code class="inline">AsFiniteOrNull</code> を
+          追加し、非有限値を「未指定」を表すnullへ正規化して解決した(Core層・App層の両方に回帰テストを
+          追加。App層側のテストが現在の <code class="inline">BookmarkTreeEditFreezeReproTests</code>
+          &mdash; 実サンプルPDFを本番同様のCoreサービスで読み込み、各編集操作が10秒以内に完了することを
+          検証する)。
+        </li>
+        <li>
+          <strong>大量しおり時のUIフリーズ</strong> &mdash; これは本区間(v1.1.0)ではなく、
+          <a href="#v121">v1.2.1</a>で修正された、ノード数200件超のツリーでの同期処理起因の別の不具合。
+        </li>
+      </ol>
+
+      <h3>設定ファイル保存先の紆余曲折</h3>
+      <p>
+        <code class="inline">1ac63b8</code>(実行ファイルと同じフォルダへ変更・ポータブル化を試みる)&rarr;
+        <code class="inline">87a6bb4</code>(<code class="inline">%AppData%/PdfBookmarkMerger/</code> へ、
+        ログと同じ場所に統一)という順で変更されている。実行ファイルの配置場所が読み取り専用の可能性を
+        考慮し、最終的に書き込みが保証されるAppDataフォルダへ統一した。
+      </p>
+
+      <h3>その他の修正</h3>
+      <ul>
+        <li><code class="inline">9805b89</code>: 一度試みた「しおり行の背景をストレッチしてドラッグのヒットテストを全幅にする」案(<code class="inline">7892ff1</code>)を、クリック時に意図しない横スクロールが発生する副作用のため差し戻し。この教訓は後の <a href="#v121">v1.2.1の横スクロール修正</a> に引き継がれている。</li>
+        <li><code class="inline">2ad5394</code>: Avalonia版のファイル/しおりD&amp;Dの <code class="inline">PointerPressed</code> 購読をTunnelフェーズへ変更(<code class="inline">SelectingItemsControl</code> の既定選択処理がBubbleフェーズで先取りしてしまう問題への対応)。</li>
+        <li><code class="inline">70f50dd</code>: 並列PDFオープンの一部が失敗した場合、既に開けたファイルを確実にDispose。</li>
+        <li><code class="inline">41286b1</code>: <code class="inline">SystemThemeWatcher</code> の二重登録防止、ウィンドウClose時のUnwatch漏れ修正。</li>
+        <li><code class="inline">5de9ab9</code>: <code class="inline">Right</code>/<code class="inline">Bottom</code> 座標も <code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Zoom</code> と同じくUndo追跡対象に。</li>
+        <li><code class="inline">e486342</code>: Avalonia版の保存ダイアログ既定フォルダをWPF版と同じ「ドキュメント」フォルダへ。</li>
+        <li><code class="inline">5daeabd</code>: Serilogのコンソール出力をDebug構成限定に。</li>
+        <li><code class="inline">1077825</code>: Avaloniaのメインループ全体を<code class="inline">try/catch</code>で囲み、UIスレッド外まで伝播した例外も確実にログへ残す(WPFの<code class="inline">DispatcherUnhandledException</code>に相当するフックがAvaloniaに無いため)。</li>
+      </ul>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v120">
+      <h2><span class="num">v1.2.0</span>2026-08-03</h2>
+      <p>4個のコミット。しおり設定ファイル出力と、結合前ページ数編集機能をまとめて追加。</p>
+      <ul>
+        <li><strong><code class="inline">de060a2</code> しおり設定ファイル(XML)エクスポート</strong> &mdash; <code class="inline">IBookmarkSettingsExportService</code>/<code class="inline">BookmarkSettingsExportService</code> を新設。PDF結合を実行せずに、しおり構成だけを「しおり設定ファイル仕様」のXMLとして書き出せるようにした。<code class="inline">IDialogService</code> に <code class="inline">ShowSaveBookmarkSettingsDialogAsync</code> を追加。</li>
+        <li><strong><code class="inline">0db8409</code> 結合前ページ数の編集を可能に</strong> &mdash; <code class="inline">BookmarkNode.PageOffset</code>(int?)を新設し、<code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code> の編集を <code class="inline">BookmarkTreeViewModel.OnPreOffsetPageNumberChanged</code> で同一ファイル内の後続ノードへ連鎖反映する仕組みを追加。</li>
+        <li><strong><code class="inline">8384e20</code> テキストボックスの自動幅調整・強調表示・リセットメニュー</strong> &mdash; <code class="inline">PageNumberWidthConverter</code>・<code class="inline">EditedHighlightBrushConverter</code>(WPF/Avalonia双方)を追加。</li>
+        <li><strong><code class="inline">8a51402</code> ファイル単位でのページ番号リセット、v1.2.0へバージョンアップ</strong> &mdash; <code class="inline">ResetFilePageNumbers(node)</code> を追加。個々のノード単位のリセットでは、リセット対象より前のページへの過去編集が残ってしまう問題を、ファイル全体を一括で戻す設計にすることで解消した。</li>
+      </ul>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v121">
+      <h2><span class="num">v1.2.1</span>2026-08-12</h2>
+      <p>
+        3個のコミット。ユーザー報告に基づく2件の不具合修正と、コードレビューに基づく追加の堅牢化。
+      </p>
+
+      <h3><code class="inline">75296f1</code> 大量しおり時のUIフリーズ修正</h3>
+      <p>
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync</code>(結合前ページ数編集のたびにツリー
+        全体を2回走査する処理)は完全に同期実行だったため、しおりが大量にある状態での編集・追加・削除・
+        Undoのたびに、UIスレッドを長時間占有し、<code class="inline">IsBusy</code> 相当の表示すら描画される
+        機会がないままフリーズしたように見え、進捗も一切更新されない不具合があった。対象ノード数が
+        <code class="inline">RecomputeChunkSize</code>(200件)を超える場合のみ、書き戻しループをチャンクに
+        分割し <code class="inline">await Task.Yield()</code> でUIスレッドへ制御を返しながら
+        <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code> を更新するよう変更した。
+      </p>
+      <p>
+        この修正は、<strong>v1.1.0で「ファイル読込・PDF結合」向けに導入されたbusyオーバーレイの枠組み
+        (<code class="inline">6db6849</code>)を、そのままバックグラウンド作業の種類が違う「しおりツリーの
+        再計算」にも転用した</strong>という点で、v1.1.0の設計を踏襲している(専用のUIを新設せず、
+        <code class="inline">MainWindowViewModel.IsBusy</code>/<code class="inline">BusyProgress</code> への
+        転送機構を追加しただけで済んでいる)。詳細設計は
+        <a href="03-app-design.html#recompute">03-app-design.html &sect;2.6</a> を参照。
+      </p>
+
+      <h3><code class="inline">0a231ab</code> しおり行クリック時の横スクロール位置維持</h3>
+      <p>
+        しおり編集ツリーの1行は横に長いため、横スクロールバー表示中に行をクリックすると、WPF・Avalonia
+        双方の既定の「対象を画面内へ収める」動作により横スクロール位置が意図せず動いてしまう不具合を修正。
+        クリック直後の横スクロール位置を保存し、選択・フォーカス変更処理が完了した後の低優先度タイミングで
+        復元する方式を採用した。<strong>v1.1.0の <code class="inline">9805b89</code>(行ストレッチ案の差し戻し)
+        で一度見送られた、同種の横スクロール問題への再挑戦</strong>にあたる。詳細設計は
+        <a href="04-ui-design.html#scroll-fix">04-ui-design.html &sect;2.3</a> を参照。
+      </p>
+
+      <h3><code class="inline">a7ee360</code> コードレビュー: UndoCommandのCanExecuteにもIsBusyを反映</h3>
+      <p>
+        上記のチャンク処理中は、処理中オーバーレイがマウス操作をブロックすることが主な防御だったが、
+        それだけに頼らず <code class="inline">UndoCommand</code> 自身のCanExecuteにも
+        <code class="inline">!IsBusy</code> を組み込む多重防御を追加(オーバーレイを経由しない将来の
+        入力経路との競合を理論上も残さないため)。
+      </p>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v122">
+      <h2><span class="num">v1.2.2</span>2026-08-17</h2>
+      <p>
+        1個のコミット(<code class="inline">e044f98</code>)。ユーザー要望に基づく機能追加2件。
+      </p>
+
+      <h3>しおり編集ツリーの開閉レベル一括指定コントロール</h3>
+      <p>
+        しおり編集画面のツリー直上に「-」ボタン・レベル指定テキストボックス・「+」ボタンを追加した。
+        <code class="inline">BookmarkTreeViewModel</code> に新設した <code class="inline">ExpandLevelInput</code>
+        (string)へ数値Nを入力すると、レベルN以下のノードは開いた状態(<code class="inline">IsExpanded=true</code>)、
+        それを超えるノードは閉じた状態(<code class="inline">IsExpanded=false</code>)になる(例: N=3なら
+        レベル1〜3が開き、レベル4以降が閉じる)。「-」ボタン(<code class="inline">CollapseAllCommand</code>)は
+        <code class="inline">ExpandLevelInput</code> を <code class="inline">"0"</code> に、「+」ボタン
+        (<code class="inline">ExpandAllCommand</code>)はツリーの最大レベルに設定することで、同じ適用ロジックを
+        再利用しつつ全閉・全開を実現している。数値以外・ツリーに含まれない数値の入力は、テキストボックスが
+        フォーカスを失った際、またはしおり側の構造編集(追加・削除・移動・レベル上限切り詰め・読込・元に
+        戻す)によって現在値がツリーに含まれなくなった際に、<code class="inline">NormalizeExpandLevelInput</code>
+        が空文字へ正規化する。
+      </p>
+      <p>
+        <strong>この一括適用処理(<code class="inline">ApplyExpandLevelAsync</code>)は、v1.2.1で導入された
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync</code>と同じチャンク処理・
+        <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>の枠組みをそのまま再利用しており</strong>、
+        大量しおりのツリーで一括開閉してもUIがフリーズしない。詳細設計は
+        <a href="03-app-design.html#expand-level">03-app-design.html &sect;2.7</a> と
+        <a href="04-ui-design.html#expand-level-controls">04-ui-design.html &sect;2.6</a> を参照。
+      </p>
+
+      <h3>設定ダイアログにリリースバージョンを表示</h3>
+      <p>
+        <code class="inline">SettingsViewModel</code> に <code class="inline">AppVersion</code>(string)を
+        追加し、設定ダイアログの右下に表示するようにした。<code class="inline">Assembly.GetExecutingAssembly()</code>
+        の <code class="inline">AssemblyInformationalVersionAttribute</code> から取得する値で、
+        <code class="inline">Directory.Build.props</code> の <code class="inline">&lt;Version&gt;</code>
+        がビルド時にそのまま書き込まれたものを使う(WPF版・Avalonia版どちらも同じ
+        <code class="inline">Directory.Build.props</code>を参照するため、App.dllのバージョンで代表できる)。
+      </p>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="verify">
+      <h2><span class="num">&mdash;</span>確認方法</h2>
+      <p>以下のコマンドを実行すると、本ドキュメントの記述を自分で再確認できる。</p>
+      <pre class="code"><span class="c"># タグ一覧・各タグのコミット日時</span>
+git tag -l --sort=v:refname
+git log -1 --format="%ad %s" --date=short v1.1.0
+
+<span class="c"># バージョン間で変更されたファイル一覧</span>
+git diff --name-status v1.0.0 v1.1.0 -- src tests
+git diff --name-status v1.1.0 v1.2.0 -- src tests
+git diff --name-status v1.2.0 v1.2.1 -- src tests
+git diff --name-status v1.2.1 v1.2.2 -- src tests
+
+<span class="c"># バージョン間の全コミット(区間内の個別コミットメッセージ)</span>
+git log --oneline v1.0.0..v1.1.0 -- src tests
+git log --oneline v1.1.0..v1.2.0 -- src tests
+git log --oneline v1.2.0..v1.2.1 -- src tests
+git log --oneline v1.2.1..v1.2.2 -- src tests
+
+<span class="c"># 個別コミットの詳細diff</span>
+git show &lt;コミットハッシュ&gt;
+
+<span class="c"># 現在のテスト件数(プロジェクトごと)</span>
+dotnet test tests/PdfBookmarkMerger.Core.Tests/PdfBookmarkMerger.Core.Tests.csproj --list-tests
+dotnet test tests/PdfBookmarkMerger.App.Tests/PdfBookmarkMerger.App.Tests.csproj --list-tests
+dotnet test tests/PdfBookmarkMerger.UiConverters.Tests/PdfBookmarkMerger.UiConverters.Tests.csproj --list-tests</pre>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="04-ui-design.html"><span class="dir">前へ</span>04. UIフロントエンド設計</a>
+      <a class="next" href="00-overview.html"><span class="dir">最初へ</span>00. 概要</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger 設計ドキュメント &middot;
+      <a href="../en/05-version-history.html">English</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger Design Documentation — 03. App Layer Design</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>Design Docs</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">Overview</a></li>
+      <li><a href="01-architecture.html">Architecture</a></li>
+      <li><a href="02-core-design.html">Core Layer Design</a></li>
+      <li><a href="03-app-design.html" class="current">App Layer Design</a></li>
+      <li><a href="04-ui-design.html">UI Frontend Design</a></li>
+      <li><a href="05-version-history.html">Version History</a></li>
+    </ol>
+    <div class="toc-foot">
+      as of v1.2.2<br />
+      <a href="../index.html">&larr; Index</a><br />
+      <a href="../ja/03-app-design.html">日本語</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 03 / 06</div>
+      <h1>App Layer Design</h1>
+      <p class="sub">
+        <code class="inline">PdfBookmarkMerger.App</code> is the UI-framework-independent ViewModel and
+        shared-app-service layer. <code class="inline">ServiceCollectionExtensions.AddPdfBookmarkMergerApp()</code>
+        registers <code class="inline">IUserSettingsService</code> / <code class="inline">FileListViewModel</code> /
+        <code class="inline">BookmarkTreeViewModel</code> / <code class="inline">MainWindowViewModel</code> as
+        Singletons. Every ViewModel derives from <code class="inline">ViewModelBase</code> (a thin base class that
+        only owns a <code class="inline">CompositeDisposable Disposables</code>), and exposes properties/commands
+        through <a href="https://github.com/runceel/ReactiveProperty">Reactive.Bindings</a>'s
+        <code class="inline">ReactivePropertySlim&lt;T&gt;</code> / <code class="inline">ReactiveCommand</code> /
+        <code class="inline">AsyncReactiveCommand</code>.
+      </p>
+    </header>
+
+    <section id="main-window-vm">
+      <h2><span class="num">1</span><span class="mono">MainWindowViewModel</span></h2>
+      <p>
+        Orchestrates the main window as a whole: the <code class="inline">Step</code> transition
+        (<code class="inline">WorkflowStep.SelectFiles</code> &rarr; <code class="inline">EditBookmarks</code>)
+        and the four primary commands.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">Command</th><th class="mono">CanExecute</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">ConfirmFilesCommand</td><td class="mono">HasFiles &amp;&amp; !IsBusy</td><td>Reads every file's metadata in parallel &rarr; extracts bookmarks and computes post-merge page numbers &rarr; <code class="inline">BookmarkTree.Load</code> &rarr; <code class="inline">Step = EditBookmarks</code></td></tr>
+            <tr><td class="mono">MergeCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberEdits</td><td>Save dialog &rarr; (if configured) properties dialog &rarr; <code class="inline">PdfMergeService.MergeAsync</code></td></tr>
+            <tr><td class="mono">SaveBookmarkSettingsCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberInconsistency</td><td>Save dialog &rarr; <code class="inline">BookmarkSettingsExportService.ExportAsync</code></td></tr>
+            <tr><td class="mono">BackToFileListCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy</td><td>Returns to <code class="inline">Step = SelectFiles</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code class="inline">ConfirmFilesAsync</code> parallelizes each file's metadata read with a
+        <code class="inline">SemaphoreSlim</code> (capped at
+        <code class="inline">Math.Clamp(Environment.ProcessorCount, 1, 8)</code>) and applies results in
+        completion order via <code class="inline">Task.WhenEach</code>. A file that fails to load gets flagged
+        on <code class="inline">PdfFileEntryViewModel.LoadFailed</code> and is thereafter excluded consistently
+        from <strong>both</strong> the bookmark tree construction and the actual merge
+        (<code class="inline">MergeAsync</code>) &mdash; there's a regression test guarding against an earlier
+        bug where a failed file stayed excluded from the tree but still slipped into the merge target list.
+      </p>
+      <p>
+        <code class="inline">MergeCommand</code> requires <code class="inline">!HasPageNumberEdits</code>
+        because, while a pre-merge page-number edit is pending, the merged PDF's actual page positions no
+        longer match what's shown on screen / exported. <code class="inline">SaveBookmarkSettingsCommand</code>
+        requires <code class="inline">!HasPageNumberInconsistency</code> because an edit that drives a page
+        number below 1 can't be exported as valid XML
+        (<code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>
+        are owned by <code class="inline">BookmarkTreeViewModel</code>, covered below).
+      </p>
+
+      <h3>1.1 Forwarding busy/progress <span class="badge ok">since v1.2.1</span></h3>
+      <pre class="code">BookmarkTree.IsBusy.Subscribe(busy =&gt; { ...; IsBusy.Value = busy; });
+BookmarkTree.BusyProgress.Subscribe(p =&gt; BusyProgress.Value = p);</pre>
+      <p>
+        Subscribing to these two in the constructor makes the busy state produced by
+        <code class="inline">BookmarkTreeViewModel</code>'s internal large-node recompute (see
+        <a href="#recompute">&sect;2.6</a> below) flow straight through the same
+        <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code> pipeline already used by
+        file loading and merging, so it reaches the UI (the busy overlay) unmodified. When busy starts, the
+        current <code class="inline">StatusMessage</code> is stashed and swapped for "Updating bookmark
+        information&hellip;"; it's restored when busy ends.
+      </p>
+    </section>
+
+    <section id="bookmark-tree-vm">
+      <h2><span class="num">2</span><span class="mono">BookmarkTreeViewModel</span></h2>
+      <p>
+        The central ViewModel behind the bookmark editor (steps 2/3). Keeps reordering/re-parenting via D&amp;D,
+        add/remove, level operations, and property edits like the title in sync with the
+        <code class="inline">Core.Models.BookmarkNode</code> tree (<code class="inline">_rootModel</code>).
+      </p>
+
+      <h3>2.1 Public properties</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">Property</th><th class="mono">Type</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">RootNodes</td><td class="mono">ObservableCollection&lt;BookmarkNodeViewModel&gt;</td><td>The root-level nodes (what the UI binds to)</td></tr>
+            <tr><td class="mono">ForceFitForAll</td><td class="mono">ReactivePropertySlim&lt;bool&gt;</td><td>While on, disables every node's destination-type/coordinate controls and treats every node as <code class="inline">Fit</code> when merging (does not touch each node's actual stored setting)</td></tr>
+            <tr><td class="mono">GlobalExpandOverride</td><td class="mono">ReactivePropertySlim&lt;bool?&gt;</td><td>The 3-state "set expand state for all" toggle (<code class="inline">true</code> = expand all / <code class="inline">false</code> = collapse all / <code class="inline">null</code> = follow each node's own setting)</td></tr>
+            <tr><td class="mono">CanUndo / UndoCommand</td><td>&mdash;</td><td>Covered in <a href="#undo">&sect;2.4</a> below</td></tr>
+            <tr><td class="mono">HasPageNumberEdits / HasPageNumberInconsistency</td><td class="mono">ReactivePropertySlim&lt;bool&gt;</td><td>Pre-merge page-number-edit state (feeds into <code class="inline">MainWindowViewModel</code>'s CanExecutes)</td></tr>
+            <tr><td class="mono">IsBusy / BusyProgress</td><td class="mono">ReactivePropertySlim&lt;bool&gt; / ReactivePropertySlim&lt;BusyProgressInfo?&gt;</td><td>Covered in <a href="#recompute">&sect;2.6</a> below</td></tr>
+            <tr><td class="mono">TitleColumnBaseWidth</td><td class="mono">ReactivePropertySlim&lt;double&gt;</td><td>The title column's shared base width; measured on the UI side (<code class="inline">MainWindow.xaml.cs</code> etc.)</td></tr>
+            <tr><td class="mono">ExpandLevelInput / CollapseAllCommand / ExpandAllCommand</td><td>&mdash;</td><td>Covered in <a href="#expand-level">&sect;2.7</a> below</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>2.2 Structural edits (add, remove, move, level operations)</h3>
+      <p>
+        <code class="inline">AddRoot</code> / <code class="inline">AddChild</code> /
+        <code class="inline">AddSiblingAfter</code> / <code class="inline">Remove</code> /
+        <code class="inline">Move</code> all follow the same pattern: push an Undo snapshot &rarr; update
+        both <code class="inline">RootNodes</code> (the UI-facing <code class="inline">ObservableCollection</code>)
+        and <code class="inline">_rootModel</code> (the Core model) &rarr; <code class="inline">TriggerRecompute()</code>.
+        <code class="inline">Move</code> corrects the target index for same-collection moves and verifies the
+        target isn't the node's own descendant (<code class="inline">IsDescendantOf</code>).
+      </p>
+      <p>
+        <code class="inline">PromoteLevel</code>/<code class="inline">DemoteLevel</code> are both, under the
+        hood, special cases of <code class="inline">Move</code> (re-parented right after the old parent's own
+        position, or onto the tail of the previous sibling's children, respectively).
+      </p>
+      <p>
+        <code class="inline">SetChildLevelCapAsync(node)</code> bulk-deletes everything deeper than the
+        absolute level chosen in the dialog via <code class="inline">TruncateBelowLevel</code>.
+      </p>
+      <p>
+        A newly added node immediately gets the currently-active "force Fit" / "force expand-state"
+        overrides applied to it (<code class="inline">ApplyCurrentOverridesToNewNode</code>). That application
+        is treated as part of the add operation itself, and doesn't become its own separate Undo snapshot
+        (suppressed via <code class="inline">_suppressUndoSnapshots</code>).
+      </p>
+
+      <h3>2.3 Editing the pre-merge page number</h3>
+      <p>
+        Editing <code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code> calls
+        <code class="inline">BookmarkTreeViewModel.OnPreOffsetPageNumberChanged(node, newValue)</code>, which:
+      </p>
+      <ol>
+        <li>Computes <code class="inline">delta = newValue - &lt;pre-edit effective value&gt;</code> (a no-op if it's 0).</li>
+        <li>Adds that delta onto <code class="inline">PageOffset</code> for every node in the same file (<code class="inline">SourceFileEntryId</code>) whose <code class="inline">OriginalPageIndex</code> is <strong>at or after</strong> the edited node's (position within the source PDF's own page structure &mdash; not the tree's display order).</li>
+        <li>Calls <code class="inline">TriggerRecompute()</code>.</li>
+      </ol>
+      <p>
+        <code class="inline">ResetFilePageNumbers(node)</code> resets <code class="inline">PageOffset</code>
+        back to <code class="inline">null</code> for the <strong>entire file</strong>, rather than just from
+        that node onward &mdash; resetting node-by-node would leave earlier edits (on pages before the reset
+        target) intact. If the file has no active edits, it's a no-op and pushes no Undo snapshot.
+      </p>
+      <p>
+        The cascade into post-merge page numbers is handled by
+        <code class="inline">ComputeCumulativeDeltaBeforeFile()</code>. For each file it takes "the
+        <code class="inline">PageOffset</code> of whichever node in that file has the largest
+        <code class="inline">OriginalPageIndex</code>" (the file's total effect on everything after it, since
+        every edit's range always extends through that file's last page), accumulates these along
+        <code class="inline">_orderedFileIds</code>, and returns, per file, the sum of every preceding file's
+        total delta. This function is called from both
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync</code> and
+        <code class="inline">ToExportModel</code>; it's a read-only aggregation (not chunked &mdash; it never
+        writes back to properties, so its real-world cost is far below the write-back loop's).
+      </p>
+
+      <h3 id="undo">2.4 Undo</h3>
+      <p>
+        <code class="inline">App/Undo/UndoHistory&lt;T&gt;</code> is a memory-budgeted stack: it accumulates
+        each snapshot's estimated size in bytes, and once the total exceeds a cap (100 MB by default) it
+        discards the oldest entries first, always keeping at least the newest one.
+        <code class="inline">BookmarkTreeViewModel</code> uses it specialized to <code class="inline">string</code>
+        (a JSON serialization of <code class="inline">_rootModel</code>).
+      </p>
+      <ul>
+        <li><code class="inline">PushUndoSnapshot()</code> (no argument) &mdash; called right before a structural edit; always pushes exactly one entry, no coalescing.</li>
+        <li><code class="inline">PushUndoSnapshot(coalesceKey)</code> &mdash; used for property edits. Repeated calls with the same key within 800ms (<code class="inline">SnapshotCoalesceWindow</code>) are treated as a single edit and don't push a new entry (this keeps the Undo history from ballooning by one entry per keystroke while typing).</li>
+        <li><code class="inline">Undo()</code> &mdash; JSON-deserializes the most recent snapshot and hands it to <code class="inline">RebuildTree</code> (the entry is popped and consumed; LIFO order).</li>
+      </ul>
+      <p>
+        Each <code class="inline">BookmarkNodeViewModel</code> property
+        (<code class="inline">Title</code>/<code class="inline">IsOpen</code>/<code class="inline">DestinationType</code>/coordinates)
+        skips its constructor-time initial replay with <code class="inline">Skip(1)</code> before calling
+        <code class="inline">RequestUndoSnapshot</code> on every subsequent change. Without that
+        <code class="inline">Skip(1)</code> (<code class="inline">ReactivePropertySlim.Subscribe</code> replays
+        the current value once right after subscribing), every node construction would push an Undo entry
+        with no actual change &mdash; and since Undo itself rebuilds the tree, that becomes an infinitely
+        growing history. Applying the "force Fit" / "force expand-state" overrides is a temporary
+        display-level change (auto-restored when turned off), not an "edit" that belongs in Undo, so it's
+        suppressed via <code class="inline">_suppressUndoSnapshots</code>.
+      </p>
+
+      <h3>2.5 <span class="mono">CanUndo</span>/<span class="mono">UndoCommand</span>'s CanExecute <span class="badge ok">since v1.2.1</span></h3>
+      <pre class="code">var canUndo = CanUndo.CombineLatest(IsBusy, (canUndo, busy) =&gt; canUndo &amp;&amp; !busy);
+UndoCommand = new ReactiveCommand(canUndo);</pre>
+      <p>
+        While the large-node chunked recompute is running (<code class="inline">IsBusy</code>), the busy
+        overlay blocking mouse input is the primary defense, but <code class="inline">UndoCommand</code>'s
+        own CanExecute also folds in <code class="inline">!IsBusy</code> as a second layer (so that no future
+        input path bypassing the overlay &mdash; a keyboard shortcut, say &mdash; could ever race against an
+        in-progress recompute, even in theory; added during code review).
+      </p>
+
+      <h3 id="recompute">2.6 Responsiveness on large bookmark sets &mdash; chunked processing <span class="badge ok">since v1.2.1</span></h3>
+      <figure class="diagram-wrap">
+        <img src="../diagrams/recompute-flow.svg" alt="Chunked recompute and busy-overlay flow" />
+        <figcaption>From a large-tree edit/Undo through chunked recompute to busy-overlay forwarding</figcaption>
+      </figure>
+      <p>
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync()</code> (formerly
+        <code class="inline">RecomputeAllPageNumberDisplays</code>; guarded internally by
+        <code class="inline">_isRecomputingPageNumbers</code> against recursing on its own write-back) runs
+        after every operation that can change the tree's structure or <code class="inline">PageOffset</code>
+        values &mdash; load, Undo, add, remove, level-cap truncation, edits &mdash; recomputing every node's
+        <code class="inline">PreOffsetPageNumber</code>/<code class="inline">DisplayMergedPageNumber</code>/<code class="inline">IsPageNumberEdited</code>,
+        writing them back, and updating
+        <code class="inline">HasPageNumberEdits</code>/<code class="inline">HasPageNumberInconsistency</code>.
+      </p>
+      <p>
+        Only when the node count exceeds <code class="inline">RecomputeChunkSize</code> (200) does the
+        write-back loop split into chunks of that size, yielding via <code class="inline">await Task.Yield()</code>
+        between chunks to hand control back to the UI thread. <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>
+        are updated during this window, and <code class="inline">MainWindowViewModel</code> forwards them into
+        its own same-named properties &mdash; reusing the exact busy overlay and progress display already
+        built for file loading, with no new UI. Trees at or below the threshold never hit an
+        <code class="inline">await</code> inside the loop at all, and still complete fully synchronously
+        exactly as before (avoiding needless overhead and flicker on small trees).
+      </p>
+      <p>
+        The structural-edit methods (<code class="inline">AddRoot</code> etc.) stay synchronous with unchanged
+        signatures by going through <code class="inline">TriggerRecompute()</code>, an
+        <code class="inline">async void</code> fire-and-forget wrapper:
+      </p>
+      <pre class="code">private async void TriggerRecompute() =&gt; await RecomputeAllPageNumberDisplaysAsync();</pre>
+      <p>
+        On a small tree, since nothing inside ever awaits, the work is effectively finished by the time this
+        method returns &mdash; so existing tests and code-behind that assume synchronous completion keep
+        working unmodified. On a large tree, the busy overlay covers the whole bookmark-editing screen and
+        blocks mouse input, so a second, overlapping call to this method (triggered by further user action) is
+        not expected to happen while one is already in flight.
+      </p>
+
+      <h3 id="expand-level">2.7 Bulk expand/collapse-by-level <span class="badge ok">since v1.2.2</span></h3>
+      <p>The logic behind the "-" button, level-number text box, and "+" button above the bookmark tree.</p>
+      <ul>
+        <li><code class="inline">ExpandLevelInput</code> (<code class="inline">ReactivePropertySlim&lt;string&gt;</code>) &mdash; two-way bound to the text box. Whenever it changes to a valid number (a non-negative integer at or below the tree's current max level), every node at that level or shallower gets <code class="inline">IsExpanded=true</code>, and everything deeper gets <code class="inline">IsExpanded=false</code> (e.g. <code class="inline">"3"</code> expands levels 1-3 and collapses level 4+). The apply operation itself (<code class="inline">ApplyExpandLevelAsync</code>) reuses the exact same chunked-processing and <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code> framework as <code class="inline">RecomputeAllPageNumberDisplaysAsync</code> in <a href="#recompute">&sect;2.6</a>, so bulk expand/collapse doesn't freeze the UI on a large bookmark tree either.</li>
+        <li><code class="inline">CollapseAllCommand</code> (the "-" button) &mdash; sets <code class="inline">ExpandLevelInput</code> to <code class="inline">"0"</code> (since every node's level is 1 or higher, <code class="inline">LevelNumber &lt;= 0</code> is always false, so every node collapses).</li>
+        <li><code class="inline">ExpandAllCommand</code> (the "+" button) &mdash; sets <code class="inline">ExpandLevelInput</code> to the tree's current max level (guaranteeing every node's <code class="inline">LevelNumber</code> is at or below it, so every node expands). Both commands fold <code class="inline">!IsBusy</code> into their CanExecute, the same as <code class="inline">UndoCommand</code>.</li>
+        <li><code class="inline">NormalizeExpandLevelInput()</code> (public) &mdash; clears the text box to an empty string when its value is non-numeric, or a number not present in the tree (above the current max level). Called from code-behind on the text box's LostFocus, and also from inside <code class="inline">AddRoot</code>/<code class="inline">AddChild</code>/<code class="inline">AddSiblingAfter</code>/<code class="inline">Remove</code>/<code class="inline">Move</code>/<code class="inline">SetChildLevelCapAsync</code>/load/undo, so a structural bookmark edit that invalidates the current value clears it automatically too.</li>
+      </ul>
+    </section>
+
+    <section id="bookmark-node-vm">
+      <h2><span class="num">3</span><span class="mono">BookmarkNodeViewModel</span></h2>
+      <p>
+        The ViewModel for a single bookmark-tree node. Its
+        <code class="inline">Title</code>/<code class="inline">IsOpen</code>/<code class="inline">DestinationType</code>/<code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>
+        <code class="inline">ReactivePropertySlim&lt;T&gt;</code>s each write straight through to the underlying
+        <code class="inline">Model</code> (<code class="inline">BookmarkNode</code>) on every change, while also
+        asking <code class="inline">BookmarkTreeViewModel</code> to push an Undo snapshot. Skipping the
+        constructor-time initial replay (<code class="inline">Skip(1)</code>) matters here too, for the same
+        reason as <a href="#undo">&sect;2.4</a> above.
+      </p>
+      <p>
+        <code class="inline">PreOffsetPageNumber</code> is the one exception: it does <strong>not</strong>
+        write straight to <code class="inline">Model</code>. How an edited value should cascade (to later
+        nodes in the same file, and to files after it) needs to be computed collectively by
+        <code class="inline">BookmarkTreeViewModel</code>, so this property only forwards the change
+        notification upward.
+      </p>
+      <p>
+        <code class="inline">IsDestinationTypeEditable</code>/<code class="inline">IsLeftEditable</code>/<code class="inline">IsTopEditable</code>/<code class="inline">IsZoomEditable</code>
+        are derived properties that enable only the coordinate controls actually meaningful for the currently
+        selected destination type
+        (<code class="inline">XYZ</code>/<code class="inline">Fit</code>/<code class="inline">FitH</code>/<code class="inline">FitV</code>);
+        all of them go false while <code class="inline">ForceFitForAll</code> is on.
+      </p>
+    </section>
+
+    <section id="file-list-vm">
+      <h2><span class="num">4</span><span class="mono">FileListViewModel</span></h2>
+      <p>
+        The merge-target PDF file list (step 1). Handles adding via D&amp;D/dialog
+        (<code class="inline">AddPaths</code>), moving a contiguous selected block up/down as a unit
+        (<code class="inline">MoveSelectionUp</code>/<code class="inline">MoveSelectionDown</code>; a no-op if
+        the selection isn't contiguous), and D&amp;D reordering (<code class="inline">MoveTo</code>).
+        <code class="inline">GetMoveAvailability</code> returns both buttons disabled when the selection is
+        empty or non-contiguous.
+      </p>
+    </section>
+
+    <section id="services">
+      <h2><span class="num">5</span>Services</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">Type</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">IDialogService (implemented on the Wpf/Avalonia side)</td><td>Shows the file/folder pickers, save dialogs, and the properties/settings/level-cap dialogs</td></tr>
+            <tr><td class="mono">IUserSettingsService / UserSettingsService</td><td>Reads user settings (via <code class="inline">IOptionsMonitor</code>) and saves them atomically</td></tr>
+            <tr><td class="mono">AppLanguageBootstrapper</td><td>Settles the display language at startup; handles immediate switching from the Settings dialog</td></tr>
+            <tr><td class="mono">AppPaths</td><td>Resolves where settings and logs live</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="supporting-vm">
+      <h2><span class="num">6</span>Supporting ViewModels</h2>
+      <p>
+        <code class="inline">PdfFileEntryViewModel</code> (one row of the file list; holds
+        <code class="inline">PageCount</code>/<code class="inline">LoadFailed</code>),
+        <code class="inline">PropertiesDialogViewModel</code> / <code class="inline">SettingsViewModel</code> /
+        <code class="inline">LevelCapDialogViewModel</code> (each dialog's input as a ViewModel, shared between
+        WPF and Avalonia and constructed/disposed by the <code class="inline">IDialogService</code>
+        implementation). <span class="badge ok">Since v1.2.2</span>, <code class="inline">SettingsViewModel</code>
+        also exposes <code class="inline">AppVersion</code> (string), shown in the Settings dialog. Its value
+        comes from <code class="inline">Assembly.GetExecutingAssembly()</code>'s
+        <code class="inline">AssemblyInformationalVersionAttribute</code>, which the build writes directly from
+        <code class="inline">Directory.Build.props</code>'s <code class="inline">&lt;Version&gt;</code>.
+      </p>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="02-core-design.html"><span class="dir">Previous</span>02. Core Layer Design</a>
+      <a class="next" href="04-ui-design.html"><span class="dir">Next</span>04. UI Frontend Design</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger Design Documentation &middot;
+      <a href="../ja/03-app-design.html">日本語</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

@@ -25,7 +25,7 @@ Built on a shared ReactiveProperty MVVM core with two native UI front ends: **WP
 ### Requirements
 
 - Windows 10 or later (WPF-UI build) — self-contained, no separate .NET runtime install needed.
-- macOS (Avalonia build) — cross-compiled and publish-verified from this repository; see [docs/design.html](docs/design.html) for the current build/verification status.
+- macOS (Avalonia build) — cross-compiled and publish-verified from this repository; end-to-end verification on physical macOS hardware is still in progress.
 
 ### Building from source
 
@@ -40,7 +40,7 @@ To produce a release build for Windows (self-contained, single-file, compressed)
 pwsh ./scripts/publish-wpf-release.ps1
 ```
 
-This writes both the unpacked folder and a `.zip` archive to `dist/` (git-ignored). See [docs/design.html §11](docs/design.html#windows-release-build) for details, including the native DLLs that must ship alongside the executable.
+This writes both the unpacked folder and a `.zip` archive to `dist/` (git-ignored). Even with single-file publishing, some native interop DLLs (e.g. `wpfgfx_cor3.dll`) cannot be embedded into the executable and are published alongside it — see the header comment in `scripts/publish-wpf-release.ps1` for details.
 
 ### Project layout
 
@@ -57,11 +57,7 @@ scripts/                         Release build scripts
 
 ### Documentation
 
-- [Design Document](docs/design.html) — architecture, tech stack, feature-by-requirement mapping, build/release procedures.
-- [Detailed Design Document](docs/detailed-design.html) — class diagrams and a full member/method reference.
-- [Manual Verification Checklist](docs/manual-verification-checklist.html) — QA steps for UI behavior not covered by automated tests.
-
-(Each document also has a `.en.html` English counterpart linked from its own table of contents.)
+- [Design Documentation](docs/index.html) — overview, architecture, Core/App/UI layer design, and the version-by-version design history. Available in both [English](docs/en/00-overview.html) and [Japanese](docs/ja/00-overview.html).
 
 ### Testing
 
@@ -69,7 +65,7 @@ scripts/                         Release build scripts
 dotnet test PdfBookmarkMerger.slnx
 ```
 
-134 tests across three projects: `PdfBookmarkMerger.Core.Tests`, `PdfBookmarkMerger.App.Tests`, and `PdfBookmarkMerger.UiConverters.Tests` (which exercises both frontends' converter classes directly).
+148 tests across three projects: `PdfBookmarkMerger.Core.Tests`, `PdfBookmarkMerger.App.Tests`, and `PdfBookmarkMerger.UiConverters.Tests` (which exercises both frontends' converter classes directly).
 
 ---
 
@@ -94,7 +90,7 @@ ReactiveProperty MVVMを核とする共通アプリケーション層を、Windo
 ### 動作環境
 
 - Windows 10以降(WPF-UI版) — 自己完結型ビルドのため、別途.NETランタイムのインストールは不要。
-- macOS(Avalonia版) — 本リポジトリ上でクロスコンパイル・パブリッシュの成功までを確認済み。現時点の検証状況は[docs/design.html](docs/design.html)を参照。
+- macOS(Avalonia版) — 本リポジトリ上でクロスコンパイル・パブリッシュの成功までを確認済み。macOS実機での一連の動作確認は継続中。
 
 ### ソースからのビルド
 
@@ -109,7 +105,7 @@ Windows向けのリリースビルド(自己完結型・単一ファイル・圧
 pwsh ./scripts/publish-wpf-release.ps1
 ```
 
-展開済みフォルダと`.zip`アーカイブの両方が`dist/`(git管理外)に出力されます。実行ファイルに同梱が必要なネイティブDLL等の詳細は[docs/design.html 第11節](docs/design.html#windows-release-build)を参照してください。
+展開済みフォルダと`.zip`アーカイブの両方が`dist/`(git管理外)に出力されます。単一ファイル発行でも、一部のネイティブ相互運用DLL(`wpfgfx_cor3.dll`等)は実行ファイルへ埋め込めず同梱される形になります。詳細は`scripts/publish-wpf-release.ps1`冒頭のコメントを参照してください。
 
 ### プロジェクト構成
 
@@ -126,11 +122,7 @@ scripts/                         リリースビルド用スクリプト
 
 ### ドキュメント
 
-- [設計ドキュメント](docs/design.html) — アーキテクチャ・技術選定・要件対応表・ビルド/公開手順。
-- [詳細設計ドキュメント](docs/detailed-design.html) — クラス図・各クラスの関数リファレンス。
-- [UIコードビハインド 手動確認手順書](docs/manual-verification-checklist.html) — 自動テスト化していないUI挙動の目視確認チェックリスト。
-
-(各ドキュメントの目次から、英語版`.en.html`にもリンクしています。)
+- [設計ドキュメント](docs/index.html) — 概要・アーキテクチャ・Core/App/UI層の設計・バージョン間の設計差分。[英語版](docs/en/00-overview.html)・[日本語版](docs/ja/00-overview.html)。
 
 ### テスト
 
@@ -138,4 +130,4 @@ scripts/                         リリースビルド用スクリプト
 dotnet test PdfBookmarkMerger.slnx
 ```
 
-`PdfBookmarkMerger.Core.Tests` / `PdfBookmarkMerger.App.Tests` / `PdfBookmarkMerger.UiConverters.Tests`(両フロントエンドのConverterを実際に実行するゴールデンテスト)の3プロジェクトで、計134件のテストを実施しています。
+`PdfBookmarkMerger.Core.Tests` / `PdfBookmarkMerger.App.Tests` / `PdfBookmarkMerger.UiConverters.Tests`(両フロントエンドのConverterを実際に実行するゴールデンテスト)の3プロジェクトで、計148件のテストを実施しています。

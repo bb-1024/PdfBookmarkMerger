@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger Design Documentation — 05. Version History</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>Design Docs</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">Overview</a></li>
+      <li><a href="01-architecture.html">Architecture</a></li>
+      <li><a href="02-core-design.html">Core Layer Design</a></li>
+      <li><a href="03-app-design.html">App Layer Design</a></li>
+      <li><a href="04-ui-design.html">UI Frontend Design</a></li>
+      <li><a href="05-version-history.html" class="current">Version History</a></li>
+    </ol>
+    <div class="toc-foot">
+      as of v1.2.2<br />
+      <a href="../index.html">&larr; Index</a><br />
+      <a href="../ja/05-version-history.html">日本語</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 05 / 06</div>
+      <h1>Design-Level Diffs Across Versions (v1.0.0 &rarr; v1.2.2)</h1>
+      <p class="sub">
+        This document was assembled by enumerating changed files with
+        <code class="inline">git diff --name-status &lt;previous version&gt; &lt;target version&gt; -- src tests</code>,
+        then individually inspecting the relevant commits (<code class="inline">git show &lt;commit&gt;</code>).
+        The "How to verify this yourself" section at the end gives the exact commands so anyone can reproduce
+        the same process.
+      </p>
+    </header>
+
+    <section id="tags">
+      <h2><span class="num">&mdash;</span>Tags</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">Tag</th><th>Date</th><th class="mono">Commit</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">v1.0.0</td><td>2026-07-27</td><td class="mono">12611ca</td></tr>
+            <tr><td class="mono">v1.1.0</td><td>2026-08-01</td><td class="mono">4fc46b1</td></tr>
+            <tr><td class="mono">v1.2.0</td><td>2026-08-03</td><td class="mono">9822c18</td></tr>
+            <tr><td class="mono">v1.2.1</td><td>2026-08-12</td><td class="mono">b61d2ee</td></tr>
+            <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v100">
+      <h2><span class="num">v1.0.0</span>2026-07-27 &mdash; Initial release</h2>
+      <p>
+        The first tagged release. Of the design described in
+        <a href="00-overview.html">00-overview.html</a> through
+        <a href="04-ui-design.html">04-ui-design.html</a>, the following <strong>did not exist yet</strong>
+        at this point (added in later versions):
+      </p>
+      <ul>
+        <li>Japanese/English switching (i18n) &mdash; <code class="inline">AppLanguageBootstrapper</code> / the <code class="inline">Strings.resx</code> family were added in v1.1.0</li>
+        <li>Undo &mdash; <code class="inline">UndoHistory&lt;T&gt;</code> was added in v1.1.0</li>
+        <li>The busy overlay / progress display &mdash; <code class="inline">BusyProgressInfo</code> / <code class="inline">IsBusy</code> were added in v1.1.0</li>
+        <li>Bookmark settings (XML) export &mdash; <code class="inline">BookmarkSettingsExportService</code> was added in v1.2.0</li>
+        <li>Editing the pre-merge page number &mdash; <code class="inline">BookmarkNode.PageOffset</code> was added in v1.2.0</li>
+      </ul>
+      <p>
+        Features already present at v1.0.0: adding PDF files/folders via D&amp;D, automatic bookmark
+        extraction (<code class="inline">PdfMetadataService</code>) with a filename fallback for
+        bookmark-less PDFs (<code class="inline">MissingBookmarkFallback</code>), basic bookmark-tree editing
+        (title, destination type, coordinates, add/remove, D&amp;D reordering, level-cap truncation), PDF
+        merging (<code class="inline">PdfMergeService</code>) with a properties-edit dialog, settings/log
+        persistence (Serilog daily rolling files), and global unhandled-exception logging.
+      </p>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v110">
+      <h2><span class="num">v1.1.0</span>2026-08-01</h2>
+      <p>
+        The busiest window of this project's history: 28 commits on top of v1.0.0, both in features added and
+        bugs fixed. <code class="inline">git diff --name-status v1.0.0 v1.1.0 -- src tests</code> shows 56
+        changed files.
+      </p>
+
+      <h3>Features added</h3>
+      <ul>
+        <li><strong>Japanese/English i18n</strong> (<code class="inline">822a2d8</code>) &mdash; <code class="inline">Strings.resx</code>/<code class="inline">Strings.en.resx</code>, plus <code class="inline">AppLanguageBootstrapper</code> auto-detecting and persisting the language on first launch. Immediate switching from the Settings dialog followed later, in <code class="inline">7e49524</code> (unified with how theme mode was already handled).</li>
+        <li><strong>Undo</strong> (<code class="inline">b9ad0c5</code>) &mdash; added <code class="inline">UndoHistory&lt;T&gt;</code>, a memory-budgeted stack, to the bookmark-tree editor.</li>
+        <li><strong>Faster bulk loading/merging + a busy overlay</strong> (<code class="inline">6db6849</code>) &mdash; parallelized <code class="inline">ConfirmFilesAsync</code> (metadata reads) and <code class="inline">PdfMergeService</code> (opening PDFs) with bounded concurrency, and introduced a busy overlay that disables every control while processing, plus a detail-progress display (completed/total, in-flight file names) that appears after 5 seconds. <strong>This "busy overlay + <code class="inline">BusyProgressInfo</code>" framework is exactly what v1.2.1 later reuses for <code class="inline">BookmarkTreeViewModel</code>'s chunked recompute</strong> (see the <a href="#v121">v1.2.1 section</a>).</li>
+        <li>Promote/demote-level buttons (<code class="inline">57d531a</code>); including the node's own level as a level-cap dialog option (<code class="inline">1daaf72</code>); selecting a row by clicking its empty margin (<code class="inline">23f3d38</code>); auto-scroll near the tree's edges during D&amp;D (<code class="inline">0b42ad5</code>).</li>
+        <li>File list: moving a multi-selected block as a unit (<code class="inline">87c85ac</code>); disabling the move buttons at list boundaries (<code class="inline">65b6817</code>).</li>
+        <li>Escape now cancels dialogs (<code class="inline">f8ac748</code>); the initial window was enlarged and the editor's buttons reordered (<code class="inline">1bf3602</code>).</li>
+      </ul>
+
+      <h3>Bugs fixed (3 distinct "freeze" issues)</h3>
+      <p>All three of these presented to users the same way &mdash; "the app just locks up" &mdash; but each had a <strong>different root cause</strong>.</p>
+      <ol>
+        <li>
+          <strong>A deadlock that left the window completely blank on first launch</strong>
+          (<code class="inline">28a4dce</code>) &mdash; <code class="inline">UserSettingsService.SaveAsync</code>
+          awaited <code class="inline">File.WriteAllTextAsync</code> without
+          <code class="inline">ConfigureAwait(false)</code>. On a genuinely first run,
+          <code class="inline">App.OnStartup</code> calls
+          <code class="inline">AppLanguageBootstrapper.ApplyAsync(...).GetAwaiter().GetResult()</code>
+          synchronously, blocking the UI thread, before <code class="inline">MainWindow</code> is even
+          constructed. Without <code class="inline">ConfigureAwait(false)</code>, the awaited continuation
+          tried to resume on that very same (blocked) UI thread's <code class="inline">SynchronizationContext</code>,
+          deadlocking forever: the process stayed alive, but <code class="inline">OnStartup</code> never
+          returned and no window ever appeared. A leftover <code class="inline">settings.json.tmp</code> (the
+          atomic-write temp file, never renamed because <code class="inline">File.Move</code> sat downstream
+          of the stuck await) was direct evidence of exactly where execution had stopped. The fix was simply
+          adding the missing <code class="inline">ConfigureAwait(false)</code>.
+        </li>
+        <li>
+          <strong>A freeze while editing the bookmark tree, caused by NaN coordinates</strong>
+          (<code class="inline">87a2de7</code>) &mdash; PDFsharp's
+          <code class="inline">PdfOutline.Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>
+          return NaN when the destination type doesn't specify that particular coordinate. That NaN was being
+          stored as-is on <code class="inline">BookmarkNode</code>, and every structural edit
+          (<code class="inline">Move</code>/<code class="inline">PromoteLevel</code>/<code class="inline">DemoteLevel</code>/<code class="inline">SetChildLevelCapAsync</code>)
+          calls <code class="inline">PushUndoSnapshotCore</code>, which JSON-serializes the tree &mdash; and
+          <code class="inline">System.Text.Json</code> throws on non-finite doubles. That meant the very first
+          edit on any realistically-extracted PDF threw an unhandled exception, presenting to the user as a
+          freeze. The fix added <code class="inline">AsFiniteOrNull</code> to
+          <code class="inline">PdfMetadataService</code>, normalizing non-finite values to
+          <code class="inline">null</code> ("unspecified"), with regression tests at both the Core level and
+          the App level (the App-level test is today's <code class="inline">BookmarkTreeEditFreezeReproTests</code>
+          &mdash; it loads real sample PDFs through the same production Core services and verifies each edit
+          operation completes within 10 seconds).
+        </li>
+        <li>
+          <strong>The UI freeze on a large number of bookmarks</strong> &mdash; this one was
+          <strong>not</strong> fixed in this window; it was fixed later, in <a href="#v121">v1.2.1</a>, and
+          is an entirely different bug: synchronous processing on trees with more than 200 nodes.
+        </li>
+      </ol>
+
+      <h3>The settings-file location, back and forth</h3>
+      <p>
+        <code class="inline">1ac63b8</code> (moved next to the executable, an attempt at a portable setup) was
+        followed by <code class="inline">87a6bb4</code> (moved to
+        <code class="inline">%AppData%/PdfBookmarkMerger/</code>, alongside the logs). The executable's own
+        folder could be read-only, so the team settled on the AppData folder, where a write is always
+        guaranteed to succeed.
+      </p>
+
+      <h3>Other fixes</h3>
+      <ul>
+        <li><code class="inline">9805b89</code>: reverted an earlier attempt (<code class="inline">7892ff1</code>) to stretch a bookmark row's background so D&amp;D hit-testing covered its full width &mdash; it turned out to cause an unwanted horizontal scroll jump on click. That lesson carried forward directly into <a href="#v121">v1.2.1's horizontal-scroll fix</a>.</li>
+        <li><code class="inline">2ad5394</code>: moved the Avalonia build's file/bookmark <code class="inline">PointerPressed</code> subscription to the Tunnel phase (working around <code class="inline">SelectingItemsControl</code>'s default selection handling claiming the event first, on the Bubble phase).</li>
+        <li><code class="inline">70f50dd</code>: guarantees any successfully-opened PDFs get disposed even if parallel opening partially fails.</li>
+        <li><code class="inline">41286b1</code>: fixed duplicate <code class="inline">SystemThemeWatcher</code> registration and a missed unwatch on window close.</li>
+        <li><code class="inline">5de9ab9</code>: gave <code class="inline">Right</code>/<code class="inline">Bottom</code> coordinates the same Undo tracking <code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Zoom</code> already had.</li>
+        <li><code class="inline">e486342</code>: made the Avalonia build's save dialog default to the "Documents" folder, matching WPF.</li>
+        <li><code class="inline">5daeabd</code>: restricted Serilog's console sink to Debug builds only.</li>
+        <li><code class="inline">1077825</code>: wrapped Avalonia's entire main loop in <code class="inline">try/catch</code> so exceptions that escape the UI thread are still reliably logged (there's no Avalonia equivalent of WPF's <code class="inline">DispatcherUnhandledException</code>).</li>
+      </ul>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v120">
+      <h2><span class="num">v1.2.0</span>2026-08-03</h2>
+      <p>4 commits, adding both the bookmark settings file export and pre-merge page-number editing.</p>
+      <ul>
+        <li><strong><code class="inline">de060a2</code> Bookmark settings (XML) export</strong> &mdash; introduced <code class="inline">IBookmarkSettingsExportService</code>/<code class="inline">BookmarkSettingsExportService</code>, letting the bookmark structure alone be exported as "bookmark settings file spec" XML without running a full PDF merge. Added <code class="inline">ShowSaveBookmarkSettingsDialogAsync</code> to <code class="inline">IDialogService</code>.</li>
+        <li><strong><code class="inline">0db8409</code> Made the pre-merge page number editable</strong> &mdash; added <code class="inline">BookmarkNode.PageOffset</code> (int?), and the mechanism that cascades an edit to <code class="inline">BookmarkNodeViewModel.PreOffsetPageNumber</code> onto later nodes in the same file via <code class="inline">BookmarkTreeViewModel.OnPreOffsetPageNumberChanged</code>.</li>
+        <li><strong><code class="inline">8384e20</code> Auto-sizing width, highlighting, and a reset menu for the text box</strong> &mdash; added <code class="inline">PageNumberWidthConverter</code> and <code class="inline">EditedHighlightBrushConverter</code> (both WPF and Avalonia).</li>
+        <li><strong><code class="inline">8a51402</code> Per-file page-number reset, and the bump to v1.2.0</strong> &mdash; added <code class="inline">ResetFilePageNumbers(node)</code>. Resetting node-by-node would have left earlier edits (on pages before the reset target) intact, so the design resets the entire file's edits at once instead.</li>
+      </ul>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v121">
+      <h2><span class="num">v1.2.1</span>2026-08-12</h2>
+      <p>
+        3 commits: two user-reported bug fixes, plus one additional hardening change from code review.
+      </p>
+
+      <h3><code class="inline">75296f1</code> Fixed the UI freeze on a large number of bookmarks</h3>
+      <p>
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync</code> (which walks the whole tree twice on
+        every pre-merge page-number edit) ran fully synchronously, so editing/adding/removing/undoing on a
+        large bookmark set would occupy the UI thread long enough that not even an
+        <code class="inline">IsBusy</code>-style indicator ever got a chance to render &mdash; it looked
+        frozen, with no progress update at all. The fix: only when the node count exceeds
+        <code class="inline">RecomputeChunkSize</code> (200) does the write-back loop split into chunks,
+        yielding via <code class="inline">await Task.Yield()</code> to hand control back to the UI thread
+        while updating <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>.
+      </p>
+      <p>
+        This fix <strong>reuses the busy-overlay framework that v1.1.0 introduced for "file loading / PDF
+        merging" (<code class="inline">6db6849</code>)</strong>, applying it to a different kind of
+        background work &mdash; recomputing the bookmark tree &mdash; carrying that v1.1.0 design forward
+        directly (no new UI was needed; only a forwarding subscription from
+        <code class="inline">MainWindowViewModel.IsBusy</code>/<code class="inline">BusyProgress</code> was
+        added). See <a href="03-app-design.html#recompute">03-app-design.html &sect;2.6</a> for the detailed
+        design.
+      </p>
+
+      <h3><code class="inline">0a231ab</code> Preserving horizontal scroll position on a bookmark-row click</h3>
+      <p>
+        Because each bookmark-tree row is wide, clicking a row while the horizontal scrollbar was showing
+        used to trigger both WPF's and Avalonia's default "bring into view" behavior and move the horizontal
+        scroll position unexpectedly. Fixed by capturing the horizontal position right after the click and
+        restoring it once selection/focus-change processing has settled, at a low-priority dispatch point.
+        This is <strong>effectively a second attempt at the same class of horizontal-scroll problem that
+        v1.1.0's <code class="inline">9805b89</code> had backed away from</strong>. See
+        <a href="04-ui-design.html#scroll-fix">04-ui-design.html &sect;2.3</a> for the detailed design.
+      </p>
+
+      <h3><code class="inline">a7ee360</code> Code review: also gate <span class="mono">UndoCommand</span>'s CanExecute on <span class="mono">IsBusy</span></h3>
+      <p>
+        While the chunked recompute above is running, the busy overlay blocking mouse input was the primary
+        defense; this change adds a second layer by also folding <code class="inline">!IsBusy</code> into
+        <code class="inline">UndoCommand</code>'s own CanExecute (closing off, even in theory, any future
+        input path that could bypass the overlay and race against an in-progress recompute).
+      </p>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="v122">
+      <h2><span class="num">v1.2.2</span>2026-08-17</h2>
+      <p>1 commit (<code class="inline">e044f98</code>): two user-requested feature additions.</p>
+
+      <h3>Bulk expand/collapse-by-level controls for the bookmark editor tree</h3>
+      <p>
+        Added a "-" button, a level-number text box, and a "+" button directly above the bookmark tree.
+        Entering a number N into the new <code class="inline">BookmarkTreeViewModel.ExpandLevelInput</code>
+        (string) expands every node at level N or shallower
+        (<code class="inline">IsExpanded = true</code>) and collapses everything deeper
+        (<code class="inline">IsExpanded = false</code>) &mdash; e.g. N=3 expands levels 1-3 and collapses
+        level 4+. The "-" button (<code class="inline">CollapseAllCommand</code>) sets
+        <code class="inline">ExpandLevelInput</code> to <code class="inline">"0"</code>; the "+" button
+        (<code class="inline">ExpandAllCommand</code>) sets it to the tree's current max level &mdash; both
+        reuse the exact same apply logic instead of duplicating it. A non-numeric value, or a number not
+        present in the tree, is normalized back to an empty string by
+        <code class="inline">NormalizeExpandLevelInput</code>, either when the text box loses focus or when
+        a structural bookmark edit (add/remove/move/level-cap truncation/load/undo) makes the current value
+        fall out of range.
+      </p>
+      <p>
+        <strong>The bulk-apply operation (<code class="inline">ApplyExpandLevelAsync</code>) reuses the
+        exact same chunked-processing and <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>
+        framework that v1.2.1 introduced for <code class="inline">RecomputeAllPageNumberDisplaysAsync</code></strong>,
+        so expanding/collapsing a very large bookmark tree doesn't freeze the UI either. See
+        <a href="03-app-design.html#expand-level">03-app-design.html &sect;2.7</a> and
+        <a href="04-ui-design.html#expand-level-controls">04-ui-design.html &sect;2.6</a> for the detailed
+        design.
+      </p>
+
+      <h3>Showing the release version in the Settings dialog</h3>
+      <p>
+        Added <code class="inline">SettingsViewModel.AppVersion</code> (string), displayed at the bottom of
+        the Settings dialog. Its value comes from <code class="inline">Assembly.GetExecutingAssembly()</code>'s
+        <code class="inline">AssemblyInformationalVersionAttribute</code>, which the build writes directly
+        from <code class="inline">Directory.Build.props</code>'s <code class="inline">&lt;Version&gt;</code>
+        (both the WPF and Avalonia builds share the same <code class="inline">Directory.Build.props</code>,
+        so <code class="inline">App.dll</code>'s version is representative of either).
+      </p>
+    </section>
+
+    <hr class="rule" />
+
+    <section id="verify">
+      <h2><span class="num">&mdash;</span>How to verify this yourself</h2>
+      <pre class="code"><span class="c"># tags and their commit dates</span>
+git tag -l --sort=v:refname
+git log -1 --format="%ad %s" --date=short v1.1.0
+
+<span class="c"># files changed between versions</span>
+git diff --name-status v1.0.0 v1.1.0 -- src tests
+git diff --name-status v1.1.0 v1.2.0 -- src tests
+git diff --name-status v1.2.0 v1.2.1 -- src tests
+git diff --name-status v1.2.1 v1.2.2 -- src tests
+
+<span class="c"># every commit within each version window</span>
+git log --oneline v1.0.0..v1.1.0 -- src tests
+git log --oneline v1.1.0..v1.2.0 -- src tests
+git log --oneline v1.2.0..v1.2.1 -- src tests
+git log --oneline v1.2.1..v1.2.2 -- src tests
+
+<span class="c"># a specific commit's full diff</span>
+git show &lt;commit-hash&gt;
+
+<span class="c"># current test counts, per project</span>
+dotnet test tests/PdfBookmarkMerger.Core.Tests/PdfBookmarkMerger.Core.Tests.csproj --list-tests
+dotnet test tests/PdfBookmarkMerger.App.Tests/PdfBookmarkMerger.App.Tests.csproj --list-tests
+dotnet test tests/PdfBookmarkMerger.UiConverters.Tests/PdfBookmarkMerger.UiConverters.Tests.csproj --list-tests</pre>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="04-ui-design.html"><span class="dir">Previous</span>04. UI Frontend Design</a>
+      <a class="next" href="00-overview.html"><span class="dir">Back to start</span>00. Overview</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger Design Documentation &middot;
+      <a href="../ja/05-version-history.html">日本語</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

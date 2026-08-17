@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント — 02. Core層設計</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>設計ドキュメント</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html">概要</a></li>
+      <li><a href="01-architecture.html">アーキテクチャ</a></li>
+      <li><a href="02-core-design.html" class="current">Core層設計</a></li>
+      <li><a href="03-app-design.html">App層設計</a></li>
+      <li><a href="04-ui-design.html">UIフロントエンド設計</a></li>
+      <li><a href="05-version-history.html">バージョン間の差分</a></li>
+    </ol>
+    <div class="toc-foot">
+      v1.2.2時点<br />
+      <a href="../index.html">&larr; 索引</a><br />
+      <a href="../en/02-core-design.html">English</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 02 / 06</div>
+      <h1>Core層設計</h1>
+      <p class="sub">
+        <code class="inline">PdfBookmarkMerger.Core</code> はUIフレームワークに依存しないドメイン層で、
+        PDFの読み書きとしおり結合ロジックを持つ。すべての公開サービスは
+        <code class="inline">Core/ServiceCollectionExtensions.AddPdfBookmarkMergerCore()</code> で
+        Singleton登録される。
+      </p>
+    </header>
+
+    <section id="models">
+      <h2><span class="num">1</span>モデル(<span class="mono">Core/Models</span>)</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="mono">型</th><th>役割</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">BookmarkNode</td><td>しおり1件。<code class="inline">Title</code>・<code class="inline">DestinationType</code>(表示方法)・座標(<code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>)・<code class="inline">IsOpen</code>・<code class="inline">Children</code> を持つ。<code class="inline">SourceFileEntryId</code>+<code class="inline">OriginalPageIndex</code> の組が、抽出元PDF内でのジャンプ先ページを一意に特定する不変の識別情報。<code class="inline">MergedPageIndex</code> は結合後PDFにおけるページ番号(表示用の副次情報)。<code class="inline">PageOffset</code> はしおり設定画面での結合前ページ数の直接編集による差分(未編集時null、実際のPDF結合には一切影響しない書き出し・表示専用の調整値)。<code class="inline">Clone()</code> で自身+子孫の深いコピー(Idは再採番)を返す。</td></tr>
+            <tr><td class="mono">PdfFileEntry</td><td>結合対象ファイル一覧の1エントリ。<code class="inline">FilePath</code>・<code class="inline">PageCount</code>(未確定時null)。</td></tr>
+            <tr><td class="mono">PdfFileMetadata</td><td>1ファイルから読み取った <code class="inline">PageCount</code>・<code class="inline">Bookmarks</code>・<code class="inline">Properties</code> の集合。</td></tr>
+            <tr><td class="mono">PdfDocumentPropertiesModel</td><td>Title/Author/Subject/Keywords/Creator。結合後ファイルの既定プロパティは、結合対象の先頭PDFの値を流用する。</td></tr>
+            <tr><td class="mono">PdfMergeRequest</td><td><code class="inline">PdfMergeService.MergeAsync</code> への入力(ファイル順序・編集済みしおりツリー・出力プロパティ・保存先)。</td></tr>
+            <tr><td class="mono">MergeProgress</td><td><code class="inline">record(int CompletedFileCount, int TotalFileCount, string CurrentFileName)</code>。結合処理の進捗通知。</td></tr>
+            <tr><td class="mono">BookmarkDestinationType</td><td><code class="inline">XYZ</code> / <code class="inline">Fit</code> / <code class="inline">FitH</code> / <code class="inline">FitV</code> の4種のみ(バウンディングボックス指定の <code class="inline">FitB*</code>・矩形指定の <code class="inline">FitR</code> はUI非対応、読込時に簡略化する)。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code class="inline">BookmarkNode</code> は、しおりツリー上の位置(<code class="inline">SourceFileEntryId</code>+<code class="inline">OriginalPageIndex</code>)と
+        「結合後どこに表示されるか」(<code class="inline">MergedPageIndex</code>)を意図的に分離している。
+        これにより、結合順の並べ替えやファイル追加・削除があっても、ジャンプ先ページの特定に使う識別情報自体は変化しない。
+      </p>
+    </section>
+
+    <section id="services">
+      <h2><span class="num">2</span>ドメインサービス(<span class="mono">Core/Services</span>)</h2>
+
+      <h3><code class="inline">PdfFileCollectorService</code></h3>
+      <p>
+        <code class="inline">ExpandToPdfFilePaths(droppedPaths)</code> — D&amp;D/ダイアログで渡されたパス
+        (ファイル・フォルダ混在可)を実際のPDFファイルパス一覧へ展開する。フォルダは直下のみを対象
+        (子フォルダは非対象)とし、拡張子 <code class="inline">.pdf</code> 以外・存在しないパスは無視して
+        ログに記録する。
+      </p>
+
+      <h3><code class="inline">PdfMetadataService</code></h3>
+      <ul>
+        <li><code class="inline">ReadPageCountAsync(filePath)</code> — ページ数のみを高速に読み取る(ファイル一覧表示直後の暫定ページ数表示用)。</li>
+        <li><code class="inline">ReadMetadataAsync(file)</code> — ページ数・しおりツリー・ドキュメントプロパティをまとめて読み取る(しおり抽出段階で使用)。</li>
+      </ul>
+      <p>
+        しおり抽出(<code class="inline">ExtractOutlines</code>)は <code class="inline">PdfOutlineCollection</code> を
+        再帰的に辿り、各アウトラインのジャンプ先ページを、ページオブジェクトの参照比較で構築した辞書
+        (<code class="inline">BuildPageIndexLookup</code>、<code class="inline">ReferenceEqualityComparer</code> 使用)
+        から解決する。ジャンプ先ページが特定できないしおりは警告ログを出して読み飛ばす。
+      </p>
+      <p>2つの既知のPDFsharp 6.2.4回避策をこのサービス内に閉じ込めている。</p>
+      <ol>
+        <li><strong>NaN座標の正規化</strong>(<code class="inline">AsFiniteOrNull</code>) — 宛先タイプによって <code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code> がNaN/Infinityを返すことがある。そのまま保持するとUndoスナップショットのJSON化で例外になり、出力PDFへも不正な値のまま書き戻されるため、未指定を表す <code class="inline">null</code> へ正規化する。</li>
+        <li><strong>開閉状態の読み取り</strong>(<code class="inline">ReadOpened</code>) — <code class="inline">PdfOutline.Opened</code> は開閉状態を表す <code class="inline">/Count</code> の符号を正しく解釈できない既知の不具合があるため、<code class="inline">/Count</code> を直接読み取って回避する(<code class="inline">/Count</code> 自体は正しく書き込まれている)。<code class="inline">/Count</code> が存在しない葉ノード等はライブラリの既定値にフォールバックする。</li>
+      </ol>
+
+      <h3><code class="inline">MissingBookmarkFallback</code></h3>
+      <p>
+        <code class="inline">ResolveEffectiveBookmarks(orderedFiles, metadataByFileId)</code> —
+        しおりを1件も持たないPDFについて、ファイル名(拡張子なし)をタイトルとするしおりを補った
+        「実効しおりリスト」をファイルごとに解決する。表示方法(<code class="inline">DestinationType</code>)は
+        直前のファイルの設定を参考にする(座標は引き継がない)。入力は変更せず、都度新規生成した結果を返す
+        非破壊設計。
+      </p>
+
+      <h3><code class="inline">BookmarkOffsetCalculator</code></h3>
+      <p>
+        <code class="inline">ComputeMergedBookmarks(orderedFiles, effectiveBookmarksByFileId, metadataByFileId)</code>
+        — ファイル結合順に基づき累積ページ数オフセットを計算し、各しおりの
+        <code class="inline">MergedPageIndex</code> を設定した複製ツリー(ファイル順に連結)を返す。
+        入力は変更しない。
+      </p>
+
+      <h3><code class="inline">PdfMergeService</code></h3>
+      <p><code class="inline">MergeAsync(request, progress, ct)</code> は2フェーズで構成される。</p>
+      <ol>
+        <li><strong>フェーズ1(並列)</strong>: 各入力PDFを <code class="inline">PdfReader.Open</code> で開く(ディスクI/O・構造解析)。<code class="inline">SemaphoreSlim</code> で同時実行数を <code class="inline">Math.Clamp(Environment.ProcessorCount, 1, 8)</code> に制限し、スレッドプール枯渇・ファイルハンドル過多を避ける。</li>
+        <li><strong>フェーズ2(単一スレッド)</strong>: 開いた各PDFのページを出力 <code class="inline">PdfDocument</code> へ追加する(<code class="inline">AddPage</code>、高速なメモリ内コピーが中心)。ページ追加のたびに <code class="inline">MergeProgress</code> を報告する。</li>
+      </ol>
+      <p>
+        その後 <code class="inline">ApplyBookmarks</code> が
+        <code class="inline">(SourceFileEntryId, OriginalPageIndex)</code> &rarr; 実ページのマップを使って
+        出力側にアウトラインを再構築する。子を持つノードでは、PDFsharp 6.2.4が第1階層以外で
+        <code class="inline">/Count</code>(開閉状態)を書き込まない既知の不具合を、保存前に
+        <code class="inline">Elements.SetInteger("/Count", ...)</code> を直接呼んで回避する。
+      </p>
+      <p>
+        フェーズ1で一部のファイルだけ開けた状態(パスワード保護・破損・他プロセスによるロック、または
+        キャンセル)でも、既に開けた分は必ず <code class="inline">Dispose</code> するよう、フェーズ1・2全体を
+        1つの <code class="inline">try/finally</code> で囲んでいる。
+      </p>
+
+      <h3><code class="inline">BookmarkSettingsExportService</code> <span class="badge ok">v1.2.0&#12316;</span></h3>
+      <p>
+        <code class="inline">ExportAsync(bookmarks, outputPath, ct)</code> — しおりツリーを
+        「しおり設定ファイル仕様」(UTF-8のXML、ルート <code class="inline">&lt;Bookmark&gt;</code> 直下に
+        <code class="inline">&lt;Title Page="..." Action="GoTo"&gt;</code> を入れ子で並べる形式)へ書き出す。
+        <code class="inline">Page</code> 属性はPDF Referenceの表示方法(Fit/FitH/FitV/XYZ)と同じ引数順で
+        出力し、未設定(null)の引数は仕様上0と同義であるため0を代用する。XML宣言行は
+        <code class="inline">XmlWriter</code> の既定出力(小文字 <code class="inline">"utf-8"</code>)が
+        仕様書の例と一致しないため、手書きで出力している。
+      </p>
+
+      <h3><code class="inline">BookmarkDestinationTypeMapper</code> <span class="tag">internal</span></h3>
+      <p>
+        <code class="inline">Core.Models.BookmarkDestinationType</code> &hArr; PDFsharpの
+        <code class="inline">PdfPageDestinationType</code> を相互変換する。Modelsをライブラリ非依存に保つため、
+        変換ロジックはServices層に配置している。
+      </p>
+    </section>
+
+    <section id="pipeline">
+      <h2><span class="num">3</span>Core層の処理パイプライン全体図</h2>
+      <figure class="diagram-wrap">
+        <img src="../diagrams/merge-pipeline.svg" alt="Core層の処理パイプライン" />
+        <figcaption>ファイル収集 &rarr; メタデータ抽出 &rarr; 補完 &rarr; オフセット計算 &rarr; 編集 &rarr; 結合/XML出力</figcaption>
+      </figure>
+      <p>
+        図中、破線より上の4段階(<code class="inline">PdfFileCollectorService</code> &rarr;
+        <code class="inline">PdfMetadataService</code> &rarr; <code class="inline">MissingBookmarkFallback</code>
+        &rarr; <code class="inline">BookmarkOffsetCalculator</code>)はいずれも入力を変更しない読み取り専用の変換
+        (<code class="inline">Clone()</code> ベース)であり、<code class="inline">BookmarkTreeViewModel.Load</code>
+        に渡った時点で初めて編集可能な状態(App層)になる。編集後のツリーは
+        <code class="inline">ToModel()</code>(PDF結合用)・<code class="inline">ToExportModel()</code>
+        (しおり設定ファイル書き出し用、結合前ページ数編集の連鎖反映込み)の2通りの形で再びCore層の
+        サービスへ渡される。
+      </p>
+    </section>
+
+    <div class="next-prev">
+      <a class="prev" href="01-architecture.html"><span class="dir">前へ</span>01. アーキテクチャ</a>
+      <a class="next" href="03-app-design.html"><span class="dir">次へ</span>03. App層設計</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger 設計ドキュメント &middot;
+      <a href="../en/02-core-design.html">English</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

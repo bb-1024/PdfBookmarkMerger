@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 460" font-family="Consolas, 'Cascadia Mono', 'SF Mono', monospace">
+  <defs>
+    <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3b4257"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="460" fill="#ffffff"/>
+  <text x="470" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#1b1f27">Core domain pipeline: files &#8594; extracted bookmarks &#8594; edited tree &#8594; output</text>
+
+  <!-- Step boxes -->
+  <g font-size="11">
+    <rect x="20"  y="70" width="150" height="92" rx="7" fill="#fdeef0" stroke="#a6294a" stroke-width="1.4"/>
+    <text x="95" y="92" text-anchor="middle" font-weight="700">PdfFileCollector-</text>
+    <text x="95" y="106" text-anchor="middle" font-weight="700">Service</text>
+    <text x="34" y="126">dropped paths</text>
+    <text x="34" y="140">(files + folders)</text>
+    <text x="34" y="154">&#8594; flat PDF path list</text>
+
+    <rect x="205" y="70" width="150" height="92" rx="7" fill="#fdeef0" stroke="#a6294a" stroke-width="1.4"/>
+    <text x="280" y="92" text-anchor="middle" font-weight="700">PdfMetadataService</text>
+    <text x="219" y="112">per file: PageCount,</text>
+    <text x="219" y="126">Bookmarks (nested),</text>
+    <text x="219" y="140">Document properties</text>
+    <text x="219" y="154">&#8594; PdfFileMetadata</text>
+
+    <rect x="390" y="70" width="160" height="92" rx="7" fill="#fdeef0" stroke="#a6294a" stroke-width="1.4"/>
+    <text x="470" y="92" text-anchor="middle" font-weight="700">MissingBookmark-</text>
+    <text x="470" y="106" text-anchor="middle" font-weight="700">Fallback</text>
+    <text x="404" y="126">files with 0 bookmarks</text>
+    <text x="404" y="140">get a filename bookmark</text>
+    <text x="404" y="154">&#8594; effective bookmarks</text>
+
+    <rect x="585" y="70" width="160" height="92" rx="7" fill="#fdeef0" stroke="#a6294a" stroke-width="1.4"/>
+    <text x="665" y="92" text-anchor="middle" font-weight="700">BookmarkOffset-</text>
+    <text x="665" y="106" text-anchor="middle" font-weight="700">Calculator</text>
+    <text x="599" y="126">+ cumulative page count</text>
+    <text x="599" y="140">of preceding files</text>
+    <text x="599" y="154">&#8594; MergedPageIndex set</text>
+
+    <rect x="780" y="70" width="140" height="92" rx="7" fill="#eef2ff" stroke="#3b4a7a" stroke-width="1.4"/>
+    <text x="850" y="92" text-anchor="middle" font-weight="700">BookmarkTree-</text>
+    <text x="850" y="106" text-anchor="middle" font-weight="700">ViewModel.Load</text>
+    <text x="794" y="126">interactive tree editor</text>
+    <text x="794" y="140">(App layer, step 2/3</text>
+    <text x="794" y="154">of the 4-step workflow)</text>
+  </g>
+
+  <line x1="170" y1="116" x2="203" y2="116" stroke="#3b4257" stroke-width="1.4" marker-end="url(#a3)"/>
+  <line x1="355" y1="116" x2="388" y2="116" stroke="#3b4257" stroke-width="1.4" marker-end="url(#a3)"/>
+  <line x1="550" y1="116" x2="583" y2="116" stroke="#3b4257" stroke-width="1.4" marker-end="url(#a3)"/>
+  <line x1="745" y1="116" x2="778" y2="116" stroke="#3b4257" stroke-width="1.4" marker-end="url(#a3)"/>
+
+  <text x="470" y="200" text-anchor="middle" font-size="11" fill="#6b7386">user edits titles / destinations / order / pre-merge page numbers &#8212; each change is snapshotted for Undo</text>
+  <line x1="850" y1="162" x2="850" y2="230" stroke="#8b95a6" stroke-width="1.3" stroke-dasharray="4,3"/>
+
+  <!-- Outputs -->
+  <rect x="600" y="250" width="180" height="90" rx="7" fill="#eefbf3" stroke="#2f7a52" stroke-width="1.4"/>
+  <text x="690" y="272" text-anchor="middle" font-weight="700" font-size="11">PdfMergeService</text>
+  <text x="690" y="288" text-anchor="middle" font-size="10.3">.MergeAsync(PdfMergeRequest)</text>
+  <text x="616" y="308" font-size="10.3">opens inputs in parallel,</text>
+  <text x="616" y="322" font-size="10.3">writes merged PDF + outline</text>
+
+  <rect x="380" y="250" width="180" height="90" rx="7" fill="#eefbf3" stroke="#2f7a52" stroke-width="1.4"/>
+  <text x="470" y="272" text-anchor="middle" font-weight="700" font-size="11">BookmarkSettingsExport-</text>
+  <text x="470" y="286" text-anchor="middle" font-weight="700" font-size="11">Service</text>
+  <text x="396" y="306" font-size="10.3">.ExportAsync(...)</text>
+  <text x="396" y="320" font-size="10.3">&#8594; &lt;Bookmark&gt; XML file,</text>
+  <text x="396" y="334" font-size="10.3">independent of merging</text>
+
+  <path d="M 850 232 C 850 260, 780 260, 690 253" fill="none" stroke="#3b4257" stroke-width="1.3" marker-end="url(#a3)"/>
+  <path d="M 850 232 C 850 260, 620 260, 470 253" fill="none" stroke="#3b4257" stroke-width="1.3" marker-end="url(#a3)"/>
+  <text x="700" y="235" font-size="10" fill="#6b7386">.ToModel()</text>
+  <text x="510" y="235" font-size="10" fill="#6b7386">.ToExportModel()</text>
+
+  <rect x="380" y="380" width="400" height="60" rx="7" fill="#f5f6fa" stroke="#c3c9d6" stroke-width="1.1"/>
+  <text x="400" y="402" font-size="10.7" fill="#2b2f3a">All four steps above the dashed line are pure, read-only transforms of</text>
+  <text x="400" y="418" font-size="10.7" fill="#2b2f3a">BookmarkNode trees &#8212; none of them mutate their inputs (Clone()-based).</text>
+</svg>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfBookmarkMerger 設計ドキュメント — 00. 概要</title>
+<link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="word">PdfBookmarkMerger<small>設計ドキュメント</small></div>
+    </div>
+    <ol>
+      <li><a href="00-overview.html" class="current">概要</a></li>
+      <li><a href="01-architecture.html">アーキテクチャ</a></li>
+      <li><a href="02-core-design.html">Core層設計</a></li>
+      <li><a href="03-app-design.html">App層設計</a></li>
+      <li><a href="04-ui-design.html">UIフロントエンド設計</a></li>
+      <li><a href="05-version-history.html">バージョン間の差分</a></li>
+    </ol>
+    <div class="toc-foot">
+      v1.2.2時点<br />
+      <a href="../index.html">&larr; 索引</a><br />
+      <a href="../en/00-overview.html">English</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="doc-head" id="top">
+      <div class="eyebrow">Design Documentation — 00 / 06</div>
+      <h1>PdfBookmarkMerger 設計ドキュメント<br />概要</h1>
+      <div class="chips">
+        <span class="chip">v1.0.0 〜 v1.2.2</span>
+        <span class="chip">.NET 10</span>
+        <span class="chip">WPF-UI / Avalonia</span>
+      </div>
+    </header>
+
+    <div class="notice">
+      <p><strong>このドキュメントについて</strong> — 本ドキュメント群は、リポジトリに存在するタグ付きバージョン
+      (<code class="inline">v1.0.0</code> / <code class="inline">v1.1.0</code> / <code class="inline">v1.2.0</code> /
+      <code class="inline">v1.2.1</code> / <code class="inline">v1.2.2</code>)の<strong>実際のソースコード・コミット履歴</strong>
+      を出発点として書き起こしています。各記述がどのバージョンの何のコミットに由来するかは
+      <a href="05-version-history.html">05-version-history.html</a> で個別に追跡できるようにしています。
+      英語版は <code class="inline">docs/en/</code> に同じ構成で置いています。</p>
+    </div>
+
+    <section id="what-is-this">
+      <h2><span class="num">1</span>これは何のアプリか</h2>
+      <p>
+        <strong>PdfBookmarkMerger</strong> は、複数のPDFファイルを1つに結合しつつ、結合後PDFのしおり(Outline)を
+        自動抽出・手動編集できるデスクトップアプリです。Windows向けの<strong>WPF(WPF-UI)版</strong>と、
+        Windows/macOS向けの<strong>Avalonia版</strong>の2フロントエンドを、共通のドメイン層・ViewModel層の上に
+        構築しています。
+      </p>
+      <p>主な機能:</p>
+      <ul>
+        <li>結合対象PDFファイルの指定(ドラッグ&amp;ドロップ、ファイル/フォルダ選択ダイアログ)と並べ替え</li>
+        <li>各PDFからのしおり自動抽出、しおりを持たないPDFへのファイル名しおりの自動補完</li>
+        <li>しおりツリーの編集(タイトル・表示方法・座標・開閉状態・階層・並び順)、Undo対応</li>
+        <li>結合前ページ数の直接編集(該当ページ以降・後続ファイルへの連鎖反映)</li>
+        <li>PDF結合・保存、しおり設定ファイル(XML)単体でのエクスポート</li>
+        <li>日本語/英語UI切り替え、ライト/ダーク/システム追従テーマ</li>
+      </ul>
+    </section>
+
+    <section id="techstack">
+      <h2><span class="num">2</span>技術スタック</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>分類</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td>ランタイム</td><td>.NET 10</td></tr>
+            <tr><td>WPF版UI</td><td>WPF-UI(<code class="inline">Wpf.Ui.Controls.FluentWindow</code>)</td></tr>
+            <tr><td>Avalonia版UI</td><td>Avalonia(Fluentテーマ、<code class="inline">WithInterFont()</code>)</td></tr>
+            <tr><td>MVVM基盤</td><td><a href="https://github.com/runceel/ReactiveProperty">Reactive.Bindings</a>(<code class="inline">ReactivePropertySlim&lt;T&gt;</code>, <code class="inline">ReactiveCommand</code>, <code class="inline">AsyncReactiveCommand</code>)</td></tr>
+            <tr><td>DI / ホスティング</td><td><code class="inline">Microsoft.Extensions.Hosting</code> の Generic Host + <code class="inline">Microsoft.Extensions.DependencyInjection</code></td></tr>
+            <tr><td>設定</td><td><code class="inline">Microsoft.Extensions.Configuration</code>(<code class="inline">appsettings.json</code> + ユーザー設定ファイルの2階層)</td></tr>
+            <tr><td>ログ</td><td>Serilog(日次ローリングファイル、Debug構成のみコンソール追加)</td></tr>
+            <tr><td>PDF処理</td><td><a href="https://github.com/empira/PDFsharp">PDFsharp</a> 6.2.4</td></tr>
+            <tr><td>テスト</td><td>xUnit + <a href="https://github.com/shouldly/shouldly">Shouldly</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="layout">
+      <h2><span class="num">3</span>プロジェクト構成(v1.2.2時点)</h2>
+      <pre class="code">src/
+  PdfBookmarkMerger.Core/       <span class="c"># ドメイン層(モデル・PDF入出力・結合ロジック、UI非依存)</span>
+  PdfBookmarkMerger.App/        <span class="c"># ViewModel層・アプリ共通サービス(UI非依存、DI組み立ての中心)</span>
+  PdfBookmarkMerger.Wpf/        <span class="c"># WPF-UIフロントエンド(net10.0-windows)</span>
+  PdfBookmarkMerger.Avalonia/   <span class="c"># Avaloniaフロントエンド(net10.0)</span>
+tests/
+  PdfBookmarkMerger.Core.Tests/         <span class="c"># Core層のテスト(24件)</span>
+  PdfBookmarkMerger.App.Tests/          <span class="c"># App層ViewModelのテスト(91件)</span>
+  PdfBookmarkMerger.UiConverters.Tests/ <span class="c"># WPF/Avalonia双方のConverterを実行するゴールデンテスト(33件)</span>
+  sample/                                <span class="c"># 手動確認・回帰テスト用の実サンプルPDF</span>
+tools/
+  PdfBookmarkMerger.SampleGenerator/    <span class="c"># tests/sample配下のサンプルPDFを生成する補助ツール</span>
+scripts/
+  publish-wpf-release.ps1               <span class="c"># WPF版のリリースビルド(自己完結・単一ファイル)生成スクリプト</span></pre>
+      <p>
+        依存方向は一方向(<code class="inline">Wpf</code>/<code class="inline">Avalonia</code> &rarr;
+        <code class="inline">App</code> &rarr; <code class="inline">Core</code>)で、<code class="inline">Core</code>・
+        <code class="inline">App</code> はいずれもUIフレームワークに依存しません。詳細は
+        <a href="01-architecture.html">01-architecture.html</a> を参照してください。
+      </p>
+    </section>
+
+    <section id="workflow">
+      <h2><span class="num">4</span>アプリの基本フロー(4ステップ)</h2>
+      <p>
+        <code class="inline">MainWindowViewModel.Step</code>(<code class="inline">WorkflowStep</code>列挙型)が
+        画面遷移を管理します。
+      </p>
+      <ol>
+        <li><strong>ファイル指定</strong>(<code class="inline">WorkflowStep.SelectFiles</code>) — D&amp;D/ダイアログでPDFを追加し、並び順を確定する。この並び順がそのまま結合順になる。</li>
+        <li><strong>しおり抽出</strong>(<code class="inline">WorkflowStep.EditBookmarks</code> に入る直前) — <code class="inline">ConfirmFilesCommand</code> が全ファイルのメタデータを並列読み込みし、しおり抽出・結合後ページ番号の計算までを行う。</li>
+        <li><strong>しおり編集</strong>(<code class="inline">WorkflowStep.EditBookmarks</code>) — 抽出結果をツリーとして編集する。</li>
+        <li><strong>結合・保存</strong> — <code class="inline">MergeCommand</code> でPDFを結合・保存する(または <code class="inline">SaveBookmarkSettingsCommand</code> でしおり設定ファイルのみを書き出す)。</li>
+      </ol>
+    </section>
+
+    <section id="doc-structure">
+      <h2><span class="num">5</span>ドキュメント構成</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ファイル</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="mono"><a href="01-architecture.html">01-architecture.html</a></td><td>レイヤー構成・DI組み立て・横断的関心事(ログ・i18n・Undo・busy/progress)</td></tr>
+            <tr><td class="mono"><a href="02-core-design.html">02-core-design.html</a></td><td>Core層: モデル・ドメインサービスの詳細設計</td></tr>
+            <tr><td class="mono"><a href="03-app-design.html">03-app-design.html</a></td><td>App層: ViewModel・アプリサービスの詳細設計</td></tr>
+            <tr><td class="mono"><a href="04-ui-design.html">04-ui-design.html</a></td><td>WPF/Avaloniaフロントエンドの詳細設計(コードビハインド・Converter)</td></tr>
+            <tr><td class="mono"><a href="05-version-history.html">05-version-history.html</a></td><td>v1.0.0&rarr;v1.1.0&rarr;v1.2.0&rarr;v1.2.1&rarr;v1.2.2の設計上の差分と、その確認方法</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="verification">
+      <h2><span class="num">6</span>この文書の裏付け方法</h2>
+      <p>本ドキュメント群の内容は、以下の方法で実際のリポジトリ状態から確認しています。</p>
+      <ul>
+        <li>現行設計の記述: HEAD(<code class="inline">v1.2.2</code>)時点の該当ソースファイルを直接参照</li>
+        <li>バージョン間差分の記述: <code class="inline">git diff --name-status &lt;前バージョンタグ&gt; &lt;対象バージョンタグ&gt; -- src tests</code> で変更ファイル一覧を洗い出した上で、各差分の内容を個別に確認</li>
+        <li>テスト件数: <code class="inline">dotnet test &lt;プロジェクト&gt;.csproj --list-tests</code> の実出力件数(HEAD時点)</li>
+      </ul>
+      <p>
+        読者自身が再確認する場合は、<a href="05-version-history.html">05-version-history.html</a>
+        末尾のコマンド例をそのまま実行してください。
+      </p>
+    </section>
+
+    <div class="next-prev">
+      <span></span>
+      <a class="next" href="01-architecture.html"><span class="dir">次へ</span>01. アーキテクチャ</a>
+    </div>
+
+    <footer class="doc-foot">
+      PdfBookmarkMerger 設計ドキュメント &middot;
+      <a href="../en/00-overview.html">English</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>
