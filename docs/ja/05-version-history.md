@@ -1,4 +1,4 @@
-# 05. バージョン間の設計差分(v1.0.0 → v1.2.2)
+# 05. バージョン間の設計差分(v1.0.0 → v1.2.3)
 
 このドキュメントは、`git diff --name-status <前バージョン> <対象バージョン> -- src tests` で
 洗い出した変更ファイル一覧と、該当コミットの内容(`git show <commit>`)を個別に確認した上で
@@ -13,6 +13,7 @@
 | `v1.2.0` | 2026-08-03 | `9822c18` |
 | `v1.2.1` | 2026-08-12 | `b61d2ee` |
 | `v1.2.2` | 2026-08-17 | `0bc7147` |
+| `v1.2.3` | 2026-08-18 | `2bd2b45` |
 
 ---
 
@@ -193,6 +194,37 @@ AppDataフォルダへ統一した。
 
 ---
 
+<a id="v123"></a>
+## v1.2.3(2026-08-18)
+
+1個のコミット(`0e593eb`)。ユーザー報告に基づく不具合修正1件。
+(なお `v1.2.2` タグと `v1.2.3` タグの間には、v1.2.2のドキュメント同期作業の一部だった
+`97b4df2` によるコメント修正(`ConverterParityTests.cs` の参照先を
+`design.html` → `docs/ja/04-ui-design.html` へ更新、動作に影響なし)も含まれる。)
+
+### `0e593eb` PDF結合後、ページ内リンクのジャンプ先が壊れる不具合の修正
+
+複数PDFを結合すると、各PDF内に元々あったページ内リンク(GoTo型の内部リンク)のジャンプ先が
+正しくなくなる不具合が報告された。原因はPDFsharpの `AddPage` にある。ページと注釈自体
+(`/Subtype /Link`)は複製するが、しおりと異なり、リンクの `/Dest` や `/A`(GoToアクション)の
+`/D` が参照するページオブジェクトまでは結合後のものに書き換えない。実際に再現用のテストPDFで
+確認したところ、結合後のリンクは結合結果内に存在しないオブジェクトを指す(ダングリング参照になる)
+ことが確かめられた。
+
+修正は `ApplyBookmarks` が使っている `pageMap`(`(SourceFileEntryId, OriginalPageIndex)` → 実ページ)
+と同じ考え方を、`PdfMergeService` のページ結合ループに追加する形で行った。ファイルごとに
+「ソースページオブジェクトのID → 元ページ番号」の対応表(`sourcePageIndexByObjectId`)を構築し、
+各ページ内リンク注釈の `/Dest`・`/A/D` が指す元ページ番号を特定した上で、`pageMap` で結合後の
+実ページに解決し、コピー済み注釈の配列先頭要素(ページ参照)を直接書き換える。名前付きジャンプ先
+(`/Dest` が名前・文字列で表現されるもの)は対象外。詳細設計は
+[02-core-design.md §2.5](02-core-design.md#link-remap) を参照。
+
+回帰テストとして、`/Dest` に直接ページ参照を持つ形式と、`/A`(GoToアクション)の `/D` にページ参照を
+持つ形式の両方について、結合後のジャンプ先が正しい結合後ページを指すことを検証するテストを追加した
+(`PdfMergeServiceTests`)。
+
+---
+
 ## 確認方法
 
 以下のコマンドを実行すると、本ドキュメントの記述を自分で再確認できる。
@@ -207,12 +239,14 @@ git diff --name-status v1.0.0 v1.1.0 -- src tests
 git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
+git diff --name-status v1.2.2 v1.2.3 -- src tests
 
 # バージョン間の全コミット(区間内の個別コミットメッセージ)
 git log --oneline v1.0.0..v1.1.0 -- src tests
 git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
+git log --oneline v1.2.2..v1.2.3 -- src tests
 
 # 個別コミットの詳細diff
 git show <コミットハッシュ>

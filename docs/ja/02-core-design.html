@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.2.2時点<br />
+      v1.2.3時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/02-core-design.html">English</a>
     </div>
@@ -125,6 +125,21 @@
         フェーズ1で一部のファイルだけ開けた状態(パスワード保護・破損・他プロセスによるロック、または
         キャンセル)でも、既に開けた分は必ず <code class="inline">Dispose</code> するよう、フェーズ1・2全体を
         1つの <code class="inline">try/finally</code> で囲んでいる。
+      </p>
+
+      <h4 id="link-remap">ページ内リンクのジャンプ先付け替え <span class="badge ok">v1.2.3&#12316;</span></h4>
+      <p>
+        PDFsharpの <code class="inline">AddPage</code> はページ内リンク注釈(<code class="inline">/Subtype /Link</code>)
+        自体は複製するが、しおりと異なり、リンクのジャンプ先(<code class="inline">/Dest</code> または
+        <code class="inline">/A</code>(GoToアクション)の <code class="inline">/D</code>)が参照するページオブジェクトまでは
+        結合後のものに書き換えない。そのため放置すると、リンク先が結合後のPDF内に存在しないオブジェクトを指す
+        (ダングリング参照になる)、または無関係な別ページを指してしまう不具合があった。
+        <code class="inline">ApplyBookmarks</code> と同じ <code class="inline">pageMap</code> の考え方を用い、
+        ファイルごとに構築した「ソースページオブジェクトのID &rarr; 元ページ番号」の対応表
+        (<code class="inline">sourcePageIndexByObjectId</code>)経由でジャンプ先の元ページ番号を特定し、
+        <code class="inline">pageMap</code> で結合後の実ページに解決してから、コピー済み注釈の
+        <code class="inline">/Dest</code>・<code class="inline">/A/D</code> 配列の先頭要素(ページ参照)を直接書き換える。
+        名前付きジャンプ先(<code class="inline">/Dest</code> が名前・文字列で表現されるもの)は対象外。
       </p>
 
       <h3><code class="inline">BookmarkSettingsExportService</code> <span class="badge ok">v1.2.0&#12316;</span></h3>

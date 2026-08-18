@@ -84,6 +84,18 @@ Even if only some files managed to open in Phase 1 (password-protected/corrupted
 process, or a cancellation), everything opened so far is still guaranteed to get `Dispose`d, since
 Phases 1 and 2 are wrapped together in a single `try/finally`.
 
+**Remapping in-page link destinations (since v1.2.3)**: PDFsharp's `AddPage` duplicates page-internal
+link annotations (`/Subtype /Link`) themselves, but unlike bookmarks, it does not rewrite the page
+object referenced by a link's destination (`/Dest`, or `/A`'s (GoTo action) `/D`) to point at the
+merged output. Left unhandled, this meant a link's destination could end up as a dangling reference to
+an object that doesn't exist in the merged PDF, or could resolve to the wrong page entirely. The fix
+reuses the same `pageMap` idea `ApplyBookmarks` relies on: for each file it builds a
+"source page object ID → original page index" lookup (`sourcePageIndexByObjectId`), uses it to
+identify which original page a destination pointed at, resolves that through `pageMap` to the correct
+merged page, and then overwrites the first element (the page reference) of the copied annotation's
+`/Dest`/`/A`/`D` array in place. Named destinations (where `/Dest` is a name or string) are out of
+scope.
+
 ### 2.6 `BookmarkSettingsExportService` (since v1.2.0)
 
 `ExportAsync(bookmarks, outputPath, ct)` — writes the bookmark tree out per the "bookmark settings

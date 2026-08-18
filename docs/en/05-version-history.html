@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html" class="current">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.2.2<br />
+      as of v1.2.3<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/05-version-history.html">日本語</a>
     </div>
@@ -31,7 +31,7 @@
   <main>
     <header class="doc-head" id="top">
       <div class="eyebrow">Design Documentation — 05 / 06</div>
-      <h1>Design-Level Diffs Across Versions (v1.0.0 &rarr; v1.2.2)</h1>
+      <h1>Design-Level Diffs Across Versions (v1.0.0 &rarr; v1.2.3)</h1>
       <p class="sub">
         This document was assembled by enumerating changed files with
         <code class="inline">git diff --name-status &lt;previous version&gt; &lt;target version&gt; -- src tests</code>,
@@ -52,6 +52,7 @@
             <tr><td class="mono">v1.2.0</td><td>2026-08-03</td><td class="mono">9822c18</td></tr>
             <tr><td class="mono">v1.2.1</td><td>2026-08-12</td><td class="mono">b61d2ee</td></tr>
             <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
+            <tr><td class="mono">v1.2.3</td><td>2026-08-18</td><td class="mono">2bd2b45</td></tr>
           </tbody>
         </table>
       </div>
@@ -276,6 +277,53 @@
 
     <hr class="rule" />
 
+    <section id="v123">
+      <h2><span class="num">v1.2.3</span>2026-08-18</h2>
+      <p>
+        1 commit (<code class="inline">0e593eb</code>): one user-reported bug fix.
+        (Between the <code class="inline">v1.2.2</code> and <code class="inline">v1.2.3</code> tags there's
+        also <code class="inline">97b4df2</code>, a leftover comment fix from the v1.2.2 docs-sync work
+        &mdash; it updated <code class="inline">ConverterParityTests.cs</code>'s reference from
+        <code class="inline">design.html</code> to <code class="inline">docs/ja/04-ui-design.html</code>, with
+        no behavioral change.)
+      </p>
+
+      <h3><code class="inline">0e593eb</code> Fixed internal PDF links breaking after merge</h3>
+      <p>
+        A user reported that after merging multiple PDFs, page-internal links (internal GoTo-style
+        hyperlinks) that had originally pointed somewhere within their own source PDF no longer pointed at
+        the right place. The root cause was PDFsharp's <code class="inline">AddPage</code>: it duplicates the
+        page and its annotations (<code class="inline">/Subtype /Link</code>) themselves, but unlike
+        bookmarks, it never rewrites the page object referenced by a link's <code class="inline">/Dest</code>
+        or its <code class="inline">/A</code> (GoTo action) <code class="inline">/D</code> to point at the
+        merged output. A reproduction test built against an actual sample PDF confirmed that, after merging,
+        the link ended up as a dangling reference to an object that didn't exist anywhere in the merged
+        output.
+      </p>
+      <p>
+        The fix reuses the same idea behind <code class="inline">ApplyBookmarks</code>'s
+        <code class="inline">pageMap</code>
+        (<code class="inline">(SourceFileEntryId, OriginalPageIndex)</code> &rarr; actual page) inside
+        <code class="inline">PdfMergeService</code>'s page-merging loop: for each file it builds a
+        "source page object ID &rarr; original page index" lookup
+        (<code class="inline">sourcePageIndexByObjectId</code>), uses it to identify which original page every
+        link annotation's <code class="inline">/Dest</code>/<code class="inline">/A</code>/<code class="inline">D</code>
+        pointed at, resolves that through <code class="inline">pageMap</code> to the correct merged page, and
+        overwrites the first element (the page reference) of the copied annotation's array in place. Named
+        destinations (where <code class="inline">/Dest</code> is a name or string) are out of scope. See
+        <a href="02-core-design.html#link-remap">02-core-design.html &sect;2.5</a> for the detailed design.
+      </p>
+      <p>
+        Added regression tests covering both destination forms &mdash; a link with an explicit page
+        reference directly in <code class="inline">/Dest</code>, and one expressed via
+        <code class="inline">/A</code>'s GoTo action <code class="inline">/D</code> &mdash; verifying that
+        after a merge each one resolves to the correct merged page
+        (<code class="inline">PdfMergeServiceTests</code>).
+      </p>
+    </section>
+
+    <hr class="rule" />
+
     <section id="verify">
       <h2><span class="num">&mdash;</span>How to verify this yourself</h2>
       <pre class="code"><span class="c"># tags and their commit dates</span>
@@ -287,12 +335,14 @@ git diff --name-status v1.0.0 v1.1.0 -- src tests
 git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
+git diff --name-status v1.2.2 v1.2.3 -- src tests
 
 <span class="c"># every commit within each version window</span>
 git log --oneline v1.0.0..v1.1.0 -- src tests
 git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
+git log --oneline v1.2.2..v1.2.3 -- src tests
 
 <span class="c"># a specific commit's full diff</span>
 git show &lt;commit-hash&gt;

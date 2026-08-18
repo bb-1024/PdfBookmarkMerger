@@ -1,4 +1,4 @@
-# 05. Design-Level Diffs Across Versions (v1.0.0 → v1.2.2)
+# 05. Design-Level Diffs Across Versions (v1.0.0 → v1.2.3)
 
 This document was assembled by enumerating changed files with
 `git diff --name-status <previous version> <target version> -- src tests`, then individually
@@ -14,6 +14,7 @@ the end gives the exact commands so anyone can reproduce the same process.
 | `v1.2.0` | 2026-08-03 | `9822c18` |
 | `v1.2.1` | 2026-08-12 | `b61d2ee` |
 | `v1.2.2` | 2026-08-17 | `0bc7147` |
+| `v1.2.3` | 2026-08-18 | `2bd2b45` |
 
 ---
 
@@ -210,6 +211,39 @@ builds share the same `Directory.Build.props`, so `App.dll`'s version is represe
 
 ---
 
+<a id="v123"></a>
+## v1.2.3 (2026-08-18)
+
+1 commit (`0e593eb`): one user-reported bug fix.
+(Between the `v1.2.2` and `v1.2.3` tags there's also `97b4df2`, a leftover comment fix from the v1.2.2
+docs-sync work — it updated `ConverterParityTests.cs`'s reference from `design.html` to
+`docs/ja/04-ui-design.html`, with no behavioral change.)
+
+### `0e593eb` Fixed internal PDF links breaking after merge
+
+A user reported that after merging multiple PDFs, page-internal links (internal GoTo-style hyperlinks)
+that had originally pointed somewhere within their own source PDF no longer pointed at the right place.
+The root cause was PDFsharp's `AddPage`: it duplicates the page and its annotations
+(`/Subtype /Link`) themselves, but unlike bookmarks, it never rewrites the page object referenced by a
+link's `/Dest` or its `/A` (GoTo action) `/D` to point at the merged output. A reproduction test built
+against an actual sample PDF confirmed that, after merging, the link ended up as a dangling reference
+to an object that didn't exist anywhere in the merged output.
+
+The fix reuses the same idea behind `ApplyBookmarks`'s `pageMap`
+(`(SourceFileEntryId, OriginalPageIndex)` → actual page) inside `PdfMergeService`'s page-merging loop:
+for each file it builds a "source page object ID → original page index" lookup
+(`sourcePageIndexByObjectId`), uses it to identify which original page every link annotation's
+`/Dest`/`/A`/`D` pointed at, resolves that through `pageMap` to the correct merged page, and overwrites
+the first element (the page reference) of the copied annotation's array in place. Named destinations
+(where `/Dest` is a name or string) are out of scope. See
+[02-core-design.md §2.5](02-core-design.md#link-remap) for the detailed design.
+
+Added regression tests covering both destination forms — a link with an explicit page reference
+directly in `/Dest`, and one expressed via `/A`'s GoTo action `/D` — verifying that after a merge each
+one resolves to the correct merged page (`PdfMergeServiceTests`).
+
+---
+
 ## How to verify this yourself
 
 ```bash
@@ -222,12 +256,14 @@ git diff --name-status v1.0.0 v1.1.0 -- src tests
 git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
+git diff --name-status v1.2.2 v1.2.3 -- src tests
 
 # every commit within each version window
 git log --oneline v1.0.0..v1.1.0 -- src tests
 git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
+git log --oneline v1.2.2..v1.2.3 -- src tests
 
 # a specific commit's full diff
 git show <commit-hash>

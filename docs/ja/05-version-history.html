@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html" class="current">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.2.2時点<br />
+      v1.2.3時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/05-version-history.html">English</a>
     </div>
@@ -31,7 +31,7 @@
   <main>
     <header class="doc-head" id="top">
       <div class="eyebrow">Design Documentation — 05 / 06</div>
-      <h1>バージョン間の設計差分(v1.0.0 &rarr; v1.2.2)</h1>
+      <h1>バージョン間の設計差分(v1.0.0 &rarr; v1.2.3)</h1>
       <p class="sub">
         このドキュメントは、<code class="inline">git diff --name-status &lt;前バージョン&gt; &lt;対象バージョン&gt; -- src tests</code>
         で洗い出した変更ファイル一覧と、該当コミットの内容(<code class="inline">git show &lt;commit&gt;</code>)
@@ -51,6 +51,7 @@
             <tr><td class="mono">v1.2.0</td><td>2026-08-03</td><td class="mono">9822c18</td></tr>
             <tr><td class="mono">v1.2.1</td><td>2026-08-12</td><td class="mono">b61d2ee</td></tr>
             <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
+            <tr><td class="mono">v1.2.3</td><td>2026-08-18</td><td class="mono">2bd2b45</td></tr>
           </tbody>
         </table>
       </div>
@@ -262,6 +263,48 @@
 
     <hr class="rule" />
 
+    <section id="v123">
+      <h2><span class="num">v1.2.3</span>2026-08-18</h2>
+      <p>
+        1個のコミット(<code class="inline">0e593eb</code>)。ユーザー報告に基づく不具合修正1件。
+        (なお <code class="inline">v1.2.2</code> タグと <code class="inline">v1.2.3</code> タグの間には、
+        v1.2.2のドキュメント同期作業の一部だった <code class="inline">97b4df2</code> によるコメント修正
+        (<code class="inline">ConverterParityTests.cs</code> の参照先を <code class="inline">design.html</code>
+        &rarr; <code class="inline">docs/ja/04-ui-design.html</code> へ更新、動作に影響なし)も含まれる。)
+      </p>
+
+      <h3><code class="inline">0e593eb</code> PDF結合後、ページ内リンクのジャンプ先が壊れる不具合の修正</h3>
+      <p>
+        複数PDFを結合すると、各PDF内に元々あったページ内リンク(GoTo型の内部リンク)のジャンプ先が
+        正しくなくなる不具合が報告された。原因はPDFsharpの <code class="inline">AddPage</code> にある。
+        ページと注釈自体(<code class="inline">/Subtype /Link</code>)は複製するが、しおりと異なり、
+        リンクの <code class="inline">/Dest</code> や <code class="inline">/A</code>(GoToアクション)の
+        <code class="inline">/D</code> が参照するページオブジェクトまでは結合後のものに書き換えない。
+        実際に再現用のテストPDFで確認したところ、結合後のリンクは結合結果内に存在しないオブジェクトを
+        指す(ダングリング参照になる)ことが確かめられた。
+      </p>
+      <p>
+        修正は <code class="inline">ApplyBookmarks</code> が使っている <code class="inline">pageMap</code>
+        (<code class="inline">(SourceFileEntryId, OriginalPageIndex)</code> &rarr; 実ページ)と同じ考え方を、
+        <code class="inline">PdfMergeService</code> のページ結合ループに追加する形で行った。ファイルごとに
+        「ソースページオブジェクトのID &rarr; 元ページ番号」の対応表
+        (<code class="inline">sourcePageIndexByObjectId</code>)を構築し、各ページ内リンク注釈の
+        <code class="inline">/Dest</code>・<code class="inline">/A/D</code> が指す元ページ番号を特定した上で、
+        <code class="inline">pageMap</code> で結合後の実ページに解決し、コピー済み注釈の配列先頭要素
+        (ページ参照)を直接書き換える。名前付きジャンプ先(<code class="inline">/Dest</code> が名前・文字列で
+        表現されるもの)は対象外。詳細設計は
+        <a href="02-core-design.html#link-remap">02-core-design.html &sect;2.5</a> を参照。
+      </p>
+      <p>
+        回帰テストとして、<code class="inline">/Dest</code> に直接ページ参照を持つ形式と、
+        <code class="inline">/A</code>(GoToアクション)の <code class="inline">/D</code> にページ参照を持つ形式の
+        両方について、結合後のジャンプ先が正しい結合後ページを指すことを検証するテストを追加した
+        (<code class="inline">PdfMergeServiceTests</code>)。
+      </p>
+    </section>
+
+    <hr class="rule" />
+
     <section id="verify">
       <h2><span class="num">&mdash;</span>確認方法</h2>
       <p>以下のコマンドを実行すると、本ドキュメントの記述を自分で再確認できる。</p>
@@ -274,12 +317,14 @@ git diff --name-status v1.0.0 v1.1.0 -- src tests
 git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
+git diff --name-status v1.2.2 v1.2.3 -- src tests
 
 <span class="c"># バージョン間の全コミット(区間内の個別コミットメッセージ)</span>
 git log --oneline v1.0.0..v1.1.0 -- src tests
 git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
+git log --oneline v1.2.2..v1.2.3 -- src tests
 
 <span class="c"># 個別コミットの詳細diff</span>
 git show &lt;コミットハッシュ&gt;

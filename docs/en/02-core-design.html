@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.2.2<br />
+      as of v1.2.3<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/02-core-design.html">日本語</a>
     </div>
@@ -127,6 +127,23 @@
         process, or a cancellation), everything opened so far is still guaranteed to get
         <code class="inline">Dispose</code>d, since Phases 1 and 2 are wrapped together in a single
         <code class="inline">try/finally</code>.
+      </p>
+
+      <h4 id="link-remap">Remapping in-page link destinations <span class="badge ok">since v1.2.3</span></h4>
+      <p>
+        PDFsharp's <code class="inline">AddPage</code> duplicates page-internal link annotations
+        (<code class="inline">/Subtype /Link</code>) themselves, but unlike bookmarks, it does not rewrite the
+        page object referenced by a link's destination (<code class="inline">/Dest</code>, or
+        <code class="inline">/A</code>'s (GoTo action) <code class="inline">/D</code>) to point at the merged
+        output. Left unhandled, this meant a link's destination could end up as a dangling reference to an
+        object that doesn't exist in the merged PDF, or could resolve to the wrong page entirely. The fix
+        reuses the same <code class="inline">pageMap</code> idea <code class="inline">ApplyBookmarks</code>
+        relies on: for each file it builds a "source page object ID &rarr; original page index" lookup
+        (<code class="inline">sourcePageIndexByObjectId</code>), uses it to identify which original page a
+        destination pointed at, resolves that through <code class="inline">pageMap</code> to the correct merged
+        page, and then overwrites the first element (the page reference) of the copied annotation's
+        <code class="inline">/Dest</code>/<code class="inline">/A</code>/<code class="inline">D</code> array in
+        place. Named destinations (where <code class="inline">/Dest</code> is a name or string) are out of scope.
       </p>
 
       <h3><code class="inline">BookmarkSettingsExportService</code> <span class="badge ok">since v1.2.0</span></h3>

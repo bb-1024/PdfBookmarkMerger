@@ -2,7 +2,7 @@
 
 > **About this documentation**
 > Grounded in the **actual source code and commit history** of the tagged versions present in the
-> repository (`v1.0.0` / `v1.1.0` / `v1.2.0` / `v1.2.1` / `v1.2.2`). Every claim about which version
+> repository (`v1.0.0` / `v1.1.0` / `v1.2.0` / `v1.2.1` / `v1.2.2` / `v1.2.3`). Every claim about which version
 > something belongs to can be traced individually in
 > [05-version-history.md](05-version-history.md). The Japanese edition lives under `docs/ja/`
 > with the same file structure.
@@ -39,7 +39,7 @@ Key features:
 | PDF processing | [PDFsharp](https://github.com/empira/PDFsharp) 6.2.4 |
 | Testing | xUnit + [Shouldly](https://github.com/shouldly/shouldly) |
 
-## 3. Project layout (as of v1.2.2)
+## 3. Project layout (as of v1.2.3)
 
 ```
 src/
@@ -48,7 +48,7 @@ src/
   PdfBookmarkMerger.Wpf/        WPF-UI frontend (net10.0-windows)
   PdfBookmarkMerger.Avalonia/   Avalonia frontend (net10.0)
 tests/
-  PdfBookmarkMerger.Core.Tests/         Core-layer tests (24)
+  PdfBookmarkMerger.Core.Tests/         Core-layer tests (26)
   PdfBookmarkMerger.App.Tests/          App-layer ViewModel tests (91)
   PdfBookmarkMerger.UiConverters.Tests/ Golden tests exercising both WPF and Avalonia converters (33)
   sample/                                Real sample PDFs for manual/regression testing
@@ -82,13 +82,13 @@ depends on any UI framework. See [01-architecture.md](01-architecture.md) for de
 | [02-core-design.md](02-core-design.md) | Core layer: detailed design of models and domain services |
 | [03-app-design.md](03-app-design.md) | App layer: detailed design of ViewModels and app services |
 | [04-ui-design.md](04-ui-design.md) | WPF/Avalonia frontend detailed design (code-behind, converters) |
-| [05-version-history.md](05-version-history.md) | Design-level diffs across v1.0.0 → v1.1.0 → v1.2.0 → v1.2.1 → v1.2.2, and how to verify them |
+| [05-version-history.md](05-version-history.md) | Design-level diffs across v1.0.0 → v1.1.0 → v1.2.0 → v1.2.1 → v1.2.2 → v1.2.3, and how to verify them |
 
 ## 6. How this document is grounded
 
 The content here was verified against the actual repository state as follows:
 
-- Current-design descriptions: read directly from the relevant source file at HEAD (`v1.2.2`)
+- Current-design descriptions: read directly from the relevant source file at HEAD (`v1.2.3`)
 - Cross-version diff descriptions: enumerated with
   `git diff --name-status <previous tag> <target tag> -- src tests`, then each diff's content was
   individually inspected

@@ -2,7 +2,7 @@
 
 > **このドキュメントについて**
 > 本ドキュメント群は、リポジトリに存在するタグ付きバージョン
-> (`v1.0.0` / `v1.1.0` / `v1.2.0` / `v1.2.1` / `v1.2.2`)の
+> (`v1.0.0` / `v1.1.0` / `v1.2.0` / `v1.2.1` / `v1.2.2` / `v1.2.3`)の
 > **実際のソースコード・コミット履歴** を出発点として書き起こしています。
 > 各記述がどのバージョンの何のコミットに由来するかは [05-version-history.md](05-version-history.md)
 > で個別に追跡できるようにしています。英語版は `docs/en/` に同じ構成で置いています。
@@ -37,7 +37,7 @@ Windows/macOS向けの **Avalonia版** の2フロントエンドを、共通の�
 | PDF処理 | [PDFsharp](https://github.com/empira/PDFsharp) 6.2.4 |
 | テスト | xUnit + [Shouldly](https://github.com/shouldly/shouldly) |
 
-## 3. プロジェクト構成(v1.2.2時点)
+## 3. プロジェクト構成(v1.2.3時点)
 
 ```
 src/
@@ -46,7 +46,7 @@ src/
   PdfBookmarkMerger.Wpf/        WPF-UIフロントエンド(net10.0-windows)
   PdfBookmarkMerger.Avalonia/   Avaloniaフロントエンド(net10.0)
 tests/
-  PdfBookmarkMerger.Core.Tests/         Core層のテスト(24件)
+  PdfBookmarkMerger.Core.Tests/         Core層のテスト(26件)
   PdfBookmarkMerger.App.Tests/          App層ViewModelのテスト(91件)
   PdfBookmarkMerger.UiConverters.Tests/ WPF/Avalonia双方のConverterを実行するゴールデンテスト(33件)
   sample/                                手動確認・回帰テスト用の実サンプルPDF
@@ -79,13 +79,13 @@ scripts/
 | [02-core-design.md](02-core-design.md) | Core層: モデル・ドメインサービスの詳細設計 |
 | [03-app-design.md](03-app-design.md) | App層: ViewModel・アプリサービスの詳細設計 |
 | [04-ui-design.md](04-ui-design.md) | WPF/Avaloniaフロントエンドの詳細設計(コードビハインド・Converter) |
-| [05-version-history.md](05-version-history.md) | v1.0.0→v1.1.0→v1.2.0→v1.2.1→v1.2.2の設計上の差分と、その確認方法 |
+| [05-version-history.md](05-version-history.md) | v1.0.0→v1.1.0→v1.2.0→v1.2.1→v1.2.2→v1.2.3の設計上の差分と、その確認方法 |
 
 ## 6. この文書の裏付け方法
 
 本ドキュメント群の内容は、以下の方法で実際のリポジトリ状態から確認しています。
 
-- 現行設計の記述: HEAD(`v1.2.2`)時点の該当ソースファイルを直接参照
+- 現行設計の記述: HEAD(`v1.2.3`)時点の該当ソースファイルを直接参照
 - バージョン間差分の記述: `git diff --name-status <前バージョンタグ> <対象バージョンタグ> -- src tests`
   で変更ファイル一覧を洗い出した上で、各差分の内容を個別に確認
 - テスト件数: `dotnet test <プロジェクト>.csproj --list-tests` の実出力件数(HEAD時点)
