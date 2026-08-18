@@ -3,6 +3,8 @@ using PdfBookmarkMerger.Core.Models;
 using PdfBookmarkMerger.Core.Services;
 using PdfBookmarkMerger.Core.Tests.TestHelpers;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Advanced;
+using PdfSharp.Pdf.Annotations;
 using PdfSharp.Pdf.IO;
 using Shouldly;
 
@@ -199,6 +201,118 @@ public sealed class PdfMergeServiceTests : IDisposable
         reported.Select(p => p.CurrentFileName).ShouldBe(["progress-a.pdf", "progress-b.pdf", "progress-c.pdf"]);
         reported.Select(p => p.CompletedFileCount).ShouldBe([1, 2, 3]);
         reported.ShouldAllBe(p => p.TotalFileCount == 3);
+    }
+
+    [Fact]
+    public async Task MergeAsync_RemapsInternalLinkDestination_ExplicitDestArray_ToTheCorrectMergedPage()
+    {
+        // fileAの1ページ目に、同じfileA内の3ページ目(1始まりのdestinationPage:3、0始まりindex2)へジャンプする
+        // 内部リンク(/Destに直接ページを持つ形)を持たせる。fileBを前に置いて結合後にページがずれることを検証する。
+        var pathA = Path.Combine(_workDirectory, "link-dest-a.pdf");
+        using (var document = new PdfDocument())
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                document.AddPage();
+            }
+
+            var link = PdfLinkAnnotation.CreateDocumentLink(
+                new PdfSharp.Pdf.PdfRectangle(new PdfSharp.Drawing.XRect(10, 10, 100, 20)),
+                destinationPage: 3,
+                point: null);
+            document.Pages[0].Annotations.Add(link);
+
+            document.Save(pathA);
+        }
+
+        var pathB = Path.Combine(_workDirectory, "link-dest-b.pdf");
+        SamplePdfFactory.CreateWithoutBookmarks(pathB, pageCount: 2);
+
+        var fileB = new PdfFileEntry { FilePath = pathB };
+        var fileA = new PdfFileEntry { FilePath = pathA };
+
+        var request = new PdfMergeRequest
+        {
+            Files = [fileB, fileA],
+            Bookmarks = [],
+            Properties = PdfDocumentPropertiesModel.CreateEmpty(),
+            OutputPath = Path.Combine(_workDirectory, "link-dest-merged.pdf"),
+        };
+
+        await _sut.MergeAsync(request);
+
+        using var merged = PdfReader.Open(request.OutputPath, PdfDocumentOpenMode.Import);
+
+        // fileB(2ページ)の後にfileA(3ページ)が続くため、fileAの元1ページ目は結合後index2、
+        // リンク先の元3ページ目(index2)は結合後index4。
+        var linkAnnotation = merged.Pages[2].Annotations[0];
+        var destArray = linkAnnotation.Elements.GetArray("/Dest");
+        destArray.ShouldNotBeNull();
+        var destPageRef = (PdfReference)destArray.Elements[0]!;
+        destPageRef.ObjectID.ShouldBe(merged.Pages[4].ReferenceNotNull.ObjectID);
+    }
+
+    [Fact]
+    public async Task MergeAsync_RemapsInternalLinkDestination_ViaGoToAction_ToTheCorrectMergedPage()
+    {
+        // Acrobat等が生成する形式(/Destではなく/A(GoToアクション)/Dにジャンプ先を持つ形)も
+        // 同様に付け替えられることを検証する。
+        var pathA = Path.Combine(_workDirectory, "link-goto-a.pdf");
+        using (var document = new PdfDocument())
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                document.AddPage();
+            }
+
+            var link = PdfLinkAnnotation.CreateDocumentLink(
+                new PdfSharp.Pdf.PdfRectangle(new PdfSharp.Drawing.XRect(10, 10, 100, 20)),
+                destinationPage: 3,
+                point: null);
+
+            // PdfLinkAnnotationの/Destは内部フィールド経由で保存されるため、Elementsからの単純な
+            // 付け替え・使い回しでは正しく書き出せない(PDFsharp側の挙動)。/A(GoToアクション)/Dは、
+            // ページ参照を含む配列を新規に作り、文書のオブジェクトテーブルへ間接オブジェクトとして
+            // 明示的に登録した上で参照させることで、実際のツールが出力する形を再現する。
+            var destArray = new PdfArray(document);
+            destArray.Elements.Add(document.Pages[2].ReferenceNotNull);
+            destArray.Elements.Add(new PdfName("/Fit"));
+
+            var action = new PdfDictionary(document);
+            action.Elements.SetName("/S", "/GoTo");
+            action.Elements.SetValue("/D", destArray);
+            document.Internals.AddObject(action);
+            link.Elements.SetReference("/A", action);
+
+            document.Pages[0].Annotations.Add(link);
+            document.Save(pathA);
+        }
+
+        var pathB = Path.Combine(_workDirectory, "link-goto-b.pdf");
+        SamplePdfFactory.CreateWithoutBookmarks(pathB, pageCount: 2);
+
+        var fileB = new PdfFileEntry { FilePath = pathB };
+        var fileA = new PdfFileEntry { FilePath = pathA };
+
+        var request = new PdfMergeRequest
+        {
+            Files = [fileB, fileA],
+            Bookmarks = [],
+            Properties = PdfDocumentPropertiesModel.CreateEmpty(),
+            OutputPath = Path.Combine(_workDirectory, "link-goto-merged.pdf"),
+        };
+
+        await _sut.MergeAsync(request);
+
+        using var merged = PdfReader.Open(request.OutputPath, PdfDocumentOpenMode.Import);
+
+        var linkAnnotation = merged.Pages[2].Annotations[0];
+        var action2 = linkAnnotation.Elements.GetDictionary("/A");
+        action2.ShouldNotBeNull();
+        var destArray2 = action2.Elements.GetArray("/D");
+        destArray2.ShouldNotBeNull();
+        var destPageRef2 = (PdfReference)destArray2.Elements[0]!;
+        destPageRef2.ObjectID.ShouldBe(merged.Pages[4].ReferenceNotNull.ObjectID);
     }
 
     private static int FindPageIndex(PdfDocument document, PdfPage? page)
