@@ -350,12 +350,16 @@
                                       Height="{Binding DataContext.LinkEditor.PlaceholderHeight.Value, RelativeSource={RelativeSource AncestorType=ListBox}}">
                                     <Image Source="{Binding Image.Value, Converter={StaticResource ByteArrayToImageConverter}}"
                                            Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                    <!-- 現在ページ以外は薄い灰色を重ね、非アクティブ(選択・リンク作成の対象外)であることを示す。 -->
+                                    <Rectangle Fill="#59808080" IsHitTestVisible="False"
+                                               Visibility="{Binding IsCurrent.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=False}" />
                                     <!-- 現在ページのみ、選択・リンク作成のヒットレイヤーとホットスポットのオーバーレイを重ねる。 -->
                                     <Grid Visibility="{Binding IsCurrent.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=True}">
                                         <Rectangle Fill="Transparent"
                                                    MouseLeftButtonDown="OnPdfPreviewMouseLeftButtonDown"
                                                    MouseMove="OnPdfPreviewMouseMove"
-                                                   MouseLeftButtonUp="OnPdfPreviewMouseLeftButtonUp" />
+                                                   MouseLeftButtonUp="OnPdfPreviewMouseLeftButtonUp"
+                                                   LostMouseCapture="OnPdfPreviewLostMouseCapture" />
                                         <Canvas x:Name="LinkOverlayCanvas" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" />
                                     </Grid>
                                 </Grid>

@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using Microsoft.Extensions.Logging.Abstractions;
 using PdfBookmarkMerger.App.Tests.TestHelpers;
 using PdfBookmarkMerger.App.ViewModels;
@@ -311,6 +312,65 @@ public sealed class LinkEditorViewModelTests
         pending.LineRects[1].Bottom.ShouldBe(680);
     }
 
+    /// <summary>
+    /// コードレビュー後のユーザー報告の回帰テスト: ドラッグ中は、単純な始点〜終点の対角線矩形ではなく、
+    /// EndTextSelectionが最終確定するのと同じ行ごとの実際の文字の外接矩形がLiveSelectionLineRectsへ
+    /// 反映され、確定(EndTextSelection)後はクリアされてPendingSelectionへ引き継がれることを検証する。
+    /// </summary>
+    [Fact]
+    public async Task DraggingASelection_PopulatesLiveSelectionLineRects_AndClearsThemOnceConfirmed()
+    {
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+
+        vm.LiveSelectionLineRects.Value.ShouldBeEmpty();
+
+        vm.BeginTextSelection(pdfX: 2, pdfY: 705); // 'A'
+        vm.LiveSelectionLineRects.Value.Count.ShouldBe(1, "1文字だけの選択でも実際の文字の矩形が即座に見えるべき");
+
+        vm.UpdateTextSelection(pdfX: 15, pdfY: 685); // 'D'(2行目)まで拡張
+        vm.LiveSelectionLineRects.Value.Count.ShouldBe(2, "1行目・2行目にまたがる選択なので2行分の矩形になるはず");
+
+        vm.EndTextSelection();
+
+        vm.LiveSelectionLineRects.Value.ShouldBeEmpty("確定後はPendingSelectionへ引き継がれ、ドラッグ中の表示はクリアされるはず");
+        vm.PendingSelection.Value.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// ユーザー報告の回帰テスト: 「任意の位置」をジャンプ先として選ぶ操作は、テキスト選択の確定後、
+    /// ソースとは別のページまでスクロール(=ページ送り、Lettersの再読み込みを伴う)してからクリックする
+    /// 一連の流れが前提。ページを跨ぐたびにPendingSelection/IsPickingArbitraryTargetがリセットされて
+    /// しまうと、任意の位置の指定自体が実質不可能になってしまう不具合があった。
+    /// </summary>
+    [Fact]
+    public async Task PickingAnArbitraryTarget_SurvivesNavigatingToADifferentPage()
+    {
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+
+        vm.BeginTextSelection(pdfX: 2, pdfY: 705);
+        vm.UpdateTextSelection(pdfX: 15, pdfY: 705);
+        vm.EndTextSelection();
+        vm.PendingSelection.Value.ShouldNotBeNull();
+
+        vm.BeginPickArbitraryTargetCommand.Execute();
+        vm.IsPickingArbitraryTarget.Value.ShouldBeTrue();
+
+        // ジャンプ先ページまでページ送りする(Lettersが再読み込みされ、以前はここでリセットされていた)。
+        vm.NextPageCommand.Execute();
+        await WaitUntilIdleAsync(vm);
+
+        vm.PendingSelection.Value.ShouldNotBeNull("ページ送りでPendingSelectionがリセットされてはならない");
+        vm.IsPickingArbitraryTarget.Value.ShouldBeTrue("ページ送りでIsPickingArbitraryTargetがリセットされてはならない");
+
+        var targetPage = vm.CurrentPageIndex.Value;
+        vm.PickArbitraryTargetAndCreateLink(targetPage, pdfX: 5, pdfY: 700);
+
+        vm.Links.ShouldNotBeEmpty();
+        vm.Links.ShouldAllBe(l => l.TargetPageIndex == targetPage);
+        vm.PendingSelection.Value.ShouldBeNull();
+        vm.IsPickingArbitraryTarget.Value.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task CreateLinkToBookmark_AddsOneLinkPerLineRect_SharingTheSameGroupId_AndCopiesTheBookmarksDestination()
     {
@@ -572,6 +632,71 @@ public sealed class LinkEditorViewModelTests
         }
     }
 
+    /// <summary>
+    /// ユーザー要望の回帰テスト: 既存(IsPreExisting)のリンクグループは、現在プレビューが
+    /// アクティブになっているページのものだけを一覧表示する(大量の既存リンクが一覧を占有するのを
+    /// 避けるため)。ページを移動すると、そのページの既存リンクが一覧に現れる。
+    /// </summary>
+    [Fact]
+    public async Task LinkGroups_HidesPreExistingGroupsOnOtherPages_ButShowsThemOnceThatPageIsActive()
+    {
+        var workDirectory = Path.Combine(Path.GetTempPath(), "LinkEditorExistingLinksTests_" + Guid.NewGuid());
+        Directory.CreateDirectory(workDirectory);
+        try
+        {
+            var filePath = Path.Combine(workDirectory, "merged.pdf");
+            await File.WriteAllTextAsync(filePath, "original content");
+
+            var metadata = new FakeMetadataService();
+            metadata.RegisterSuccess(filePath, pageCount: 3);
+            var linkAnnotationService = new FakePdfLinkAnnotationService();
+            var existingLinkOnPage2 = new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 2,
+                SourceRect = new PdfRect(0, 0, 10, 10),
+                TargetPageIndex = 0,
+            };
+            linkAnnotationService.ExistingLinksByFilePath[filePath] = [existingLinkOnPage2];
+            var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), new FakePdfTextExtractor(), metadata, linkAnnotationService, NullLogger<LinkEditorViewModel>.Instance);
+
+            await vm.LoadAsync(filePath);
+            await WaitUntilIdleAsync(vm);
+
+            // 読込直後はページ0が現在ページ。既存リンクはページ2にあるため、一覧には表示されない。
+            vm.CurrentPageIndex.Value.ShouldBe(0);
+            vm.Links.ShouldContain(existingLinkOnPage2, "Linksコレクション自体には保持し続ける(オーバーレイ描画等で必要)");
+            vm.LinkGroups.Value.ShouldBeEmpty();
+
+            vm.JumpToPageCommand.Execute(2);
+            await WaitUntilIdleAsync(vm);
+
+            vm.LinkGroups.Value.ShouldHaveSingleItem().IsPreExisting.ShouldBeTrue();
+        }
+        finally
+        {
+            Directory.Delete(workDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>このアプリ自身で新規作成したグループは、既存グループと異なりページを問わず常に一覧表示する。</summary>
+    [Fact]
+    public async Task LinkGroups_AlwaysShowsNewlyCreatedGroups_RegardlessOfCurrentPage()
+    {
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+        vm.BeginTextSelection(pdfX: 2, pdfY: 705);
+        vm.UpdateTextSelection(pdfX: 15, pdfY: 705);
+        vm.EndTextSelection();
+        vm.CreateLinkToBookmarkCommand.Execute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 1 });
+
+        vm.LinkGroups.Value.ShouldHaveSingleItem().IsPreExisting.ShouldBeFalse();
+
+        vm.JumpToPageCommand.Execute(2);
+        await WaitUntilIdleAsync(vm);
+
+        vm.LinkGroups.Value.ShouldHaveSingleItem("新規作成したグループはページを移動しても一覧から消えないはず");
+    }
+
     [Fact]
     public async Task DeleteLinkGroup_AndBeginEditLinkGroup_OnAPreExistingGroup_DoNothing()
     {
@@ -656,5 +781,50 @@ public sealed class LinkEditorViewModelTests
         {
             Directory.Delete(workDirectory, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// ページ送り系コマンド(Previous/Next/Zoom/JumpToPage)は全てIsBusyをCanExecuteへ含めている。
+    /// リンク操作系コマンドも一貫してこれに合わせるよう修正した回帰テスト
+    /// (コードレビューで発見した一貫性の欠如を修正)。
+    /// </summary>
+    [Fact]
+    public async Task LinkOperationCommands_CanExecute_AreAllFalseWhileBusy()
+    {
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+        vm.BeginTextSelection(2, 705);
+        vm.UpdateTextSelection(15, 685);
+        vm.EndTextSelection();
+        vm.CreateLinkToBookmarkCommand.Execute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 1 });
+        var groupId = vm.LinkGroups.Value[0].GroupId;
+
+        // 選択待ち状態を作り直してから、CanExecuteの前提(PendingSelectionあり)を満たした状態でIsBusyだけを操作する。
+        vm.BeginTextSelection(2, 705);
+        vm.UpdateTextSelection(15, 685);
+        vm.EndTextSelection();
+        vm.PendingSelection.Value.ShouldNotBeNull();
+
+        // ReactiveCommandのCanExecuteは、元になるIObservable&lt;bool&gt;(ここではIsBusy由来)の
+        // 変化から1回スケジューリングを挟んで反映されるため、値を変更した直後はawait Task.Yield()で
+        // 一度制御を返してから確認する必要がある(BookmarkTreeViewModelTests.
+        // UndoCommand_CanExecute_IsFalseWhileIsBusy_EvenWithUndoHistoryと同じ、既存の確立された
+        // パターン。これを省略すると低頻度のflaky failureになることを実際に確認した)。
+        vm.IsBusy.Value = true;
+        await Task.Yield();
+
+        vm.CancelPendingSelectionCommand.CanExecute().ShouldBeFalse();
+        vm.BeginPickArbitraryTargetCommand.CanExecute().ShouldBeFalse();
+        ((ICommand)vm.CreateLinkToBookmarkCommand).CanExecute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 0 }).ShouldBeFalse();
+        ((ICommand)vm.DeleteLinkGroupCommand).CanExecute(groupId).ShouldBeFalse();
+        ((ICommand)vm.EditLinkGroupCommand).CanExecute(groupId).ShouldBeFalse();
+
+        vm.IsBusy.Value = false;
+        await Task.Yield();
+
+        vm.CancelPendingSelectionCommand.CanExecute().ShouldBeTrue();
+        vm.BeginPickArbitraryTargetCommand.CanExecute().ShouldBeTrue();
+        ((ICommand)vm.CreateLinkToBookmarkCommand).CanExecute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 0 }).ShouldBeTrue();
+        ((ICommand)vm.DeleteLinkGroupCommand).CanExecute(groupId).ShouldBeTrue();
+        ((ICommand)vm.EditLinkGroupCommand).CanExecute(groupId).ShouldBeTrue();
     }
 }

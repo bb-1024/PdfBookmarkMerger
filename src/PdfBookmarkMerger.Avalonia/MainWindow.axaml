@@ -267,12 +267,15 @@
                                     </Grid.Height>
                                     <Image Source="{Binding Image.Value, Converter={StaticResource ByteArrayToImageConverter}}"
                                            Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                    <!-- 現在ページ以外は薄い灰色を重ね、非アクティブ(選択・リンク作成の対象外)であることを示す。 -->
+                                    <Rectangle Fill="#59808080" IsHitTestVisible="False" IsVisible="{Binding !IsCurrent.Value}" />
                                     <!-- 現在ページのみ、選択・リンク作成のヒットレイヤーとホットスポットのオーバーレイを重ねる。 -->
                                     <Grid IsVisible="{Binding IsCurrent.Value}">
                                         <Rectangle Fill="Transparent"
                                                    PointerPressed="OnPdfPreviewPointerPressed"
                                                    PointerMoved="OnPdfPreviewPointerMoved"
-                                                   PointerReleased="OnPdfPreviewPointerReleased" />
+                                                   PointerReleased="OnPdfPreviewPointerReleased"
+                                                   PointerCaptureLost="OnPdfPreviewPointerCaptureLost" />
                                         <Canvas Name="LinkOverlayCanvas" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" />
                                     </Grid>
                                 </Grid>

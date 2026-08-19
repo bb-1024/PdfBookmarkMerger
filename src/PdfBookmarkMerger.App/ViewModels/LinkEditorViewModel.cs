@@ -107,6 +107,8 @@ public sealed class LinkEditorViewModel : ViewModelBase
         Links.CollectionChanged += (_, _) => RecomputeLinkGroups();
         PendingSelection = new ReactivePropertySlim<PendingLinkSelection?>(null).AddTo(Disposables);
         IsPickingArbitraryTarget = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
+        LiveSelectionLineRects = new ReactivePropertySlim<IReadOnlyList<PdfRect>>([]).AddTo(Disposables);
+        LoadGeneration = new ReactivePropertySlim<int>(0).AddTo(Disposables);
 
         var canGoPrevious = CurrentPageIndex.CombineLatest(IsBusy, (page, busy) => page > 0 && !busy);
         PreviousPageCommand = new ReactiveCommand(canGoPrevious).AddTo(Disposables);
@@ -135,19 +137,24 @@ public sealed class LinkEditorViewModel : ViewModelBase
             }
         }).AddTo(Disposables);
 
-        CancelPendingSelectionCommand = new ReactiveCommand().AddTo(Disposables);
+        // ページ送り系コマンド(Previous/Next/Zoom/JumpToPage)は全てIsBusyをCanExecuteへ含めており、
+        // 処理中オーバーレイによる操作ブロックとの多重防御になっている(v1.2.1でUndoCommandに同じ
+        // 考え方で!IsBusyを追加した先例と同じ)。以下のリンク操作系コマンドも一貫してこれに合わせる。
+        var canOperateWhenIdle = IsBusy.Select(b => !b);
+        CancelPendingSelectionCommand = new ReactiveCommand(canOperateWhenIdle).AddTo(Disposables);
         CancelPendingSelectionCommand.Subscribe(CancelPendingSelection).AddTo(Disposables);
 
-        BeginPickArbitraryTargetCommand = new ReactiveCommand(PendingSelection.Select(p => p is not null)).AddTo(Disposables);
+        var canPickTarget = PendingSelection.CombineLatest(IsBusy, (p, busy) => p is not null && !busy);
+        BeginPickArbitraryTargetCommand = new ReactiveCommand(canPickTarget).AddTo(Disposables);
         BeginPickArbitraryTargetCommand.Subscribe(() => IsPickingArbitraryTarget.Value = true).AddTo(Disposables);
 
-        CreateLinkToBookmarkCommand = new ReactiveCommand<BookmarkNode>(PendingSelection.Select(p => p is not null)).AddTo(Disposables);
+        CreateLinkToBookmarkCommand = new ReactiveCommand<BookmarkNode>(canPickTarget).AddTo(Disposables);
         CreateLinkToBookmarkCommand.Subscribe(CreateLinkToBookmark).AddTo(Disposables);
 
-        DeleteLinkGroupCommand = new ReactiveCommand<Guid>().AddTo(Disposables);
+        DeleteLinkGroupCommand = new ReactiveCommand<Guid>(canOperateWhenIdle).AddTo(Disposables);
         DeleteLinkGroupCommand.Subscribe(DeleteLinkGroup).AddTo(Disposables);
 
-        EditLinkGroupCommand = new ReactiveCommand<Guid>().AddTo(Disposables);
+        EditLinkGroupCommand = new ReactiveCommand<Guid>(canOperateWhenIdle).AddTo(Disposables);
         EditLinkGroupCommand.Subscribe(BeginEditLinkGroup).AddTo(Disposables);
 
         // 各コマンドのCanExecute(CombineLatest)をCurrentPageIndex/ZoomScaleへ先に購読させた後で、
@@ -192,6 +199,28 @@ public sealed class LinkEditorViewModel : ViewModelBase
 
     /// <summary>trueの間、プレビュー上のクリックは文字選択ではなく「任意のジャンプ先位置の指定」として扱う。</summary>
     public ReactivePropertySlim<bool> IsPickingArbitraryTarget { get; }
+
+    /// <summary>
+    /// ドラッグ中(BeginTextSelection〜EndTextSelectionの間)の、現在の選択範囲を実際に構成する
+    /// 文字の行ごとの外接矩形(PDFユーザー空間)。単純な始点〜終点の対角線矩形ではなく、
+    /// EndTextSelectionが最終的にPendingLinkSelectionへ確定するのと同じGroupLettersIntoLineRects
+    /// ロジックで都度計算するため、ドラッグ中にどの文字が実際に選択対象になるかをそのまま可視化できる。
+    /// ドラッグ終了後(EndTextSelection)は空になり、以降はPendingSelection.LineRectsが同じ役割を
+    /// 引き継ぐ(UI側はLiveSelectionLineRectsが空ならPendingSelection側を、現在ページがその
+    /// SourcePageIndexと一致する場合に限り描画する) — こうすることで、ジャンプ先を選ぶ操作の
+    /// 過程で別ページへ移動しても、選択元のページへ戻れば可視化が復元され、リンクを確定または
+    /// キャンセルするまで一貫して確認できる。UI側は、既に確定済みのリンク(Links)とは異なる
+    /// 色・線種で描画し、両者を視覚的に区別する。
+    /// </summary>
+    public ReactivePropertySlim<IReadOnlyList<PdfRect>> LiveSelectionLineRects { get; }
+
+    /// <summary>
+    /// LoadAsyncが完了するたびに新しい値になるトリガー。連続スクロール表示のスクロール位置・
+    /// レイアウトをUI側で確実にリセットするために使う。CurrentPageIndexが(前回のセッション終了時に
+    /// たまたま0のままだった等で)偶然変化しない場合、CurrentPageIndex.Subscribe経由のスクロール
+    /// リセットが発火しないため、それとは独立して必ず変化するこの値を別途用意している。
+    /// </summary>
+    public ReactivePropertySlim<int> LoadGeneration { get; }
 
     public ReactivePropertySlim<float> ZoomScale { get; }
 
@@ -299,6 +328,13 @@ public sealed class LinkEditorViewModel : ViewModelBase
             {
                 CurrentPageIndex.Value = 0;
             }
+
+            // 同様の理由(CurrentPageIndexが変化しないとUI側のCurrentPageIndex.Subscribeが発火しない)で、
+            // UI側の連続スクロール表示のスクロール位置リセットも、CurrentPageIndexの変化だけには
+            // 頼らずLoadGenerationを明示的に進めて確実にトリガーする。2回目以降のLoadAsync
+            // (一度リンク編集を終えてファイル選択からやり直した場合等)で、直前のセッションの
+            // スクロール位置・仮想化パネルのレイアウトが残ったままになる不具合の対策。
+            LoadGeneration.Value++;
         }
         finally
         {
@@ -366,6 +402,10 @@ public sealed class LinkEditorViewModel : ViewModelBase
 
         SyncCurrentSlotAndPageNumber(pageIndex);
         TriggerLoadCurrentPageMetadata();
+
+        // LinkGroupsは、既存(IsPreExisting)のグループを現在ページ分のみに絞り込むため、
+        // Linksの変化だけでなくCurrentPageIndexの変化でも再計算が必要。
+        RecomputeLinkGroups();
     }
 
     /// <summary>現在ページのIsCurrentフラグの付け替え・PageNumberInputの同期のみを行う
@@ -449,7 +489,16 @@ public sealed class LinkEditorViewModel : ViewModelBase
                 {
                     Letters.Value = letters;
                     _lastLoadedLettersPageIndex = pageIndex;
-                    CancelPendingSelection();
+
+                    // CancelPendingSelection()は使わない。ページが変わるたびにPendingSelection/
+                    // IsPickingArbitraryTargetまで破棄すると、「任意の位置」をジャンプ先に選ぶ操作
+                    // (テキスト選択の確定後、ジャンプ先ページまでスクロールしてクリックする一連の流れ)
+                    // が、スクロール自体で毎回リセットされてしまい実質不可能になる不具合があった。
+                    // ここでは、変更前のページのLettersを参照している(=もう無効な)ドラッグ中の
+                    // 選択状態だけをリセットする。
+                    _selectionAnchorLetterIndex = null;
+                    _selectionFocusLetterIndex = null;
+                    LiveSelectionLineRects.Value = [];
                 }
             }
         }
@@ -594,6 +643,7 @@ public sealed class LinkEditorViewModel : ViewModelBase
         _selectionAnchorLetterIndex = index;
         _selectionFocusLetterIndex = index;
         PendingSelection.Value = null;
+        RefreshLiveSelectionLineRects();
     }
 
     /// <summary>ドラッグ中の現在位置(PDFユーザー空間座標)まで選択範囲を伸縮する。</summary>
@@ -605,6 +655,7 @@ public sealed class LinkEditorViewModel : ViewModelBase
         }
 
         _selectionFocusLetterIndex = FindNearestLetterIndex(Letters.Value, pdfX, pdfY);
+        RefreshLiveSelectionLineRects();
     }
 
     /// <summary>ドラッグを終了し、選択範囲を行ごとの矩形へ確定してPendingSelectionへ反映する。</summary>
@@ -614,11 +665,13 @@ public sealed class LinkEditorViewModel : ViewModelBase
         {
             _selectionAnchorLetterIndex = null;
             _selectionFocusLetterIndex = null;
+            LiveSelectionLineRects.Value = [];
             return;
         }
 
         _selectionAnchorLetterIndex = null;
         _selectionFocusLetterIndex = null;
+        LiveSelectionLineRects.Value = [];
 
         var start = Math.Min(anchor, focus);
         var end = Math.Max(anchor, focus);
@@ -629,11 +682,30 @@ public sealed class LinkEditorViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// ドラッグ中の選択範囲(_selectionAnchorLetterIndex〜_selectionFocusLetterIndex)を、
+    /// EndTextSelectionが最終確定時に使うのと同じ行ごとの外接矩形へ計算し直し、
+    /// LiveSelectionLineRectsへ反映する(ドラッグ中の可視化のたびに呼ぶ)。
+    /// </summary>
+    private void RefreshLiveSelectionLineRects()
+    {
+        if (_selectionAnchorLetterIndex is not { } anchor || _selectionFocusLetterIndex is not { } focus)
+        {
+            LiveSelectionLineRects.Value = [];
+            return;
+        }
+
+        var start = Math.Min(anchor, focus);
+        var end = Math.Max(anchor, focus);
+        LiveSelectionLineRects.Value = GroupLettersIntoLineRects(Letters.Value, start, end);
+    }
+
     /// <summary>選択中・確定待ちのリンク候補を破棄する。</summary>
     public void CancelPendingSelection()
     {
         _selectionAnchorLetterIndex = null;
         _selectionFocusLetterIndex = null;
+        LiveSelectionLineRects.Value = [];
         PendingSelection.Value = null;
         IsPickingArbitraryTarget.Value = false;
     }
@@ -744,8 +816,15 @@ public sealed class LinkEditorViewModel : ViewModelBase
         PendingSelection.Value = new PendingLinkSelection(sourcePageIndex, lineRects);
     }
 
+    /// <summary>
+    /// リンク一覧を再計算する。PDFに元から含まれていた(IsPreExisting)グループは、現在プレビューが
+    /// アクティブになっているページのものだけに絞り込んで表示する(ユーザー要望: 大量の既存リンクが
+    /// 一覧を占有してしまうのを避ける)。このアプリ自身で新規作成したグループは、確認・編集の都合上
+    /// ページを問わず常に一覧表示する。
+    /// </summary>
     private void RecomputeLinkGroups()
     {
+        var currentPage = CurrentPageIndex.Value;
         LinkGroups.Value = Links
             .GroupBy(l => l.GroupId)
             .Select(g => new LinkGroupInfo(
@@ -754,6 +833,7 @@ public sealed class LinkEditorViewModel : ViewModelBase
                 g.First().TargetPageIndex,
                 g.Count(),
                 IsPreExisting: g.All(l => _preExistingLinkIds.Contains(l.Id))))
+            .Where(info => !info.IsPreExisting || info.SourcePageIndex == currentPage)
             .ToList();
     }
 

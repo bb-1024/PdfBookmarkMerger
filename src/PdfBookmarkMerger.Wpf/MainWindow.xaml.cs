@@ -92,9 +92,41 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         // リンクのホットスポット表示は、対象ページ・拡大率・ページ高さ(座標変換の基準)のいずれかが
         // 変わるたびに再計算が必要。リンク自体の追加・削除でも当然再描画する。
+        // PendingSelectionは、リンク確定(Links変更で別途再描画される)以外にキャンセル
+        // (CancelPendingSelectionCommand、Linksを一切変更しない)でも変化するため、これも
+        // 個別に購読しないと、選択中・確定待ちの範囲を示す青い矩形がキャンセル後も残ってしまう。
         ViewModel.LinkEditor.Links.CollectionChanged += OnLinkEditorLinksCollectionChanged;
         ViewModel.LinkEditor.ZoomScale.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
         ViewModel.LinkEditor.PageHeight.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
+        ViewModel.LinkEditor.PendingSelection.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
+
+        // 一度リンク編集・保存を行った後、ファイル選択からやり直して再度リンク編集画面へ戻ってきた際、
+        // 直前のセッションのスクロール可能範囲(Extent)が残ったままになる不具合の対策。
+        // PageSlots.Clear()+Add(...)でItemsSourceの中身を丸ごと差し替えても、
+        // VirtualizingStackPanel(ScrollUnit="Pixel")は内部的に保持している「項目が均一サイズか」の
+        // 判定・それに基づく推定Extentのキャッシュを、単純なInvalidateMeasure/UpdateLayoutだけでは
+        // 再計算しないことがある(WPFの既知の挙動 — dotnet/wpf#7017等でも
+        // VirtualizingStackPanel.SyncUniformSizeFlags周りの内部状態管理に起因する問題が報告されている)。
+        // IsVirtualizingを一度falseにしてtrueへ戻すと、パネルが仮想化モードそのものを切り替えるため
+        // 内部状態が完全に破棄され、再度trueにした時点でExtentを含め作り直される。
+        ViewModel.LinkEditor.LoadGeneration.Subscribe(_ =>
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false);
+                PdfPageListBox.UpdateLayout();
+                VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, true);
+                PdfPageListBox.UpdateLayout();
+
+                if (FindDescendant<ScrollViewer>(PdfPageListBox) is { } scrollViewer)
+                {
+                    scrollViewer.ScrollToVerticalOffset(0);
+                }
+
+                PdfPageListBox.UpdateLayout();
+                RedrawLinkOverlay();
+            }));
+        }).AddTo(_viewModelSubscriptions);
 
         // ページ送りボタン・しおりジャンプ等、ユーザーの手動スクロール以外の経路でCurrentPageIndexが
         // 変わった時だけ、そのページの先頭が見える位置までスクロールする(_isSyncingCurrentPageFromScroll中は、
@@ -787,7 +819,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
 
     private bool _isSelectingLinkText;
-    private Point _linkSelectionStartPoint;
 
     /// <summary>連続スクロールプレビューの1ページ分のコンテナがビューポートに入った時
     /// (VirtualizingPanelによるコンテナの初回生成・再利用のいずれでも発生する)に、そのページの
@@ -921,10 +952,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         _isSelectingLinkText = true;
-        _linkSelectionStartPoint = position;
         hitLayer.CaptureMouse();
         linkEditor.BeginTextSelection(pdfX, pdfY);
-        DrawLiveSelectionRect(hitLayer, position, position);
+        RedrawLinkOverlay();
     }
 
     private void OnPdfPreviewMouseMove(object sender, MouseEventArgs e)
@@ -939,7 +969,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var position = e.GetPosition(hitLayer);
         var (pdfX, pdfY) = PdfCoordinateMapper.ToPdf(position.X, position.Y, linkEditor.PageHeight.Value, linkEditor.ZoomScale.Value);
         linkEditor.UpdateTextSelection(pdfX, pdfY);
-        DrawLiveSelectionRect(hitLayer, _linkSelectionStartPoint, position);
+        RedrawLinkOverlay();
     }
 
     private void OnPdfPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -955,37 +985,23 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         RedrawLinkOverlay();
     }
 
-    /// <summary>選択・オーバーレイのヒットレイヤー(Rectangle)と同じGrid内にある、兄弟要素の
-    /// LinkOverlayCanvasを探す(連続スクロール表示では現在ページのコンテナ以外にも同名の
-    /// Canvasが存在しうるため、常に「今操作しているコンテナ自身」のCanvasを使う必要がある)。</summary>
-    private static Canvas? FindSiblingOverlayCanvas(UIElement hitLayer)
+    /// <summary>
+    /// ドラッグ中にマウスキャプチャが外部要因(Alt+Tab・別ウィンドウのモーダル表示等)で失われた場合の
+    /// 保険。MouseLeftButtonUpが発火しないまま_isSelectingLinkTextがtrueに残ると、ボタンを押していない
+    /// 通常のマウス移動までUpdateTextSelectionへ伝わり続け、次の意図しないクリックで不正な選択範囲が
+    /// 確定してしまう。ReleaseMouseCapture()自身が発火させるLostMouseCaptureは、その時点で既に
+    /// _isSelectingLinkTextをfalseにしてから呼んでいるため、下のガードで正しく無視される。
+    /// </summary>
+    private void OnPdfPreviewLostMouseCapture(object sender, MouseEventArgs e)
     {
-        var parent = VisualTreeHelper.GetParent(hitLayer);
-        return parent is null ? null : FindDescendant<Canvas>(parent);
-    }
-
-    /// <summary>ドラッグ中の選択範囲を、簡易的な単一矩形(始点〜現在点の外接矩形)として描画する。</summary>
-    private void DrawLiveSelectionRect(UIElement hitLayer, Point start, Point current)
-    {
-        if (FindSiblingOverlayCanvas(hitLayer) is not { } canvas)
+        if (!_isSelectingLinkText)
         {
             return;
         }
 
-        canvas.Children.Clear();
-        var left = Math.Min(start.X, current.X);
-        var top = Math.Min(start.Y, current.Y);
-        var rect = new System.Windows.Shapes.Rectangle
-        {
-            Width = Math.Abs(current.X - start.X),
-            Height = Math.Abs(current.Y - start.Y),
-            Fill = new SolidColorBrush(Color.FromArgb(80, 30, 144, 255)),
-            Stroke = Brushes.DodgerBlue,
-            StrokeThickness = 1,
-        };
-        Canvas.SetLeft(rect, left);
-        Canvas.SetTop(rect, top);
-        canvas.Children.Add(rect);
+        _isSelectingLinkText = false;
+        ViewModel.LinkEditor.CancelPendingSelection();
+        RedrawLinkOverlay();
     }
 
     /// <summary>現在ページのコンテナが実体化されている場合に限り、そのコンテナ内のLinkOverlayCanvasを返す。
@@ -998,7 +1014,17 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         return container is null ? null : FindDescendant<Canvas>(container);
     }
 
-    /// <summary>現在ページに属する確定済みリンクのホットスポットを、半透明の矩形として描画し直す。</summary>
+    private static readonly SolidColorBrush ExistingLinkFill = new(Color.FromArgb(60, 0, 200, 0));
+    private static readonly SolidColorBrush LiveSelectionFill = new(Color.FromArgb(80, 30, 144, 255));
+
+    /// <summary>
+    /// 現在ページに属する確定済みリンクのホットスポット(緑)と、ドラッグ中の選択範囲(青、行ごとに
+    /// 実際の文字の外接矩形を使う)を描画し直す。両者は色・線種で視覚的に区別する。ドラッグ中の
+    /// 選択範囲をLinkEditorViewModel.LiveSelectionLineRects(単純な始点〜終点の外接矩形ではなく、
+    /// GroupLettersIntoLineRectsで実際に選択される文字の行ごとの矩形)から取得することで、
+    /// ズーム変更・ページ高さ変更等どの経路からRedrawLinkOverlayが呼ばれても、ドラッグ中の
+    /// 選択表示を消してしまうことなく正しく再描画できる。
+    /// </summary>
     private void RedrawLinkOverlay()
     {
         if (FindCurrentPageOverlayCanvas() is not { } canvas)
@@ -1021,18 +1047,39 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
 
             var pixelRect = PdfCoordinateMapper.ToPixelRect(link.SourceRect, pageHeight, scale);
-            var rect = new System.Windows.Shapes.Rectangle
-            {
-                Width = pixelRect.Right - pixelRect.Left,
-                Height = pixelRect.Bottom - pixelRect.Top,
-                Fill = new SolidColorBrush(Color.FromArgb(60, 0, 200, 0)),
-                Stroke = Brushes.Green,
-                StrokeThickness = 1,
-            };
-            Canvas.SetLeft(rect, pixelRect.Left);
-            Canvas.SetTop(rect, pixelRect.Top);
-            canvas.Children.Add(rect);
+            canvas.Children.Add(CreateOverlayRect(pixelRect, ExistingLinkFill, Brushes.Green));
         }
+
+        // ドラッグ中(LiveSelectionLineRectsが非空)はその内容を、ドラッグ終了後はPendingSelection
+        // (現在ページが選択元ページと一致する場合のみ)を、選択中・確定待ちの範囲として描画する。
+        // これにより、ジャンプ先を選ぶ操作の途中で別ページへ移動しても、選択元のページへ戻れば
+        // 可視化が復元され、リンクを確定またはキャンセルするまで一貫して確認できる。
+        var selectionRects = linkEditor.LiveSelectionLineRects.Value.Count > 0
+            ? linkEditor.LiveSelectionLineRects.Value
+            : linkEditor.PendingSelection.Value is { } pending && pending.SourcePageIndex == currentPage
+                ? pending.LineRects
+                : [];
+
+        foreach (var rect in selectionRects)
+        {
+            var pixelRect = PdfCoordinateMapper.ToPixelRect(rect, pageHeight, scale);
+            canvas.Children.Add(CreateOverlayRect(pixelRect, LiveSelectionFill, Brushes.DodgerBlue));
+        }
+    }
+
+    private static System.Windows.Shapes.Rectangle CreateOverlayRect(PdfRect pixelRect, Brush fill, Brush stroke)
+    {
+        var rect = new System.Windows.Shapes.Rectangle
+        {
+            Width = pixelRect.Right - pixelRect.Left,
+            Height = pixelRect.Bottom - pixelRect.Top,
+            Fill = fill,
+            Stroke = stroke,
+            StrokeThickness = 1,
+        };
+        Canvas.SetLeft(rect, pixelRect.Left);
+        Canvas.SetTop(rect, pixelRect.Top);
+        return rect;
     }
 
     /// <summary>リンク一覧の「表示」ボタン: そのリンクのホットスポットがあるページへプレビューをジャンプする(動作確認用)。</summary>
