@@ -115,6 +115,10 @@
   <data name="ZoomOutButton" xml:space="preserve"><value>Zoom Out</value></data>
   <data name="BackToBookmarksButton" xml:space="preserve"><value>Back to Bookmark Editing</value></data>
   <data name="LinkEditorBookmarksHeader" xml:space="preserve"><value>Bookmarks</value></data>
+  <data name="LinkDestinationPickerHeader" xml:space="preserve"><value>Choose a Destination</value></data>
+  <data name="PickArbitraryTargetButton" xml:space="preserve"><value>Pick a Position...</value></data>
+  <data name="PickArbitraryTargetHint" xml:space="preserve"><value>Click the position in the preview you want to jump to.</value></data>
+  <data name="CancelSelectionButton" xml:space="preserve"><value>Cancel</value></data>
 
   <!-- Common buttons -->
   <data name="CancelButton" xml:space="preserve"><value>Cancel</value></data>

@@ -26,6 +26,7 @@
         <conv:PageCountToTextConverter x:Key="PageCountToTextConverter" />
         <conv:ByteArrayToImageConverter x:Key="ByteArrayToImageConverter" />
         <conv:PageIndicatorConverter x:Key="PageIndicatorConverter" />
+        <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter" />
         <ObjectDataProvider x:Key="DestinationTypeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
             <ObjectDataProvider.MethodParameters>
                 <x:Type TypeName="models:BookmarkDestinationType" />
@@ -318,8 +319,15 @@
                 <Border Grid.Column="0" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0">
                     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                                   Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}">
-                        <Image Source="{Binding LinkEditor.PageImage.Value, Converter={StaticResource ByteArrayToImageConverter}}"
-                               Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                        <Grid>
+                            <Image x:Name="PdfPreviewImage"
+                                   Source="{Binding LinkEditor.PageImage.Value, Converter={StaticResource ByteArrayToImageConverter}}"
+                                   Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                   MouseLeftButtonDown="OnPdfPreviewMouseLeftButtonDown"
+                                   MouseMove="OnPdfPreviewMouseMove"
+                                   MouseLeftButtonUp="OnPdfPreviewMouseLeftButtonUp" />
+                            <Canvas x:Name="LinkOverlayCanvas" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                        </Grid>
                     </ScrollViewer>
                 </Border>
 
@@ -327,15 +335,28 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkEditorBookmarksHeader}" FontWeight="Bold" Margin="8" />
-                        <ListBox Grid.Row="1" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
+
+                        <!-- 文字選択が確定し、ジャンプ先の指定待ちの間だけ表示する。 -->
+                        <StackPanel Grid.Row="1" Margin="8,0,8,8"
+                                    Visibility="{Binding LinkEditor.PendingSelection.Value, Converter={StaticResource NotNullToVisibilityConverter}}">
+                            <TextBlock Text="{x:Static resx:Strings.LinkDestinationPickerHeader}" FontWeight="Bold" Margin="0,0,0,4" />
+                            <TextBlock Text="{x:Static resx:Strings.PickArbitraryTargetHint}" TextWrapping="Wrap" FontSize="11"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       Visibility="{Binding LinkEditor.IsPickingArbitraryTarget.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=True}" />
+                            <ui:Button Content="{x:Static resx:Strings.PickArbitraryTargetButton}" Command="{Binding LinkEditor.BeginPickArbitraryTargetCommand}" Margin="0,4,0,4" />
+                            <ui:Button Content="{x:Static resx:Strings.CancelSelectionButton}" Command="{Binding LinkEditor.CancelPendingSelectionCommand}" />
+                        </StackPanel>
+
+                        <ListBox Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type models:BookmarkNode}">
                                     <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
-                                               Tag="{Binding OriginalPageIndex}" MouseLeftButtonUp="OnLinkEditorBookmarkClick" />
+                                               Tag="{Binding}" MouseLeftButtonUp="OnLinkEditorBookmarkClick" />
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>

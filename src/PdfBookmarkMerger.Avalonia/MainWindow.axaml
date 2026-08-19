@@ -3,6 +3,7 @@
         xmlns:vm="clr-namespace:PdfBookmarkMerger.App.ViewModels;assembly=PdfBookmarkMerger.App"
         xmlns:models="clr-namespace:PdfBookmarkMerger.Core.Models;assembly=PdfBookmarkMerger.Core"
         xmlns:conv="clr-namespace:PdfBookmarkMerger.AvaloniaApp.Converters"
+        xmlns:dataConv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
         xmlns:local="clr-namespace:PdfBookmarkMerger.AvaloniaApp"
         xmlns:resx="clr-namespace:PdfBookmarkMerger.App.Resources;assembly=PdfBookmarkMerger.App"
         x:Class="PdfBookmarkMerger.AvaloniaApp.MainWindow"
@@ -238,20 +239,38 @@
             <Grid Grid.Row="2" ColumnDefinitions="*,220">
                 <Border Grid.Column="0" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0">
                     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="#11808080">
-                        <Image Source="{Binding LinkEditor.PageImage.Value, Converter={StaticResource ByteArrayToImageConverter}}"
-                               Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                        <Grid>
+                            <Image Name="PdfPreviewImage"
+                                   Source="{Binding LinkEditor.PageImage.Value, Converter={StaticResource ByteArrayToImageConverter}}"
+                                   Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                   PointerPressed="OnPdfPreviewPointerPressed"
+                                   PointerMoved="OnPdfPreviewPointerMoved"
+                                   PointerReleased="OnPdfPreviewPointerReleased" />
+                            <Canvas Name="LinkOverlayCanvas" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                        </Grid>
                     </ScrollViewer>
                 </Border>
 
                 <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
-                    <Grid RowDefinitions="Auto,*">
+                    <Grid RowDefinitions="Auto,Auto,*">
                         <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkEditorBookmarksHeader}" FontWeight="Bold" Margin="8" />
-                        <ListBox Grid.Row="1" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
+
+                        <!-- 文字選択が確定し、ジャンプ先の指定待ちの間だけ表示する。 -->
+                        <StackPanel Grid.Row="1" Margin="8,0,8,8" Spacing="4"
+                                    IsVisible="{Binding LinkEditor.PendingSelection.Value, Converter={x:Static dataConv:ObjectConverters.IsNotNull}}">
+                            <TextBlock Text="{x:Static resx:Strings.LinkDestinationPickerHeader}" FontWeight="Bold" />
+                            <TextBlock Text="{x:Static resx:Strings.PickArbitraryTargetHint}" TextWrapping="Wrap" FontSize="11" Foreground="Gray"
+                                       IsVisible="{Binding LinkEditor.IsPickingArbitraryTarget.Value}" />
+                            <Button Content="{x:Static resx:Strings.PickArbitraryTargetButton}" Command="{Binding LinkEditor.BeginPickArbitraryTargetCommand}" />
+                            <Button Content="{x:Static resx:Strings.CancelSelectionButton}" Command="{Binding LinkEditor.CancelPendingSelectionCommand}" />
+                        </StackPanel>
+
+                        <ListBox Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="models:BookmarkNode">
                                     <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
-                                               Tag="{Binding OriginalPageIndex}" PointerReleased="OnLinkEditorBookmarkClick" />
+                                               Tag="{Binding}" PointerReleased="OnLinkEditorBookmarkClick" />
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>

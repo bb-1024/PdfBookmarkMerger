@@ -11,6 +11,8 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PdfBookmarkMerger.App.ViewModels;
+using PdfBookmarkMerger.Core.Models;
+using PdfBookmarkMerger.Core.Services;
 using Reactive.Bindings.Extensions;
 
 namespace PdfBookmarkMerger.AvaloniaApp;
@@ -91,6 +93,13 @@ public partial class MainWindow : Window
         ViewModel.FileList.Files.CollectionChanged += OnFileListFilesCollectionChanged;
         UpdateFileMoveButtonsEnabled();
 
+        // リンクのホットスポット表示は、対象ページ・拡大率・ページ高さ(座標変換の基準)のいずれかが
+        // 変わるたびに再計算が必要。リンク自体の追加・削除でも当然再描画する。
+        ViewModel.LinkEditor.Links.CollectionChanged += OnLinkEditorLinksCollectionChanged;
+        ViewModel.LinkEditor.CurrentPageIndex.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
+        ViewModel.LinkEditor.ZoomScale.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
+        ViewModel.LinkEditor.PageHeight.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
+
         // ListBox/TreeView自身の選択処理(SelectingItemsControlの既定の内部処理)がPointerPressedを
         // Bubbleフェーズで先取りしてHandled=trueにするため、通常のXAMLイベント購読(Bubble)では
         // D&D開始検知用のハンドラに一切イベントが届かない。WPF版がPreviewMouseLeftButtonDown
@@ -114,8 +123,11 @@ public partial class MainWindow : Window
     {
         Closed -= OnMainWindowClosed;
         ViewModel.FileList.Files.CollectionChanged -= OnFileListFilesCollectionChanged;
+        ViewModel.LinkEditor.Links.CollectionChanged -= OnLinkEditorLinksCollectionChanged;
         _viewModelSubscriptions.Dispose();
     }
+
+    private void OnLinkEditorLinksCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RedrawLinkOverlay();
 
     private void OnFileListSelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();
 
@@ -727,12 +739,128 @@ public partial class MainWindow : Window
     private void OnExpandLevelTextBoxLostFocus(object? sender, RoutedEventArgs e) =>
         ViewModel.BookmarkTree.NormalizeExpandLevelInput();
 
-    /// <summary>リンク編集画面のしおり一覧をクリックすると、該当ページへプレビューをジャンプする。</summary>
+    /// <summary>
+    /// リンク編集画面のしおり一覧をクリックした時の動作。ジャンプ先の指定待ち(PendingSelection)の間は
+    /// クリックしたしおりをジャンプ先として選択し、それ以外の場合は該当ページへプレビューをジャンプする。
+    /// </summary>
     private void OnLinkEditorBookmarkClick(object? sender, PointerReleasedEventArgs e)
     {
-        if (sender is Control { Tag: int pageIndex })
+        if (sender is not Control { Tag: BookmarkNode bookmark })
         {
-            ViewModel.LinkEditor.JumpToPageCommand.Execute(pageIndex);
+            return;
+        }
+
+        var linkEditor = ViewModel.LinkEditor;
+        if (linkEditor.PendingSelection.Value is not null)
+        {
+            linkEditor.CreateLinkToBookmarkCommand.Execute(bookmark);
+        }
+        else
+        {
+            linkEditor.JumpToPageCommand.Execute(bookmark.OriginalPageIndex);
+        }
+    }
+
+    private bool _isSelectingLinkText;
+    private Point _linkSelectionStartPoint;
+
+    private void OnPdfPreviewPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var image = (Control)sender!;
+        var linkEditor = ViewModel.LinkEditor;
+        var position = e.GetPosition(image);
+        var (pdfX, pdfY) = PdfCoordinateMapper.ToPdf(position.X, position.Y, linkEditor.PageHeight.Value, linkEditor.ZoomScale.Value);
+
+        if (linkEditor.IsPickingArbitraryTarget.Value)
+        {
+            linkEditor.PickArbitraryTargetAndCreateLink(linkEditor.CurrentPageIndex.Value, pdfX, pdfY);
+            RedrawLinkOverlay();
+            return;
+        }
+
+        _isSelectingLinkText = true;
+        _linkSelectionStartPoint = position;
+        e.Pointer.Capture(image);
+        linkEditor.BeginTextSelection(pdfX, pdfY);
+        DrawLiveSelectionRect(position, position);
+    }
+
+    private void OnPdfPreviewPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_isSelectingLinkText)
+        {
+            return;
+        }
+
+        var image = (Control)sender!;
+        var linkEditor = ViewModel.LinkEditor;
+        var position = e.GetPosition(image);
+        var (pdfX, pdfY) = PdfCoordinateMapper.ToPdf(position.X, position.Y, linkEditor.PageHeight.Value, linkEditor.ZoomScale.Value);
+        linkEditor.UpdateTextSelection(pdfX, pdfY);
+        DrawLiveSelectionRect(_linkSelectionStartPoint, position);
+    }
+
+    private void OnPdfPreviewPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_isSelectingLinkText)
+        {
+            return;
+        }
+
+        _isSelectingLinkText = false;
+        e.Pointer.Capture(null);
+        ViewModel.LinkEditor.EndTextSelection();
+        RedrawLinkOverlay();
+    }
+
+    /// <summary>ドラッグ中の選択範囲を、簡易的な単一矩形(始点〜現在点の外接矩形)として描画する。</summary>
+    private void DrawLiveSelectionRect(Point start, Point current)
+    {
+        LinkOverlayCanvas.Children.Clear();
+        var left = Math.Min(start.X, current.X);
+        var top = Math.Min(start.Y, current.Y);
+        var rect = new Rectangle
+        {
+            Width = Math.Abs(current.X - start.X),
+            Height = Math.Abs(current.Y - start.Y),
+            Fill = new SolidColorBrush(Color.FromArgb(80, 30, 144, 255)),
+            Stroke = Brushes.DodgerBlue,
+            StrokeThickness = 1,
+        };
+        Canvas.SetLeft(rect, left);
+        Canvas.SetTop(rect, top);
+        LinkOverlayCanvas.Children.Add(rect);
+    }
+
+    /// <summary>現在ページに属する確定済みリンクのホットスポットを、半透明の矩形として描画し直す。</summary>
+    private void RedrawLinkOverlay()
+    {
+        LinkOverlayCanvas.Children.Clear();
+
+        var linkEditor = ViewModel.LinkEditor;
+        var pageHeight = linkEditor.PageHeight.Value;
+        var scale = linkEditor.ZoomScale.Value;
+        var currentPage = linkEditor.CurrentPageIndex.Value;
+
+        foreach (var link in linkEditor.Links)
+        {
+            if (link.SourcePageIndex != currentPage)
+            {
+                continue;
+            }
+
+            var pixelRect = PdfCoordinateMapper.ToPixelRect(link.SourceRect, pageHeight, scale);
+            var rect = new Rectangle
+            {
+                Width = pixelRect.Right - pixelRect.Left,
+                Height = pixelRect.Bottom - pixelRect.Top,
+                Fill = new SolidColorBrush(Color.FromArgb(60, 0, 200, 0)),
+                Stroke = Brushes.Green,
+                StrokeThickness = 1,
+            };
+            Canvas.SetLeft(rect, pixelRect.Left);
+            Canvas.SetTop(rect, pixelRect.Top);
+            LinkOverlayCanvas.Children.Add(rect);
         }
     }
 }

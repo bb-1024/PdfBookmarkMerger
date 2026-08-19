@@ -72,6 +72,10 @@ public static class Strings
     public static string ZoomOutButton => Get(nameof(ZoomOutButton));
     public static string BackToBookmarksButton => Get(nameof(BackToBookmarksButton));
     public static string LinkEditorBookmarksHeader => Get(nameof(LinkEditorBookmarksHeader));
+    public static string LinkDestinationPickerHeader => Get(nameof(LinkDestinationPickerHeader));
+    public static string PickArbitraryTargetButton => Get(nameof(PickArbitraryTargetButton));
+    public static string PickArbitraryTargetHint => Get(nameof(PickArbitraryTargetHint));
+    public static string CancelSelectionButton => Get(nameof(CancelSelectionButton));
 
     public static string CancelButton => Get(nameof(CancelButton));
     public static string OkButton => Get(nameof(OkButton));

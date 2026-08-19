@@ -115,6 +115,10 @@
   <data name="ZoomOutButton" xml:space="preserve"><value>縮小</value></data>
   <data name="BackToBookmarksButton" xml:space="preserve"><value>しおり編集画面に戻る</value></data>
   <data name="LinkEditorBookmarksHeader" xml:space="preserve"><value>しおり</value></data>
+  <data name="LinkDestinationPickerHeader" xml:space="preserve"><value>ジャンプ先を選択</value></data>
+  <data name="PickArbitraryTargetButton" xml:space="preserve"><value>任意の位置を指定...</value></data>
+  <data name="PickArbitraryTargetHint" xml:space="preserve"><value>プレビュー上でジャンプ先にしたい位置をクリックしてください。</value></data>
+  <data name="CancelSelectionButton" xml:space="preserve"><value>キャンセル</value></data>
 
   <!-- 共通ボタン -->
   <data name="CancelButton" xml:space="preserve"><value>キャンセル</value></data>
