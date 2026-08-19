@@ -169,6 +169,91 @@ public sealed class PdfLinkAnnotationServiceTests : IDisposable
         document.Pages[0].HasAnnotations.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task ReadExistingLinksAsync_RoundTripsAllDestinationTypes()
+    {
+        var path = Path.Combine(_workDirectory, "a.pdf");
+        SamplePdfFactory.CreateWithoutBookmarks(path, pageCount: 4);
+
+        var links = new[]
+        {
+            new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 0,
+                SourceRect = new PdfRect(Left: 100, Bottom: 700, Right: 200, Top: 720),
+                TargetPageIndex = 3,
+                DestinationType = BookmarkDestinationType.XYZ,
+                Left = 50,
+                Top = 750,
+                Zoom = 1.5,
+            },
+            new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 1,
+                SourceRect = new PdfRect(Left: 10, Bottom: 10, Right: 60, Top: 40),
+                TargetPageIndex = 0,
+                DestinationType = BookmarkDestinationType.Fit,
+            },
+        };
+
+        await _sut.ApplyLinksAsync(path, links);
+
+        var readBack = await _sut.ReadExistingLinksAsync(path);
+
+        readBack.Count.ShouldBe(2);
+
+        var xyz = readBack.Single(l => l.SourcePageIndex == 0);
+        xyz.TargetPageIndex.ShouldBe(3);
+        xyz.DestinationType.ShouldBe(BookmarkDestinationType.XYZ);
+        xyz.SourceRect.Left.ShouldBe(100, tolerance: 0.01);
+        xyz.SourceRect.Bottom.ShouldBe(700, tolerance: 0.01);
+        xyz.SourceRect.Right.ShouldBe(200, tolerance: 0.01);
+        xyz.SourceRect.Top.ShouldBe(720, tolerance: 0.01);
+        xyz.Left!.Value.ShouldBe(50, tolerance: 0.01);
+        xyz.Top!.Value.ShouldBe(750, tolerance: 0.01);
+        xyz.Zoom!.Value.ShouldBe(1.5, tolerance: 0.01);
+
+        var fit = readBack.Single(l => l.SourcePageIndex == 1);
+        fit.TargetPageIndex.ShouldBe(0);
+        fit.DestinationType.ShouldBe(BookmarkDestinationType.Fit);
+        fit.Left.ShouldBeNull();
+        fit.Top.ShouldBeNull();
+        fit.Zoom.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReadExistingLinksAsync_OnAFileWithNoLinks_ReturnsEmpty()
+    {
+        var path = Path.Combine(_workDirectory, "a.pdf");
+        SamplePdfFactory.CreateWithoutBookmarks(path, pageCount: 2);
+
+        var readBack = await _sut.ReadExistingLinksAsync(path);
+
+        readBack.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ReadExistingLinksAsync_AssignsADistinctGroupIdToEachLink()
+    {
+        var path = Path.Combine(_workDirectory, "a.pdf");
+        SamplePdfFactory.CreateWithoutBookmarks(path, pageCount: 3);
+
+        var groupId = Guid.NewGuid();
+        var links = new[]
+        {
+            new LinkAnnotationNode { GroupId = groupId, SourcePageIndex = 0, SourceRect = new PdfRect(0, 700, 100, 720), TargetPageIndex = 2, DestinationType = BookmarkDestinationType.Fit },
+            new LinkAnnotationNode { GroupId = groupId, SourcePageIndex = 0, SourceRect = new PdfRect(0, 680, 60, 700), TargetPageIndex = 2, DestinationType = BookmarkDestinationType.Fit },
+        };
+        await _sut.ApplyLinksAsync(path, links);
+
+        var readBack = await _sut.ReadExistingLinksAsync(path);
+
+        readBack.Count.ShouldBe(2);
+        readBack[0].GroupId.ShouldNotBe(readBack[1].GroupId);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_workDirectory))
