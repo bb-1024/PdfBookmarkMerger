@@ -246,7 +246,7 @@ D&D並べ替え(`MoveTo`)を扱う。`GetMoveAvailability` は選択が空また
 がダイアログ確定直後にこの値を書き換えるだけでXAML側のバインディングが即座に追従する。
 
 <a id="link-editor"></a>
-## 7. `LinkEditorViewModel`
+## 7. `LinkEditorViewModel`(v1.3.0〜)
 
 手順5(`WorkflowStep.EditLinks`)を統括するViewModel。結合・しおり設定済みの単一PDFファイルを
 対象に、連続スクロールのページプレビュー・拡大縮小・しおり一覧からのジャンプ・文字選択による

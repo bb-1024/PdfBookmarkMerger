@@ -105,7 +105,7 @@ WPF版(`Wpf.App.OnStartup`)・Avalonia版(`AvaloniaApp.App.OnFrameworkInitializa
 一時ファイルへ書いてから `File.Move(..., overwrite: true)` で原子的に置き換える方式
 (`UserSettingsService.SaveAsync`)で、書き込み中のプロセス強制終了によるJSON破損を避けている。
 
-### 4.5 App層の非同期メソッドは `ConfigureAwait(false)` を使わない
+### 4.5 App層の非同期メソッドは `ConfigureAwait(false)` を使わない(v1.3.0〜)
 
 ViewModelの非同期メソッド(`LoadAsync`・`RecomputeAllPageNumberDisplaysAsync` 等)は、
 `await` に `ConfigureAwait(false)` を付けない。WPF版はコマンドの `CanExecuteChanged` を
@@ -115,7 +115,7 @@ ViewModelの非同期メソッド(`LoadAsync`・`RecomputeAllPageNumberDisplaysA
 (クロススレッドアクセス)が発生する。この既定を意図的に破った箇所が
 [03-app-design.md §7.7](03-app-design.md#link-editor-thread) に事例として残っている。
 
-### 4.6 PDFium呼び出し箇所への `[SupportedOSPlatform]` の付け方
+### 4.6 PDFium呼び出し箇所への `[SupportedOSPlatform]` の付け方(v1.3.0〜)
 
 `IPdfPageRenderer` の実装はPDFium(ネイティブライブラリ)を呼ぶため .NETアナライザーが
 CA1416(プラットフォーム互換性)を警告する。クラス単位・アセンブリ単位で

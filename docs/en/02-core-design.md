@@ -116,7 +116,7 @@ conversion logic lives in the Services layer specifically to keep Models free of
 dependency.
 
 <a id="link-editor-services"></a>
-### 2.8 `PdfPageRenderer`
+### 2.8 `PdfPageRenderer` (since v1.3.0)
 
 Renders a single PDF page to PNG bytes for the link editor's preview, using `PDFtoImage` (a wrapper
 around PDFium — the same rendering engine Chrome's native, non-JS PDF viewer uses).
@@ -135,7 +135,7 @@ PDFium itself is not thread-safe, so calls are serialized behind a `SemaphoreSli
 PDFium call sites themselves are wrapped in `#pragma warning disable/restore CA1416` around just those
 2–3 lines rather than at the class level — see [01-architecture.md §4.6](01-architecture.md).
 
-### 2.9 `PdfTextExtractor`
+### 2.9 `PdfTextExtractor` (since v1.3.0)
 
 `ExtractLettersAsync(filePath, pageIndex, ct)` — extracts per-character (glyph) rectangles and text
 for the given page using `UglyToad.PdfPig` (pure managed code, no native dependency), returning a list
@@ -145,7 +145,7 @@ and PdfSharp (only between PDF space and the rendered bitmap's pixel space, whic
 `PdfCoordinateMapper` handles). The whole document is never extracted at once; only the currently
 displayed page is.
 
-### 2.10 `PdfCoordinateMapper` (static)
+### 2.10 `PdfCoordinateMapper` (static, since v1.3.0)
 
 Converts between PDF user space (points, bottom-left origin) and the pixel coordinates of the bitmap
 `PdfPageRenderer` produced (top-left origin, `96 * scale / 72` px/pt).
@@ -162,7 +162,7 @@ positionally in the wrong order (Left,Top,Right,Bottom), swapping Top and Bottom
 dedicated test. As noted in §1, this is exactly why `PdfRect` should always be constructed with named
 arguments: its field order matches the PDF spec, not the natural reading order.
 
-### 2.11 `PdfLinkAnnotationService`
+### 2.11 `PdfLinkAnnotationService` (since v1.3.0)
 
 Owns both writing the links created in the link editor and reading links already present in the file.
 

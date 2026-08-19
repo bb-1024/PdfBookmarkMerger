@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html" class="current">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.2.3<br />
+      as of v1.3.0<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/05-version-history.html">日本語</a>
     </div>
@@ -31,7 +31,7 @@
   <main>
     <header class="doc-head" id="top">
       <div class="eyebrow">Design Documentation — 05 / 06</div>
-      <h1>Design-Level Diffs Across Versions (v1.0.0 &rarr; v1.2.3)</h1>
+      <h1>Design-Level Diffs Across Versions (v1.0.0 &rarr; v1.3.0)</h1>
       <p class="sub">
         This document was assembled by enumerating changed files with
         <code class="inline">git diff --name-status &lt;previous version&gt; &lt;target version&gt; -- src tests</code>,
@@ -53,6 +53,7 @@
             <tr><td class="mono">v1.2.1</td><td>2026-08-12</td><td class="mono">b61d2ee</td></tr>
             <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
             <tr><td class="mono">v1.2.3</td><td>2026-08-18</td><td class="mono">2bd2b45</td></tr>
+            <tr><td class="mono">v1.3.0</td><td>2026-08-20</td><td class="mono">3056af1</td></tr>
           </tbody>
         </table>
       </div>
@@ -324,6 +325,124 @@
 
     <hr class="rule" />
 
+    <section id="v130">
+      <h2><span class="num">v1.3.0</span>2026-08-20</h2>
+      <p>
+        10 commits: adds the "link editor," a new screen that previews an already-merged,
+        already-bookmarked PDF while letting the user select text and turn it into a link, jumping
+        either to a bookmark's destination or an arbitrary position.
+        (Between the <code class="inline">v1.2.3</code> and <code class="inline">v1.3.0</code> tags
+        there's also <code class="inline">e964b6f</code>, the docs-sync commit for v1.2.3 itself.)
+      </p>
+
+      <h3>Foundation (<code class="inline">a885e2</code>&ndash;<code class="inline">c6230b</code>)</h3>
+      <ul>
+        <li><strong><code class="inline">a885e26</code> Added PDF page rendering and text-extraction
+          services</strong> &mdash; PDFsharp has neither page rasterization nor
+          positioned-text-extraction, so this adds two new Core dependencies:
+          <code class="inline">PDFtoImage</code> (a PDFium wrapper, actively maintained including
+          macOS arm64 support) driving <code class="inline">PdfPageRenderer</code>, and
+          <code class="inline">UglyToad.PdfPig</code> (pure managed code) driving
+          <code class="inline">PdfTextExtractor</code> for per-letter bounding boxes.
+          <code class="inline">PdfPageRenderer</code> was made stateless per call rather than holding
+          a persistent document handle &mdash; <code class="inline">PDFtoImage</code>'s public API has
+          no reusable handle to begin with, and a benchmark against a 2000-page PDF showed per-page
+          render cost stayed flat (16&ndash;26ms) regardless of page position, so the extra complexity
+          of a held-open handle wasn't worth it. Also adds the
+          <code class="inline">PdfTextLetter</code>/<code class="inline">PdfRect</code> data models
+          used throughout the feature.</li>
+        <li><strong><code class="inline">c6230ba</code> Added <code class="inline">PdfLinkAnnotationService</code>
+          (write path)</strong> &mdash; writes the final output by opening the already-merged,
+          already-bookmarked file in <code class="inline">PdfDocumentOpenMode.Modify</code> and adding
+          new <code class="inline">/Annots</code> entries directly onto the existing
+          <code class="inline">PdfPage</code> objects. Deliberately avoids rebuilding pages via
+          <code class="inline">AddPage</code>, since doing so risks reintroducing the
+          internal-link-remapping bug fixed in <a href="#v123">v1.2.3</a>.</li>
+      </ul>
+
+      <h3>The screen and link-creation logic (<code class="inline">1f0827</code>&ndash;<code class="inline">ac90d8</code>)</h3>
+      <ul>
+        <li><strong><code class="inline">1f08273</code> Added the link-editing screen skeleton</strong>
+          &mdash; introduces <code class="inline">WorkflowStep.EditLinks</code> and routes a successful
+          merge into it. <code class="inline">LinkEditorViewModel</code> gets page navigation, zoom, and
+          read-only bookmark loading.</li>
+        <li><strong><code class="inline">d559ebc</code> Added link-creation logic</strong> &mdash;
+          <code class="inline">PdfCoordinateMapper</code> (converting between PDF user-space points and
+          rendered bitmap pixels), character-level drag-to-select hit-testing, and splitting a
+          multi-line selection into per-line rects. Along the way, caught and fixed a real bug where
+          <code class="inline">PdfCoordinateMapper.ToPixelRect</code> constructed a
+          <code class="inline">PdfRect</code> with positional arguments in the wrong order, swapping
+          Top/Bottom, and a genuinely flaky test failure caused by page rendering and text extraction
+          running as two independent async chains, which let <code class="inline">IsBusy</code> fall
+          out of sync with <code class="inline">CurrentPageIndex</code>.</li>
+        <li><strong><code class="inline">ac90d87</code> Wired up the link-creation UI</strong> &mdash;
+          live selection-rectangle drawing and hotspot-overlay rendering driven from pointer events on
+          the preview. Reused the bookmark sidebar as the destination picker once a selection is
+          pending.</li>
+      </ul>
+
+      <h3>Link management, finishing, and pre-existing links (<code class="inline">6949df</code>&ndash;<code class="inline">6bdb03</code>)</h3>
+      <ul>
+        <li><strong><code class="inline">6949df4</code> Added the link management UI</strong> &mdash;
+          list, jump, edit, and delete for <code class="inline">LinkGroups</code> (the per-
+          <code class="inline">GroupId</code> summary view).</li>
+        <li><strong><code class="inline">5e4a239</code> Added the Finish command</strong> &mdash;
+          <code class="inline">FinishAsync</code> restores a "pristine" backup (captured in
+          <code class="inline">LoadAsync</code>, before any link annotations exist) before every call
+          to <code class="inline">ApplyLinksAsync</code>, so pressing Finish more than once stays
+          idempotent &mdash; necessary because <code class="inline">PdfLinkAnnotationService</code>
+          only ever appends annotations and can't delete or replace them.</li>
+        <li><strong><code class="inline">6bdb033</code> Added reading of existing link annotations
+          (Core layer)</strong> &mdash; <code class="inline">ReadExistingLinksAsync</code> reads a
+          PDF's pre-existing <code class="inline">/Subtype /Link</code> annotations back into
+          <code class="inline">LinkAnnotationNode</code> values, using the same low-level API as the
+          write path, verified with write-then-read round-trip tests.</li>
+      </ul>
+
+      <h3>The continuous-scroll rework and manual-testing fixes (<code class="inline">1e075c</code>)</h3>
+      <p>
+        <strong><code class="inline">1e075c5</code> Reworked the preview to continuous scroll, fixed a
+        cross-thread crash, and acted on manual-testing feedback</strong> &mdash; a large iteration
+        covering two real bugs found while manually testing the WPF build.
+      </p>
+      <ol>
+        <li>
+          <strong>Cross-thread crash</strong>: <code class="inline">LinkEditorViewModel</code>'s async
+          methods used <code class="inline">ConfigureAwait(false)</code>, so the continuation after the
+          first <code class="inline">await</code> ran on a thread-pool thread &mdash; and the moment it
+          wrote to a <code class="inline">ReactivePropertySlim&lt;T&gt;.Value</code> that WPF's
+          <code class="inline">CommandManager</code> watches from the UI thread only, it threw
+          <code class="inline">InvalidOperationException</code>. Fixed by removing
+          <code class="inline">ConfigureAwait(false)</code> everywhere in the file, matching the rest
+          of the App layer's convention. See
+          <a href="01-architecture.html#cross-cutting">01-architecture.html &sect;4.5</a>.
+        </li>
+        <li>
+          <strong>Continuous-scroll preview rework</strong>: replaced the single-page-plus-peek-image
+          design with <code class="inline">PageSlots</code>, a column of lightweight placeholders bound
+          to a virtualized <code class="inline">ListBox</code>. While scrolling,
+          <code class="inline">CurrentPageIndex</code> now tracks whichever page occupies the largest
+          visible area of the viewport. Along the way, found and fixed two non-obvious layout bugs:
+          <code class="inline">Wpf.Ui</code>'s <code class="inline">FluentWindow</code> silently swaps
+          the internal <code class="inline">ScrollViewer</code> for its own
+          <code class="inline">PassiveScrollViewer</code>, whose hit-testing never worked; and
+          <code class="inline">ListBox.ScrollIntoView</code> could leave a page's tail, not its head,
+          aligned to the viewport. See
+          <a href="04-ui-design.html#link-editor-scroll-fix">04-ui-design.html &sect;6.2</a>.
+        </li>
+        <li>
+          Several smaller fixes from manual testing, including wiring up the existing-link list
+          display, matching button styles, and fixing unreadable dark-mode text in the bookmark
+          <code class="inline">TreeView</code>.
+        </li>
+      </ol>
+
+      <h3><code class="inline">0f1b476</code> Design documentation updates</h3>
+      <p>Updated all six chapters, both languages, and both Markdown/HTML formats with the link-editor feature.</p>
+    </section>
+
+    <hr class="rule" />
+
     <section id="verify">
       <h2><span class="num">&mdash;</span>How to verify this yourself</h2>
       <pre class="code"><span class="c"># tags and their commit dates</span>
@@ -336,6 +455,7 @@ git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
+git diff --name-status v1.2.3 v1.3.0 -- src tests
 
 <span class="c"># every commit within each version window</span>
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -343,6 +463,7 @@ git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
+git log --oneline v1.2.3..v1.3.0 -- src tests
 
 <span class="c"># a specific commit's full diff</span>
 git show &lt;commit-hash&gt;

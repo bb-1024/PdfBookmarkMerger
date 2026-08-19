@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.2.3時点<br />
+      v1.3.0時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/01-architecture.html">English</a>
     </div>
@@ -160,7 +160,7 @@
       </div>
 
       <div class="card">
-        <h4>4.5 App層の非同期メソッドは <code class="inline">ConfigureAwait(false)</code> を使わない</h4>
+        <h4>4.5 App層の非同期メソッドは <code class="inline">ConfigureAwait(false)</code> を使わない <span class="badge ok">v1.3.0&#12316;</span></h4>
         <p>
           ViewModelの非同期メソッド(<code class="inline">LoadAsync</code>・<code class="inline">RecomputeAllPageNumberDisplaysAsync</code> 等)は、
           <code class="inline">await</code> に <code class="inline">ConfigureAwait(false)</code> を付けない。WPF版はコマンドの
@@ -173,7 +173,7 @@
       </div>
 
       <div class="card">
-        <h4>4.6 PDFium呼び出し箇所への <code class="inline">[SupportedOSPlatform]</code> の付け方</h4>
+        <h4>4.6 PDFium呼び出し箇所への <code class="inline">[SupportedOSPlatform]</code> の付け方 <span class="badge ok">v1.3.0&#12316;</span></h4>
         <p>
           <code class="inline">IPdfPageRenderer</code> の実装はPDFium(ネイティブライブラリ)を呼ぶため .NETアナライザーが
           CA1416(プラットフォーム互換性)を警告する。クラス単位・アセンブリ単位で <code class="inline">[SupportedOSPlatform]</code> を

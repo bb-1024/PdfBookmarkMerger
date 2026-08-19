@@ -1,4 +1,4 @@
-# 05. Design-Level Diffs Across Versions (v1.0.0 → v1.2.3)
+# 05. Design-Level Diffs Across Versions (v1.0.0 → v1.3.0)
 
 This document was assembled by enumerating changed files with
 `git diff --name-status <previous version> <target version> -- src tests`, then individually
@@ -15,6 +15,7 @@ the end gives the exact commands so anyone can reproduce the same process.
 | `v1.2.1` | 2026-08-12 | `b61d2ee` |
 | `v1.2.2` | 2026-08-17 | `0bc7147` |
 | `v1.2.3` | 2026-08-18 | `2bd2b45` |
+| `v1.3.0` | 2026-08-20 | `3056af1` |
 
 ---
 
@@ -244,6 +245,88 @@ one resolves to the correct merged page (`PdfMergeServiceTests`).
 
 ---
 
+<a id="v130"></a>
+## v1.3.0 (2026-08-20)
+
+10 commits: adds the "link editor," a new screen that previews an already-merged,
+already-bookmarked PDF while letting the user select text and turn it into a link, jumping either to
+a bookmark's destination or an arbitrary position.
+(Between the `v1.2.3` and `v1.3.0` tags there's also `e964b6f`, the docs-sync commit for v1.2.3
+itself.)
+
+### Foundation (`a885e2`–`c6230b`)
+
+- **`a885e26` Added PDF page rendering and text-extraction services** — PDFsharp has neither page
+  rasterization nor positioned-text-extraction, so this adds two new Core dependencies:
+  `PDFtoImage` (a PDFium wrapper, actively maintained including macOS arm64 support) driving
+  `PdfPageRenderer`, and `UglyToad.PdfPig` (pure managed code) driving `PdfTextExtractor` for
+  per-letter bounding boxes. `PdfPageRenderer` was made stateless per call rather than holding a
+  persistent document handle — `PDFtoImage`'s public API has no reusable handle to begin with, and a
+  benchmark against a 2000-page PDF showed per-page render cost stayed flat (16–26ms) regardless of
+  page position, so the extra complexity of a held-open handle wasn't worth it. Also adds the
+  `PdfTextLetter`/`PdfRect` data models used throughout the feature.
+- **`c6230ba` Added `PdfLinkAnnotationService` (write path)** — writes the final output by opening
+  the already-merged, already-bookmarked file in `PdfDocumentOpenMode.Modify` and adding new
+  `/Annots` entries directly onto the existing `PdfPage` objects. Deliberately avoids rebuilding pages
+  via `AddPage`, since doing so risks reintroducing the internal-link-remapping bug fixed in
+  [v1.2.3](#v123).
+
+### The screen and link-creation logic (`1f0827`–`ac90d8`)
+
+- **`1f08273` Added the link-editing screen skeleton** — introduces `WorkflowStep.EditLinks` and
+  routes a successful merge into it. `LinkEditorViewModel` gets page navigation, zoom, and read-only
+  bookmark loading.
+- **`d559ebc` Added link-creation logic** — `PdfCoordinateMapper` (converting between PDF user-space
+  points and rendered bitmap pixels), character-level drag-to-select hit-testing, and splitting a
+  multi-line selection into per-line rects. Along the way, caught and fixed a real bug where
+  `PdfCoordinateMapper.ToPixelRect` constructed a `PdfRect` with positional arguments in the wrong
+  order, swapping Top/Bottom, and a genuinely flaky test failure caused by page rendering and text
+  extraction running as two independent async chains, which let `IsBusy` fall out of sync with
+  `CurrentPageIndex`.
+- **`ac90d87` Wired up the link-creation UI** — live selection-rectangle drawing and hotspot-overlay
+  rendering driven from pointer events on the preview. Reused the bookmark sidebar as the
+  destination picker once a selection is pending.
+
+### Link management, finishing, and pre-existing links (`6949df`–`6bdb03`)
+
+- **`6949df4` Added the link management UI** — list, jump, edit, and delete for `LinkGroups` (the
+  per-`GroupId` summary view).
+- **`5e4a239` Added the Finish command** — `FinishAsync` restores a "pristine" backup (captured in
+  `LoadAsync`, before any link annotations exist) before every call to `ApplyLinksAsync`, so pressing
+  Finish more than once stays idempotent — necessary because `PdfLinkAnnotationService` only ever
+  appends annotations and can't delete or replace them.
+- **`6bdb033` Added reading of existing link annotations (Core layer)** — `ReadExistingLinksAsync`
+  reads a PDF's pre-existing `/Subtype /Link` annotations back into `LinkAnnotationNode` values, using
+  the same low-level API as the write path, verified with write-then-read round-trip tests.
+
+### The continuous-scroll rework and manual-testing fixes (`1e075c`)
+
+- **`1e075c5` Reworked the preview to continuous scroll, fixed a cross-thread crash, and acted on
+  manual-testing feedback** — a large iteration covering two real bugs found while manually testing
+  the WPF build.
+  1. **Cross-thread crash**: `LinkEditorViewModel`'s async methods used `ConfigureAwait(false)`, so
+     the continuation after the first `await` ran on a thread-pool thread — and the moment it wrote to
+     a `ReactivePropertySlim<T>.Value` that WPF's `CommandManager` watches from the UI thread only, it
+     threw `InvalidOperationException`. Fixed by removing `ConfigureAwait(false)` everywhere in the
+     file, matching the rest of the App layer's convention. See
+     [01-architecture.md §4.5](01-architecture.md#cross-cutting).
+  2. **Continuous-scroll preview rework**: replaced the single-page-plus-peek-image design with
+     `PageSlots`, a column of lightweight placeholders bound to a virtualized `ListBox`. While
+     scrolling, `CurrentPageIndex` now tracks whichever page occupies the largest visible area of the
+     viewport. Along the way, found and fixed two non-obvious layout bugs: `Wpf.Ui`'s `FluentWindow`
+     silently swaps the internal `ScrollViewer` for its own `PassiveScrollViewer`, whose hit-testing
+     never worked; and `ListBox.ScrollIntoView` could leave a page's tail, not its head, aligned to the
+     viewport. See [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-fix).
+  3. Several smaller fixes from manual testing, including wiring up the existing-link list display,
+     matching button styles, and fixing unreadable dark-mode text in the bookmark `TreeView`.
+
+### `0f1b476` Design documentation updates
+
+Updated all six chapters, both languages, and both Markdown/HTML formats with the link-editor
+feature.
+
+---
+
 ## How to verify this yourself
 
 ```bash
@@ -257,6 +340,7 @@ git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
+git diff --name-status v1.2.3 v1.3.0 -- src tests
 
 # every commit within each version window
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -264,6 +348,7 @@ git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
+git log --oneline v1.2.3..v1.3.0 -- src tests
 
 # a specific commit's full diff
 git show <commit-hash>

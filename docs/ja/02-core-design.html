@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.2.3時点<br />
+      v1.3.0時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/02-core-design.html">English</a>
     </div>
@@ -163,7 +163,7 @@
         変換ロジックはServices層に配置している。
       </p>
 
-      <h3 id="link-editor-services"><code class="inline">PdfPageRenderer</code></h3>
+      <h3 id="link-editor-services"><code class="inline">PdfPageRenderer</code> <span class="badge ok">v1.3.0&#12316;</span></h3>
       <p>
         リンク編集画面のプレビュー用に、PDFの1ページをPNGバイト列へ描画する。<code class="inline">PDFtoImage</code>
         (PDFium — Chromeのネイティブ(非JS)PDF表示と同じ描画エンジン — のラッパー)を使う。
@@ -184,7 +184,7 @@
         で囲んでいる。
       </p>
 
-      <h3><code class="inline">PdfTextExtractor</code></h3>
+      <h3><code class="inline">PdfTextExtractor</code> <span class="badge ok">v1.3.0&#12316;</span></h3>
       <p>
         <code class="inline">ExtractLettersAsync(filePath, pageIndex, ct)</code> —
         <code class="inline">UglyToad.PdfPig</code>(純粋管理コード、ネイティブ依存なし)で指定ページの
@@ -195,7 +195,7 @@
         担う)。文書全体は一括抽出せず、現在表示中のページのみを対象とする。
       </p>
 
-      <h3><code class="inline">PdfCoordinateMapper</code> <span class="tag">static</span></h3>
+      <h3><code class="inline">PdfCoordinateMapper</code> <span class="tag">static</span> <span class="badge ok">v1.3.0&#12316;</span></h3>
       <p>
         PDFユーザー空間(pt、左下原点)と、<code class="inline">PdfPageRenderer</code>が描画したビットマップの
         ピクセル座標(左上原点、<code class="inline">96 * scale / 72</code> px/pt)を相互変換する。
@@ -212,7 +212,7 @@ public static PdfRect ToPixelRect(PdfRect pdfRect, double pageHeightPt, float sc
         常に名前付き引数で構築する。
       </p>
 
-      <h3><code class="inline">PdfLinkAnnotationService</code></h3>
+      <h3><code class="inline">PdfLinkAnnotationService</code> <span class="badge ok">v1.3.0&#12316;</span></h3>
       <p>リンク編集画面で作成したリンクの書き込み・PDFに元から含まれるリンクの読み取りを担う。</p>
       <div class="card">
         <h4><code class="inline">ApplyLinksAsync(filePath, links, ct)</code></h4>

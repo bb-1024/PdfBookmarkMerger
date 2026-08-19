@@ -1,4 +1,4 @@
-# 05. バージョン間の設計差分(v1.0.0 → v1.2.3)
+# 05. バージョン間の設計差分(v1.0.0 → v1.3.0)
 
 このドキュメントは、`git diff --name-status <前バージョン> <対象バージョン> -- src tests` で
 洗い出した変更ファイル一覧と、該当コミットの内容(`git show <commit>`)を個別に確認した上で
@@ -14,6 +14,7 @@
 | `v1.2.1` | 2026-08-12 | `b61d2ee` |
 | `v1.2.2` | 2026-08-17 | `0bc7147` |
 | `v1.2.3` | 2026-08-18 | `2bd2b45` |
+| `v1.3.0` | 2026-08-20 | `3056af1` |
 
 ---
 
@@ -225,6 +226,83 @@ AppDataフォルダへ統一した。
 
 ---
 
+<a id="v130"></a>
+## v1.3.0(2026-08-20)
+
+10個のコミット。「リンク編集」機能(結合・しおり設定済みのPDFをプレビューしながら、本文中の
+テキストを選択してリンクを作成・確認・削除する新画面)の追加。
+(なお `v1.2.3` タグと `v1.3.0` タグの間には、v1.2.3自身のドキュメント同期作業だった
+`e964b6f` も含まれる。)
+
+### 基盤(`a885e2`〜`c6230b`)
+
+- **`a885e26` PDF描画・テキスト抽出サービスの追加** — PDFsharpにはページのラスタライズ機能も
+  位置情報付きテキスト抽出機能も無いため、Core層へ2つの新規依存を追加した:
+  `PDFtoImage`(PDFiumラッパー、macOS arm64含め積極的にメンテナンスされている)でページを
+  PNGへ描画する `PdfPageRenderer`、`UglyToad.PdfPig`(純粋管理コード)で文字単位の矩形を
+  抽出する `PdfTextExtractor`。`PdfPageRenderer` は文書ハンドルを保持せずページごとに
+  ステートレスに描画する設計とした — `PDFtoImage` の公開APIにそもそも再利用可能なハンドルが
+  無いこと、2000ページ級PDFでのベンチマークでページ位置に関わらず1ページ16〜26msで安定して
+  いたことから、ハンドル使い回しの複雑さに見合わないと判断した。`PdfTextLetter`/`PdfRect`
+  などのデータモデルもここで追加。
+- **`c6230ba` `PdfLinkAnnotationService`(書き込み)の追加** — 既に結合・しおり設定済みのPDFへ、
+  `PdfDocumentOpenMode.Modify` で開いて既存の `PdfPage` オブジェクトへ直接 `/Annots` を追加する
+  方式で最終出力する。`AddPage` によるページ再構築を経由すると、[v1.2.3](#v123) で修正した
+  内部リンクのジャンプ先破損と同種の問題を再度招く恐れがあるため、意図的に避けている。
+
+### 画面とリンク作成ロジック(`1f0827`〜`ac90d8`)
+
+- **`1f08273` リンク編集画面の骨格追加** — `WorkflowStep.EditLinks` を新設し、結合成功後の遷移先を
+  ここへ変更。`LinkEditorViewModel` にページ送り・ズーム・しおり読み込み(読み取り専用)を実装。
+- **`d559ebc` リンク作成ロジックの追加** — `PdfCoordinateMapper`(PDFユーザー空間⇔ビットマップ
+  ピクセル座標の相互変換)、文字単位のドラッグ選択によるヒットテスト、複数行選択時の行ごとの
+  矩形分割を実装。実装中に、`PdfCoordinateMapper.ToPixelRect` が `PdfRect` を誤った位置引数順で
+  構築しTop/Bottomが入れ替わるバグと、ページ描画とテキスト抽出を独立した2つの非同期チェーンに
+  していたことで `IsBusy` と `CurrentPageIndex` の同期が崩れる本物のflakyテスト failureを、
+  それぞれ実装中に発見・修正した。
+- **`ac90d87` リンク作成UIの配線** — プレビュー上のポインタ操作から選択矩形のライブ表示・
+  リンクのホットスポットオーバーレイ描画までを配線。しおりサイドバーを、選択確定後のジャンプ先
+  ピッカーとしても再利用する設計にした。
+
+### リンク管理・完了・既存リンク(`6949df`〜`6bdb03`)
+
+- **`6949df4` リンク管理UIの追加** — `LinkGroups`(GroupIdごとの集約ビュー)の一覧表示・
+  ジャンプ・編集・削除を実装。
+- **`5e4a239` 完了コマンドの追加** — `FinishAsync` は、`LoadAsync` 時に取得した「素の状態
+  (リンク注釈が一切無い時点)」のバックアップから毎回復元してから `ApplyLinksAsync` を呼ぶことで、
+  「完了」を複数回押しても注釈が重複しない冪等性を確保している(`PdfLinkAnnotationService` が
+  追記専用で削除・置換ができないための設計)。
+- **`6bdb033` 既存リンク注釈の読み取り追加(Core層)** — `ReadExistingLinksAsync` で、PDFに元から
+  含まれる `/Subtype /Link` 注釈を `LinkAnnotationNode` として読み取れるようにした。書き込みと
+  同じ低レベルAPIで実装し、書き込み→読み取りのラウンドトリップをテストで検証している。
+
+### 連続スクロールへの刷新と手動テストでの不具合修正(`1e075c`)
+
+- **`1e075c5` プレビューを連続スクロール方式へ刷新、クロススレッドクラッシュ修正、手動テスト
+  フィードバックへの対応** — WPF実機での手動テストで見つかった実際の不具合2件を含む大きな
+  イテレーション。
+  1. **クロススレッドクラッシュ**: `LinkEditorViewModel` の非同期メソッドが
+     `ConfigureAwait(false)` を使っていたため、最初の `await` 以降の継続処理がスレッドプール
+     スレッドで実行され、その中で `ReactivePropertySlim<T>.Value`(WPFの`CommandManager`が
+     UIスレッド専用で監視)を書き換えた瞬間に `InvalidOperationException` が発生していた。
+     `ConfigureAwait(false)` を全箇所で除去し解決(App層ViewModelはこれを使わないという
+     既存の規約に合わせた)。詳細は [01-architecture.md §4.5](01-architecture.md#cross-cutting)。
+  2. **連続スクロールプレビューへの刷新**: 単一ページ+ピーク画像方式を廃し、`PageSlots`
+     (仮想化された `ListBox` にバインドする軽量プレースホルダの列)方式へ全面刷新。
+     スクロール中は「ビューポート内で最も表示面積が大きいページ」を`CurrentPageIndex`とする。
+     この過程で、`Wpf.Ui`の`FluentWindow`が内部の`ScrollViewer`を独自の`PassiveScrollViewer`へ
+     差し替えておりヒットテストが機能しない問題と、`ListBox.ScrollIntoView`がページの先頭ではなく
+     末尾に揃ってしまう問題という、2つの非自明なレイアウトバグを発見・修正した。詳細は
+     [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-fix)。
+  3. その他、既存リンクの一覧表示配線・ボタンスタイルの統一・ダークモードでのしおり
+     `TreeView`文字色修正など、手動テストで見つかった小さな修正を多数含む。
+
+### `0f1b476` 設計ドキュメントの更新
+
+全6章・日英両言語・Markdown/HTML両形式について、リンク編集機能に関する記述を追加。
+
+---
+
 ## 確認方法
 
 以下のコマンドを実行すると、本ドキュメントの記述を自分で再確認できる。
@@ -240,6 +318,7 @@ git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
+git diff --name-status v1.2.3 v1.3.0 -- src tests
 
 # バージョン間の全コミット(区間内の個別コミットメッセージ)
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -247,6 +326,7 @@ git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
+git log --oneline v1.2.3..v1.3.0 -- src tests
 
 # 個別コミットの詳細diff
 git show <コミットハッシュ>

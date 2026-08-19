@@ -112,7 +112,7 @@
 Modelsをライブラリ非依存に保つため、変換ロジックはServices層に配置している。
 
 <a id="link-editor-services"></a>
-### 2.8 `PdfPageRenderer`
+### 2.8 `PdfPageRenderer`(v1.3.0〜)
 
 リンク編集画面のプレビュー用に、PDFの1ページをPNGバイト列へ描画する。`PDFtoImage`
 (PDFium — Chromeのネイティブ(非JS)PDF表示と同じ描画エンジン — のラッパー)を使う。
@@ -129,7 +129,7 @@ Modelsをライブラリ非依存に保つため、変換ロジックはServices
 [01-architecture.md §4.6](01-architecture.md) の通り、クラス単位ではなく該当2〜3行だけを
 `#pragma warning disable/restore CA1416` で囲んでいる。
 
-### 2.9 `PdfTextExtractor`
+### 2.9 `PdfTextExtractor`(v1.3.0〜)
 
 `ExtractLettersAsync(filePath, pageIndex, ct)` — `UglyToad.PdfPig`(純粋管理コード、ネイティブ
 依存なし)で指定ページの文字(グリフ)ごとの矩形+文字を抽出し `PdfTextLetter` の一覧を返す。
@@ -138,7 +138,7 @@ Modelsをライブラリ非依存に保つため、変換ロジックはServices
 の変換のみ`PdfCoordinateMapper`が担う)。文書全体は一括抽出せず、現在表示中のページのみを
 対象とする。
 
-### 2.10 `PdfCoordinateMapper`(static)
+### 2.10 `PdfCoordinateMapper`(static、v1.3.0〜)
 
 PDFユーザー空間(pt、左下原点)と、`PdfPageRenderer`が描画したビットマップのピクセル座標
 (左上原点、`96 * scale / 72` px/pt)を相互変換する。
@@ -152,10 +152,10 @@ public static PdfRect ToPixelRect(PdfRect pdfRect, double pageHeightPt, float sc
 
 `ToPixelRect`は実装時に一度、`PdfRect`を位置引数で誤った順序(Left,Top,Right,Bottom)で構築し
 Top/Bottomが入れ替わるバグが実際に発生した(専用テストで検出)。`PdfRect`のフィールド順が
-PDF仕様順(Left,Bottom,Right,Top)であり見た目の読み順と異なることが原因のため、[§1](#1-モデルcoremodels)
+PDF仕様順(Left,Bottom,Right,Top)であり見た目の読み順と異なることが原因のため、§1
 の通り常に名前付き引数で構築する。
 
-### 2.11 `PdfLinkAnnotationService`
+### 2.11 `PdfLinkAnnotationService`(v1.3.0〜)
 
 リンク編集画面で作成したリンクの書き込み・PDFに元から含まれるリンクの読み取りを担う。
 

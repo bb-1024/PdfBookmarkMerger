@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.2.3<br />
+      as of v1.3.0<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/02-core-design.html">日本語</a>
     </div>
@@ -168,7 +168,7 @@
         specifically to keep Models free of any library dependency.
       </p>
 
-      <h3 id="link-editor-services"><code class="inline">PdfPageRenderer</code></h3>
+      <h3 id="link-editor-services"><code class="inline">PdfPageRenderer</code> <span class="badge ok">since v1.3.0</span></h3>
       <p>
         Renders a single PDF page to PNG bytes for the link editor's preview, using
         <code class="inline">PDFtoImage</code> (a wrapper around PDFium &mdash; the same rendering engine Chrome's
@@ -191,7 +191,7 @@
         rather than at the class level &mdash; see <a href="01-architecture.html#cross-cutting">01-architecture.html §4.6</a>.
       </p>
 
-      <h3><code class="inline">PdfTextExtractor</code></h3>
+      <h3><code class="inline">PdfTextExtractor</code> <span class="badge ok">since v1.3.0</span></h3>
       <p>
         <code class="inline">ExtractLettersAsync(filePath, pageIndex, ct)</code> &mdash; extracts per-character
         (glyph) rectangles and text for the given page using <code class="inline">UglyToad.PdfPig</code> (pure
@@ -203,7 +203,7 @@
         extracted at once; only the currently displayed page is.
       </p>
 
-      <h3><code class="inline">PdfCoordinateMapper</code> <span class="tag">static</span></h3>
+      <h3><code class="inline">PdfCoordinateMapper</code> <span class="tag">static</span> <span class="badge ok">since v1.3.0</span></h3>
       <p>
         Converts between PDF user space (points, bottom-left origin) and the pixel coordinates of the bitmap
         <code class="inline">PdfPageRenderer</code> produced (top-left origin, <code class="inline">96 * scale / 72</code> px/pt).
@@ -220,7 +220,7 @@ public static PdfRect ToPixelRect(PdfRect pdfRect, double pageHeightPt, float sc
         field order matches the PDF spec, not the natural reading order.
       </p>
 
-      <h3><code class="inline">PdfLinkAnnotationService</code></h3>
+      <h3><code class="inline">PdfLinkAnnotationService</code> <span class="badge ok">since v1.3.0</span></h3>
       <p>Owns both writing the links created in the link editor and reading links already present in the file.</p>
       <div class="card">
         <h4><code class="inline">ApplyLinksAsync(filePath, links, ct)</code></h4>

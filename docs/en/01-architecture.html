@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.2.3<br />
+      as of v1.3.0<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/01-architecture.html">日本語</a>
     </div>
@@ -163,7 +163,7 @@
       </div>
 
       <div class="card">
-        <h4>4.5 App-layer async methods never use <code class="inline">ConfigureAwait(false)</code></h4>
+        <h4>4.5 App-layer async methods never use <code class="inline">ConfigureAwait(false)</code> <span class="badge ok">since v1.3.0</span></h4>
         <p>
           ViewModel async methods (<code class="inline">LoadAsync</code>, <code class="inline">RecomputeAllPageNumberDisplaysAsync</code>,
           etc.) never suffix <code class="inline">await</code> with <code class="inline">ConfigureAwait(false)</code>.
@@ -178,7 +178,7 @@
       </div>
 
       <div class="card">
-        <h4>4.6 <code class="inline">[SupportedOSPlatform]</code> around PDFium calls</h4>
+        <h4>4.6 <code class="inline">[SupportedOSPlatform]</code> around PDFium calls <span class="badge ok">since v1.3.0</span></h4>
         <p>
           <code class="inline">IPdfPageRenderer</code>'s implementation calls into PDFium (a native library), which
           the .NET analyzer flags as CA1416 (platform compatibility). Applying

@@ -2,7 +2,7 @@
 
 > **このドキュメントについて**
 > 本ドキュメント群は、リポジトリに存在するタグ付きバージョン
-> (`v1.0.0` / `v1.1.0` / `v1.2.0` / `v1.2.1` / `v1.2.2` / `v1.2.3`)の
+> (`v1.0.0` / `v1.1.0` / `v1.2.0` / `v1.2.1` / `v1.2.2` / `v1.2.3` / `v1.3.0`)の
 > **実際のソースコード・コミット履歴** を出発点として書き起こしています。
 > 各記述がどのバージョンの何のコミットに由来するかは [05-version-history.md](05-version-history.md)
 > で個別に追跡できるようにしています。英語版は `docs/en/` に同じ構成で置いています。
@@ -42,7 +42,7 @@ Windows/macOS向けの **Avalonia版** の2フロントエンドを、共通の�
 | PDF処理 | [PDFsharp](https://github.com/empira/PDFsharp) 6.2.4(構造の読み書き) + [PDFtoImage](https://github.com/sungaila/PDFtoImage) 5.4.0(PDFium経由のページ描画) + [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) 1.7.0-custom-5(文字単位のテキスト抽出) |
 | テスト | xUnit + [Shouldly](https://github.com/shouldly/shouldly) |
 
-## 3. プロジェクト構成(v1.2.3時点)
+## 3. プロジェクト構成(v1.3.0時点)
 
 ```
 src/
@@ -88,13 +88,13 @@ scripts/
 | [02-core-design.md](02-core-design.md) | Core層: モデル・ドメインサービスの詳細設計 |
 | [03-app-design.md](03-app-design.md) | App層: ViewModel・アプリサービスの詳細設計 |
 | [04-ui-design.md](04-ui-design.md) | WPF/Avaloniaフロントエンドの詳細設計(コードビハインド・Converter) |
-| [05-version-history.md](05-version-history.md) | v1.0.0→v1.1.0→v1.2.0→v1.2.1→v1.2.2→v1.2.3の設計上の差分と、その確認方法 |
+| [05-version-history.md](05-version-history.md) | v1.0.0→v1.1.0→v1.2.0→v1.2.1→v1.2.2→v1.2.3→v1.3.0の設計上の差分と、その確認方法 |
 
 ## 6. この文書の裏付け方法
 
 本ドキュメント群の内容は、以下の方法で実際のリポジトリ状態から確認しています。
 
-- 現行設計の記述: HEAD(`v1.2.3`)時点の該当ソースファイルを直接参照
+- 現行設計の記述: HEAD(`v1.3.0`)時点の該当ソースファイルを直接参照
 - バージョン間差分の記述: `git diff --name-status <前バージョンタグ> <対象バージョンタグ> -- src tests`
   で変更ファイル一覧を洗い出した上で、各差分の内容を個別に確認
 - テスト件数: `dotnet test <プロジェクト>.csproj --list-tests` の実出力件数(HEAD時点)

@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.2.3<br />
+      as of v1.3.0<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/00-overview.html">日本語</a>
     </div>
@@ -33,7 +33,7 @@
       <div class="eyebrow">Design Documentation — 00 / 06</div>
       <h1>PdfBookmarkMerger Design Documentation<br />Overview</h1>
       <div class="chips">
-        <span class="chip">v1.0.0 &ndash; v1.2.3</span>
+        <span class="chip">v1.0.0 &ndash; v1.3.0</span>
         <span class="chip">.NET 10</span>
         <span class="chip">WPF-UI / Avalonia</span>
       </div>
@@ -43,7 +43,8 @@
       <p><strong>About this documentation</strong> &mdash; grounded in the
       <strong>actual source code and commit history</strong> of the tagged versions present in the
       repository (<code class="inline">v1.0.0</code> / <code class="inline">v1.1.0</code> / <code class="inline">v1.2.0</code>
-      / <code class="inline">v1.2.1</code> / <code class="inline">v1.2.2</code> / <code class="inline">v1.2.3</code>). Every claim about which version something
+      / <code class="inline">v1.2.1</code> / <code class="inline">v1.2.2</code> / <code class="inline">v1.2.3</code>
+      / <code class="inline">v1.3.0</code>). Every claim about which version something
       belongs to can be traced individually in <a href="05-version-history.html">05-version-history.html</a>. The
       Japanese edition lives under <code class="inline">docs/ja/</code> with the same file structure.</p>
     </div>
@@ -134,7 +135,7 @@ scripts/
             <tr><td class="mono"><a href="02-core-design.html">02-core-design.html</a></td><td>Core layer: detailed design of models and domain services</td></tr>
             <tr><td class="mono"><a href="03-app-design.html">03-app-design.html</a></td><td>App layer: detailed design of ViewModels and app services</td></tr>
             <tr><td class="mono"><a href="04-ui-design.html">04-ui-design.html</a></td><td>WPF/Avalonia frontend detailed design (code-behind, converters)</td></tr>
-            <tr><td class="mono"><a href="05-version-history.html">05-version-history.html</a></td><td>Design-level diffs across v1.0.0 &rarr; v1.1.0 &rarr; v1.2.0 &rarr; v1.2.1 &rarr; v1.2.2 &rarr; v1.2.3, and how to verify them</td></tr>
+            <tr><td class="mono"><a href="05-version-history.html">05-version-history.html</a></td><td>Design-level diffs across v1.0.0 &rarr; v1.1.0 &rarr; v1.2.0 &rarr; v1.2.1 &rarr; v1.2.2 &rarr; v1.2.3 &rarr; v1.3.0, and how to verify them</td></tr>
           </tbody>
         </table>
       </div>
@@ -144,7 +145,7 @@ scripts/
       <h2><span class="num">6</span>How this document is grounded</h2>
       <p>The content here was verified against the actual repository state as follows:</p>
       <ul>
-        <li>Current-design descriptions: read directly from the relevant source file at HEAD (<code class="inline">v1.2.3</code>)</li>
+        <li>Current-design descriptions: read directly from the relevant source file at HEAD (<code class="inline">v1.3.0</code>)</li>
         <li>Cross-version diff descriptions: enumerated with <code class="inline">git diff --name-status &lt;previous tag&gt; &lt;target tag&gt; -- src tests</code>, then each diff's content was individually inspected</li>
         <li>Test counts: the actual output count of <code class="inline">dotnet test &lt;project&gt;.csproj --list-tests</code> at HEAD</li>
       </ul>

@@ -151,7 +151,7 @@ WPF版は `Wpf.Ui.Controls.MessageBox`、Avalonia版は自前の `AlertWindow` �
 (監視対象から外れないと、閉じたはずの旧ウィンドウがプロセス生存中ずっと参照され続ける)。
 
 <a id="link-editor-ui"></a>
-## 6. リンク編集画面(手順5)
+## 6. リンク編集画面(手順5、v1.3.0〜)
 
 `LinkEditorViewModel`(App層、[03-app-design.md §7](03-app-design.md#link-editor)参照)を
 バインドする画面。ページ送りツールバー([前のページ][ページ番号入力欄][/ 総ページ数][次のページ]

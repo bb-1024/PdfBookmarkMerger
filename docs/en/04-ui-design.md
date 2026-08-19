@@ -158,7 +158,7 @@ without it, the closed window stays referenced by the watch list for the rest of
 lifetime.
 
 <a id="link-editor-ui"></a>
-## 6. The link editor screen (step 5)
+## 6. The link editor screen (step 5, since v1.3.0)
 
 The screen that binds `LinkEditorViewModel` (App layer, see
 [03-app-design.md §7](03-app-design.md#link-editor)). It has a page-turn toolbar

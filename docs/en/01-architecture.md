@@ -113,7 +113,7 @@ goes through an atomic write-then-move (`UserSettingsService.SaveAsync`: write t
 same folder, then `File.Move(..., overwrite: true)`) so a process kill mid-write can't corrupt the
 JSON.
 
-### 4.5 App-layer async methods never use `ConfigureAwait(false)`
+### 4.5 App-layer async methods never use `ConfigureAwait(false)` (since v1.3.0)
 
 ViewModel async methods (`LoadAsync`, `RecomputeAllPageNumberDisplaysAsync`, etc.) never suffix
 `await` with `ConfigureAwait(false)`. The WPF build routes command `CanExecuteChanged` through
@@ -123,7 +123,7 @@ first `await` onto a thread-pool thread — and the moment that continuation wri
 where this convention was accidentally broken is documented as a real incident in
 [03-app-design.md §7.7](03-app-design.md#link-editor-thread).
 
-### 4.6 `[SupportedOSPlatform]` around PDFium calls
+### 4.6 `[SupportedOSPlatform]` around PDFium calls (since v1.3.0)
 
 `IPdfPageRenderer`'s implementation calls into PDFium (a native library), which the .NET analyzer
 flags as CA1416 (platform compatibility). Applying `[SupportedOSPlatform]` at the class or assembly

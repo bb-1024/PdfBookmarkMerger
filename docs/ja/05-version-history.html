@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html" class="current">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.2.3時点<br />
+      v1.3.0時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/05-version-history.html">English</a>
     </div>
@@ -31,7 +31,7 @@
   <main>
     <header class="doc-head" id="top">
       <div class="eyebrow">Design Documentation — 05 / 06</div>
-      <h1>バージョン間の設計差分(v1.0.0 &rarr; v1.2.3)</h1>
+      <h1>バージョン間の設計差分(v1.0.0 &rarr; v1.3.0)</h1>
       <p class="sub">
         このドキュメントは、<code class="inline">git diff --name-status &lt;前バージョン&gt; &lt;対象バージョン&gt; -- src tests</code>
         で洗い出した変更ファイル一覧と、該当コミットの内容(<code class="inline">git show &lt;commit&gt;</code>)
@@ -52,6 +52,7 @@
             <tr><td class="mono">v1.2.1</td><td>2026-08-12</td><td class="mono">b61d2ee</td></tr>
             <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
             <tr><td class="mono">v1.2.3</td><td>2026-08-18</td><td class="mono">2bd2b45</td></tr>
+            <tr><td class="mono">v1.3.0</td><td>2026-08-20</td><td class="mono">3056af1</td></tr>
           </tbody>
         </table>
       </div>
@@ -305,6 +306,117 @@
 
     <hr class="rule" />
 
+    <section id="v130">
+      <h2><span class="num">v1.3.0</span>2026-08-20</h2>
+      <p>
+        10個のコミット。「リンク編集」機能(結合・しおり設定済みのPDFをプレビューしながら、本文中の
+        テキストを選択してリンクを作成・確認・削除する新画面)の追加。
+        (なお <code class="inline">v1.2.3</code> タグと <code class="inline">v1.3.0</code> タグの間には、
+        v1.2.3自身のドキュメント同期作業だった <code class="inline">e964b6f</code> も含まれる。)
+      </p>
+
+      <h3>基盤(<code class="inline">a885e2</code>&#12316;<code class="inline">c6230b</code>)</h3>
+      <ul>
+        <li><strong><code class="inline">a885e26</code> PDF描画・テキスト抽出サービスの追加</strong>
+          &mdash; PDFsharpにはページのラスタライズ機能も位置情報付きテキスト抽出機能も無いため、
+          Core層へ2つの新規依存を追加した: <code class="inline">PDFtoImage</code>(PDFiumラッパー、
+          macOS arm64含め積極的にメンテナンスされている)でページをPNGへ描画する
+          <code class="inline">PdfPageRenderer</code>、<code class="inline">UglyToad.PdfPig</code>
+          (純粋管理コード)で文字単位の矩形を抽出する <code class="inline">PdfTextExtractor</code>。
+          <code class="inline">PdfPageRenderer</code> は文書ハンドルを保持せずページごとにステートレスに
+          描画する設計とした &mdash; <code class="inline">PDFtoImage</code> の公開APIにそもそも再利用可能な
+          ハンドルが無いこと、2000ページ級PDFでのベンチマークでページ位置に関わらず1ページ16&#12316;26msで
+          安定していたことから、ハンドル使い回しの複雑さに見合わないと判断した。
+          <code class="inline">PdfTextLetter</code>/<code class="inline">PdfRect</code>などのデータモデルも
+          ここで追加。</li>
+        <li><strong><code class="inline">c6230ba</code> <code class="inline">PdfLinkAnnotationService</code>
+          (書き込み)の追加</strong> &mdash; 既に結合・しおり設定済みのPDFへ、
+          <code class="inline">PdfDocumentOpenMode.Modify</code> で開いて既存の
+          <code class="inline">PdfPage</code> オブジェクトへ直接 <code class="inline">/Annots</code> を
+          追加する方式で最終出力する。<code class="inline">AddPage</code> によるページ再構築を経由すると、
+          <a href="#v123">v1.2.3</a> で修正した内部リンクのジャンプ先破損と同種の問題を再度招く恐れが
+          あるため、意図的に避けている。</li>
+      </ul>
+
+      <h3>画面とリンク作成ロジック(<code class="inline">1f0827</code>&#12316;<code class="inline">ac90d8</code>)</h3>
+      <ul>
+        <li><strong><code class="inline">1f08273</code> リンク編集画面の骨格追加</strong> &mdash;
+          <code class="inline">WorkflowStep.EditLinks</code> を新設し、結合成功後の遷移先をここへ変更。
+          <code class="inline">LinkEditorViewModel</code> にページ送り・ズーム・しおり読み込み
+          (読み取り専用)を実装。</li>
+        <li><strong><code class="inline">d559ebc</code> リンク作成ロジックの追加</strong> &mdash;
+          <code class="inline">PdfCoordinateMapper</code>(PDFユーザー空間&harr;ビットマップピクセル座標の
+          相互変換)、文字単位のドラッグ選択によるヒットテスト、複数行選択時の行ごとの矩形分割を実装。
+          実装中に、<code class="inline">PdfCoordinateMapper.ToPixelRect</code> が
+          <code class="inline">PdfRect</code> を誤った位置引数順で構築しTop/Bottomが入れ替わるバグと、
+          ページ描画とテキスト抽出を独立した2つの非同期チェーンにしていたことで
+          <code class="inline">IsBusy</code> と <code class="inline">CurrentPageIndex</code> の同期が崩れる
+          本物のflakyテスト failureを、それぞれ実装中に発見・修正した。</li>
+        <li><strong><code class="inline">ac90d87</code> リンク作成UIの配線</strong> &mdash;
+          プレビュー上のポインタ操作から選択矩形のライブ表示・リンクのホットスポットオーバーレイ描画までを
+          配線。しおりサイドバーを、選択確定後のジャンプ先ピッカーとしても再利用する設計にした。</li>
+      </ul>
+
+      <h3>リンク管理・完了・既存リンク(<code class="inline">6949df</code>&#12316;<code class="inline">6bdb03</code>)</h3>
+      <ul>
+        <li><strong><code class="inline">6949df4</code> リンク管理UIの追加</strong> &mdash;
+          <code class="inline">LinkGroups</code>(GroupIdごとの集約ビュー)の一覧表示・ジャンプ・編集・
+          削除を実装。</li>
+        <li><strong><code class="inline">5e4a239</code> 完了コマンドの追加</strong> &mdash;
+          <code class="inline">FinishAsync</code> は、<code class="inline">LoadAsync</code> 時に取得した
+          「素の状態(リンク注釈が一切無い時点)」のバックアップから毎回復元してから
+          <code class="inline">ApplyLinksAsync</code> を呼ぶことで、「完了」を複数回押しても注釈が重複しない
+          冪等性を確保している(<code class="inline">PdfLinkAnnotationService</code> が追記専用で削除・置換が
+          できないための設計)。</li>
+        <li><strong><code class="inline">6bdb033</code> 既存リンク注釈の読み取り追加(Core層)</strong>
+          &mdash; <code class="inline">ReadExistingLinksAsync</code> で、PDFに元から含まれる
+          <code class="inline">/Subtype /Link</code> 注釈を <code class="inline">LinkAnnotationNode</code>
+          として読み取れるようにした。書き込みと同じ低レベルAPIで実装し、書き込み&rarr;読み取りの
+          ラウンドトリップをテストで検証している。</li>
+      </ul>
+
+      <h3>連続スクロールへの刷新と手動テストでの不具合修正(<code class="inline">1e075c</code>)</h3>
+      <p>
+        <strong><code class="inline">1e075c5</code> プレビューを連続スクロール方式へ刷新、クロススレッド
+        クラッシュ修正、手動テストフィードバックへの対応</strong> &mdash; WPF実機での手動テストで見つかった
+        実際の不具合2件を含む大きなイテレーション。
+      </p>
+      <ol>
+        <li>
+          <strong>クロススレッドクラッシュ</strong>: <code class="inline">LinkEditorViewModel</code> の
+          非同期メソッドが <code class="inline">ConfigureAwait(false)</code> を使っていたため、最初の
+          <code class="inline">await</code> 以降の継続処理がスレッドプールスレッドで実行され、その中で
+          <code class="inline">ReactivePropertySlim&lt;T&gt;.Value</code>(WPFの
+          <code class="inline">CommandManager</code>がUIスレッド専用で監視)を書き換えた瞬間に
+          <code class="inline">InvalidOperationException</code> が発生していた。
+          <code class="inline">ConfigureAwait(false)</code> を全箇所で除去し解決(App層ViewModelはこれを
+          使わないという既存の規約に合わせた)。詳細は
+          <a href="01-architecture.html#cross-cutting">01-architecture.html &sect;4.5</a>。
+        </li>
+        <li>
+          <strong>連続スクロールプレビューへの刷新</strong>: 単一ページ+ピーク画像方式を廃し、
+          <code class="inline">PageSlots</code>(仮想化された <code class="inline">ListBox</code> に
+          バインドする軽量プレースホルダの列)方式へ全面刷新。スクロール中は「ビューポート内で最も表示
+          面積が大きいページ」を<code class="inline">CurrentPageIndex</code>とする。この過程で、
+          <code class="inline">Wpf.Ui</code>の<code class="inline">FluentWindow</code>が内部の
+          <code class="inline">ScrollViewer</code>を独自の<code class="inline">PassiveScrollViewer</code>へ
+          差し替えておりヒットテストが機能しない問題と、<code class="inline">ListBox.ScrollIntoView</code>が
+          ページの先頭ではなく末尾に揃ってしまう問題という、2つの非自明なレイアウトバグを発見・修正した。
+          詳細は
+          <a href="04-ui-design.html#link-editor-scroll-fix">04-ui-design.html &sect;6.2</a>。
+        </li>
+        <li>
+          その他、既存リンクの一覧表示配線・ボタンスタイルの統一・ダークモードでのしおり
+          <code class="inline">TreeView</code>文字色修正など、手動テストで見つかった小さな修正を多数含む。
+        </li>
+      </ol>
+
+      <h3><code class="inline">0f1b476</code> 設計ドキュメントの更新</h3>
+      <p>全6章・日英両言語・Markdown/HTML両形式について、リンク編集機能に関する記述を追加。</p>
+    </section>
+
+    <hr class="rule" />
+
     <section id="verify">
       <h2><span class="num">&mdash;</span>確認方法</h2>
       <p>以下のコマンドを実行すると、本ドキュメントの記述を自分で再確認できる。</p>
@@ -318,6 +430,7 @@ git diff --name-status v1.1.0 v1.2.0 -- src tests
 git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
+git diff --name-status v1.2.3 v1.3.0 -- src tests
 
 <span class="c"># バージョン間の全コミット(区間内の個別コミットメッセージ)</span>
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -325,6 +438,7 @@ git log --oneline v1.1.0..v1.2.0 -- src tests
 git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
+git log --oneline v1.2.3..v1.3.0 -- src tests
 
 <span class="c"># 個別コミットの詳細diff</span>
 git show &lt;コミットハッシュ&gt;

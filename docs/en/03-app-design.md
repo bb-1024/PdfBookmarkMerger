@@ -263,7 +263,7 @@ a window rebuild — it's a plain binding target, so `MainWindowViewModel.OpenSe
 the new value right after the dialog is confirmed, and the XAML binding picks it up immediately.
 
 <a id="link-editor"></a>
-## 7. `LinkEditorViewModel`
+## 7. `LinkEditorViewModel` (since v1.3.0)
 
 Orchestrates step 5 (`WorkflowStep.EditLinks`). Targets a single, already-merged-and-bookmarked PDF
 file: continuous-scroll page preview, zoom, jumping from the bookmark list, creating links via text
