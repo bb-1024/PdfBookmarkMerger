@@ -37,9 +37,6 @@ public sealed class ConverterParityTests
     private static readonly WpfConverters.ByteArrayToImageConverter WpfByteArrayToImage = new();
     private static readonly AvaloniaConverters.ByteArrayToImageConverter AvaloniaByteArrayToImage = new();
 
-    private static readonly WpfConverters.PageIndicatorConverter WpfPageIndicator = new();
-    private static readonly AvaloniaConverters.PageIndicatorConverter AvaloniaPageIndicator = new();
-
     private static readonly WpfConverters.LinkGroupDisplayConverter WpfLinkGroupDisplay = new();
     private static readonly AvaloniaConverters.LinkGroupDisplayConverter AvaloniaLinkGroupDisplay = new();
 
@@ -213,25 +210,10 @@ public sealed class ConverterParityTests
         wpfImage.PixelWidth.ShouldBe(1);
     }
 
-    [Theory]
-    [InlineData(0, 1)]
-    [InlineData(0, 10)]
-    [InlineData(9, 10)]
-    [InlineData(4, 0)]
-    public void PageIndicatorConverter_Convert_MatchesBetweenWpfAndAvalonia(int currentPageIndex, int pageCount)
-    {
-        var wpfResult = WpfPageIndicator.Convert([currentPageIndex, pageCount], typeof(string), null, CultureInfo.InvariantCulture);
-        var avaloniaResult = AvaloniaPageIndicator.Convert([currentPageIndex, pageCount], typeof(string), null, CultureInfo.InvariantCulture);
-
-        wpfResult.ShouldBe(avaloniaResult);
-        // 表示は1始まりへ変換される(CurrentPageIndexは0始まり)。
-        wpfResult.ShouldBe(string.Format(App.Resources.Strings.PageIndicatorFormat, currentPageIndex + 1, pageCount));
-    }
-
     [Fact]
     public void LinkGroupDisplayConverter_Convert_MatchesBetweenWpfAndAvalonia_AndUsesOneBasedPageNumbers()
     {
-        var group = new LinkGroupInfo(Guid.NewGuid(), SourcePageIndex: 2, TargetPageIndex: 9, RectCount: 1);
+        var group = new LinkGroupInfo(Guid.NewGuid(), SourcePageIndex: 2, TargetPageIndex: 9, RectCount: 1, IsPreExisting: false);
 
         var wpfResult = WpfLinkGroupDisplay.Convert(group, typeof(string), null, CultureInfo.InvariantCulture);
         var avaloniaResult = AvaloniaLinkGroupDisplay.Convert(group, typeof(string), null, CultureInfo.InvariantCulture);

@@ -25,8 +25,20 @@ public sealed class LinkEditorViewModelTests
         }
     }
 
+    /// <summary>
+    /// PageSlotsの遅延描画・ズーム時の再描画はIsBusyを介さない(バックグラウンドでの読み込みで
+    /// 全体をロックしないため)ので、WaitUntilIdleAsyncではなくこちらで完了を待つ。
+    /// </summary>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++)
+        {
+            await Task.Delay(10);
+        }
+    }
+
     [Fact]
-    public async Task LoadAsync_PopulatesPageCountAndBookmarks_AndRendersTheFirstPage()
+    public async Task LoadAsync_PopulatesPageCountAndBookmarksAndPageSlots()
     {
         var (vm, metadata, _, _) = CreateSut();
         var bookmark = new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 2, Title = "Chapter 1" };
@@ -38,8 +50,114 @@ public sealed class LinkEditorViewModelTests
         vm.FilePath.Value.ShouldBe(@"C:\out\merged.pdf");
         vm.PageCount.Value.ShouldBe(5);
         vm.CurrentPageIndex.Value.ShouldBe(0);
+        vm.PageNumberInput.Value.ShouldBe(1);
         vm.Bookmarks.Value.ShouldHaveSingleItem().Title.ShouldBe("Chapter 1");
-        vm.PageImage.Value.ShouldNotBeNull();
+
+        // 連続スクロール表示用に全ページ分のプレースホルダが用意されるが、まだどのページも
+        // ビューポートに入っていない(LoadPageSlotAsyncが呼ばれていない)ため画像は未描画。
+        vm.PageSlots.Count.ShouldBe(5);
+        vm.PageSlots.Select(s => s.PageIndex).ShouldBe([0, 1, 2, 3, 4]);
+        vm.PageSlots.ShouldAllBe(s => s.Image.Value == null);
+        vm.PageSlots[0].IsCurrent.Value.ShouldBeTrue();
+        vm.PageSlots[1].IsCurrent.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task LoadPageSlotAsync_RendersTheRequestedSlot_AndUnloadPageSlot_ClearsItsImage()
+    {
+        var (vm, metadata, _, _) = CreateSut();
+        metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 3);
+        await vm.LoadAsync(@"C:\out\merged.pdf");
+        await WaitUntilIdleAsync(vm);
+
+        vm.PageSlots[1].Image.Value.ShouldBeNull();
+
+        await vm.LoadPageSlotAsync(1);
+
+        vm.PageSlots[1].Image.Value.ShouldNotBeNull();
+        // 他のスロットには影響しない。
+        vm.PageSlots[0].Image.Value.ShouldBeNull();
+        vm.PageSlots[2].Image.Value.ShouldBeNull();
+
+        vm.UnloadPageSlot(1);
+
+        vm.PageSlots[1].Image.Value.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadPageSlotAsync_OutOfRangePageIndex_DoesNothing()
+    {
+        var (vm, metadata, _, _) = CreateSut();
+        metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 2);
+        await vm.LoadAsync(@"C:\out\merged.pdf");
+        await WaitUntilIdleAsync(vm);
+
+        await vm.LoadPageSlotAsync(-1);
+        await vm.LoadPageSlotAsync(2);
+
+        vm.PageSlots.ShouldAllBe(s => s.Image.Value == null);
+    }
+
+    [Fact]
+    public async Task PageNumberInput_And_CurrentPageIndex_StaySynchronized_WithClamping()
+    {
+        var (vm, metadata, _, _) = CreateSut();
+        metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 5);
+        await vm.LoadAsync(@"C:\out\merged.pdf");
+        await WaitUntilIdleAsync(vm);
+
+        // テキストボックスへ入力 → CurrentPageIndexへ反映(1始まり→0始まり)。
+        vm.PageNumberInput.Value = 3;
+        await WaitUntilIdleAsync(vm);
+        vm.CurrentPageIndex.Value.ShouldBe(2);
+
+        // ページ送りボタン等でCurrentPageIndexが変わった場合もテキストボックスへ反映される。
+        vm.NextPageCommand.Execute();
+        await WaitUntilIdleAsync(vm);
+        vm.PageNumberInput.Value.ShouldBe(4);
+
+        // 範囲外の入力は最も近い有効な値へ丸められる。
+        vm.PageNumberInput.Value = 999;
+        await WaitUntilIdleAsync(vm);
+        vm.PageNumberInput.Value.ShouldBe(5);
+        vm.CurrentPageIndex.Value.ShouldBe(4);
+
+        vm.PageNumberInput.Value = 0;
+        await WaitUntilIdleAsync(vm);
+        vm.PageNumberInput.Value.ShouldBe(1);
+        vm.CurrentPageIndex.Value.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ZoomScaleChange_ReRendersOnlyCurrentlyVisibleSlots_AndClearsHiddenOnes()
+    {
+        var (vm, metadata, _, _) = CreateSut();
+        metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 3);
+        await vm.LoadAsync(@"C:\out\merged.pdf");
+        await WaitUntilIdleAsync(vm);
+
+        // ページ0(LoadAsync時にCurrentPageIndexの変更として自動でメタデータ取得のみ行われるが、
+        // 画像描画はまだ)とページ1を「ビューポートに入った」ものとして明示的にロードする。
+        await vm.LoadPageSlotAsync(0);
+        await vm.LoadPageSlotAsync(1);
+        vm.PageSlots[0].Image.Value.ShouldNotBeNull();
+        vm.PageSlots[1].Image.Value.ShouldNotBeNull();
+
+        var placeholderWidthBeforeZoom = vm.PlaceholderWidth.Value;
+
+        vm.ZoomInCommand.Execute();
+        await WaitUntilAsync(() => vm.PlaceholderWidth.Value != placeholderWidthBeforeZoom);
+        await WaitUntilAsync(() => vm.PageSlots[0].Image.Value is not null && vm.PageSlots[1].Image.Value is not null);
+
+        // プレースホルダサイズがズームに応じて再計算される。
+        vm.PlaceholderWidth.Value.ShouldBeGreaterThan(placeholderWidthBeforeZoom);
+
+        // ビューポートに入っていた(=ロード済みだった)ページは新しい倍率で再描画される。
+        vm.PageSlots[0].Image.Value.ShouldNotBeNull();
+        vm.PageSlots[1].Image.Value.ShouldNotBeNull();
+
+        // 一度もビューポートに入っていないページは引き続き未描画のまま。
+        vm.PageSlots[2].Image.Value.ShouldBeNull();
     }
 
     [Fact]
@@ -417,5 +535,126 @@ public sealed class LinkEditorViewModelTests
         await vm.FinishAsync();
 
         vm.Links.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task LoadAsync_PopulatesLinksWithExistingLinksFromTheFile_MarkedAsPreExisting()
+    {
+        var workDirectory = Path.Combine(Path.GetTempPath(), "LinkEditorExistingLinksTests_" + Guid.NewGuid());
+        Directory.CreateDirectory(workDirectory);
+        try
+        {
+            var filePath = Path.Combine(workDirectory, "merged.pdf");
+            await File.WriteAllTextAsync(filePath, "original content");
+
+            var metadata = new FakeMetadataService();
+            metadata.RegisterSuccess(filePath, pageCount: 3);
+            var linkAnnotationService = new FakePdfLinkAnnotationService();
+            var existingLink = new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 0,
+                SourceRect = new PdfRect(0, 0, 10, 10),
+                TargetPageIndex = 2,
+            };
+            linkAnnotationService.ExistingLinksByFilePath[filePath] = [existingLink];
+            var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), new FakePdfTextExtractor(), metadata, linkAnnotationService, NullLogger<LinkEditorViewModel>.Instance);
+
+            await vm.LoadAsync(filePath);
+            await WaitUntilIdleAsync(vm);
+
+            vm.Links.ShouldContain(existingLink);
+            vm.LinkGroups.Value.ShouldHaveSingleItem().IsPreExisting.ShouldBeTrue();
+        }
+        finally
+        {
+            Directory.Delete(workDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteLinkGroup_AndBeginEditLinkGroup_OnAPreExistingGroup_DoNothing()
+    {
+        var workDirectory = Path.Combine(Path.GetTempPath(), "LinkEditorExistingLinksTests_" + Guid.NewGuid());
+        Directory.CreateDirectory(workDirectory);
+        try
+        {
+            var filePath = Path.Combine(workDirectory, "merged.pdf");
+            await File.WriteAllTextAsync(filePath, "original content");
+
+            var metadata = new FakeMetadataService();
+            metadata.RegisterSuccess(filePath, pageCount: 3);
+            var linkAnnotationService = new FakePdfLinkAnnotationService();
+            var existingLink = new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 0,
+                SourceRect = new PdfRect(0, 0, 10, 10),
+                TargetPageIndex = 2,
+            };
+            linkAnnotationService.ExistingLinksByFilePath[filePath] = [existingLink];
+            var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), new FakePdfTextExtractor(), metadata, linkAnnotationService, NullLogger<LinkEditorViewModel>.Instance);
+
+            await vm.LoadAsync(filePath);
+            await WaitUntilIdleAsync(vm);
+
+            vm.DeleteLinkGroup(existingLink.GroupId);
+            vm.Links.ShouldContain(existingLink);
+
+            vm.BeginEditLinkGroup(existingLink.GroupId);
+            vm.Links.ShouldContain(existingLink);
+            vm.PendingSelection.Value.ShouldBeNull();
+        }
+        finally
+        {
+            Directory.Delete(workDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FinishAsync_ExcludesPreExistingLinks_ButIncludesNewlyCreatedOnes()
+    {
+        var workDirectory = Path.Combine(Path.GetTempPath(), "LinkEditorExistingLinksTests_" + Guid.NewGuid());
+        Directory.CreateDirectory(workDirectory);
+        try
+        {
+            var filePath = Path.Combine(workDirectory, "merged.pdf");
+            await File.WriteAllTextAsync(filePath, "original content");
+
+            var metadata = new FakeMetadataService();
+            metadata.RegisterSuccess(filePath, pageCount: 3);
+            var linkAnnotationService = new FakePdfLinkAnnotationService();
+            var existingLink = new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 0,
+                SourceRect = new PdfRect(0, 0, 10, 10),
+                TargetPageIndex = 2,
+            };
+            linkAnnotationService.ExistingLinksByFilePath[filePath] = [existingLink];
+            var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), new FakePdfTextExtractor(), metadata, linkAnnotationService, NullLogger<LinkEditorViewModel>.Instance);
+
+            await vm.LoadAsync(filePath);
+            await WaitUntilIdleAsync(vm);
+
+            var newLink = new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 1,
+                SourceRect = new PdfRect(0, 0, 20, 20),
+                TargetPageIndex = 0,
+            };
+            vm.Links.Add(newLink);
+
+            await vm.FinishAsync();
+
+            linkAnnotationService.LastLinks.ShouldNotBeNull();
+            linkAnnotationService.LastLinks.ShouldContain(newLink);
+            linkAnnotationService.LastLinks.ShouldNotContain(existingLink);
+        }
+        finally
+        {
+            Directory.Delete(workDirectory, recursive: true);
+        }
     }
 }

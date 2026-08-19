@@ -15,8 +15,15 @@ namespace PdfBookmarkMerger.App.ViewModels;
 /// </summary>
 public sealed record PendingLinkSelection(int SourcePageIndex, IReadOnlyList<PdfRect> LineRects);
 
-/// <summary>リンク一覧UI向けの、1件のリンク(GroupId単位)の要約情報。</summary>
-public sealed record LinkGroupInfo(Guid GroupId, int SourcePageIndex, int TargetPageIndex, int RectCount);
+/// <summary>
+/// リンク一覧UI向けの、1件のリンク(GroupId単位)の要約情報。
+/// </summary>
+/// <param name="IsPreExisting">
+/// PDFファイルに元から含まれていた(結合元ファイルに元々あった、または以前にこのアプリで保存した)
+/// リンクかどうか。PdfLinkAnnotationServiceはModifyモードでの追記のみ行い既存の注釈を安全に
+/// 削除できないため、この種のリンクは編集・削除の対象にできず、一覧では表示のみ・確認ジャンプのみ可能。
+/// </param>
+public sealed record LinkGroupInfo(Guid GroupId, int SourcePageIndex, int TargetPageIndex, int RectCount, bool IsPreExisting);
 
 /// <summary>
 /// リンク編集画面(手順4)を統括するViewModel。結合・しおり設定済みの単一PDFファイルを対象に、
@@ -38,16 +45,35 @@ public sealed class LinkEditorViewModel : ViewModelBase
     private readonly IPdfLinkAnnotationService _linkAnnotationService;
     private readonly ILogger<LinkEditorViewModel> _logger;
 
-    private CancellationTokenSource? _renderCts;
+    private CancellationTokenSource? _metadataCts;
     private int? _lastLoadedLettersPageIndex;
     private int? _selectionAnchorLetterIndex;
     private int? _selectionFocusLetterIndex;
+    private PdfPageSlotViewModel? _currentSlot;
+
+    /// <summary>先頭ページ(0ページ目)のPDFユーザー空間サイズ(pt)。連続スクロール表示で、
+    /// まだ描画されていないページの領域を確保するプレースホルダのサイズ計算に使う
+    /// (ページごとの実サイズを事前に全件取得すると大規模PDFで遅くなるため、先頭ページのサイズで代用する)。</summary>
+    private (double Width, double Height) _placeholderPageSizeInPoints;
+
+    /// <summary>ビューポートに入っている(=LoadPageSlotAsyncが呼ばれ、UnloadPageSlotがまだ呼ばれていない)ページ番号。
+    /// ズーム変更時に再描画すべき対象を絞り込むために使う。</summary>
+    private readonly HashSet<int> _visiblePageIndices = [];
+
+    private readonly Dictionary<int, CancellationTokenSource> _slotRenderCts = [];
 
     /// <summary>
     /// LoadAsync直後(まだリンクを一切反映していない状態)の一時的な複製。FinishAsyncは毎回この状態を
     /// FilePathへ復元してからLinksを反映するため、「完了」を複数回押しても注釈が重複しない。
     /// </summary>
     private string? _pristineBackupPath;
+
+    /// <summary>
+    /// LoadAsyncでReadExistingLinksAsyncにより読み取った(=既にファイルに書き込み済みの)Linksの
+    /// Id集合。FinishAsyncはこれらを除いた分だけをApplyLinksAsyncへ渡す
+    /// (pristineBackupから復元した時点で既に含まれているため、そのまま渡すと重複してしまう)。
+    /// </summary>
+    private readonly HashSet<Guid> _preExistingLinkIds = [];
 
     public LinkEditorViewModel(
         IPdfPageRenderer pageRenderer,
@@ -67,8 +93,11 @@ public sealed class LinkEditorViewModel : ViewModelBase
         FilePath = new ReactivePropertySlim<string?>(null).AddTo(Disposables);
         PageCount = new ReactivePropertySlim<int>(0).AddTo(Disposables);
         CurrentPageIndex = new ReactivePropertySlim<int>(0).AddTo(Disposables);
+        PageNumberInput = new ReactivePropertySlim<int>(1).AddTo(Disposables);
         ZoomScale = new ReactivePropertySlim<float>(1.0f).AddTo(Disposables);
-        PageImage = new ReactivePropertySlim<byte[]?>(null).AddTo(Disposables);
+        PageSlots = [];
+        PlaceholderWidth = new ReactivePropertySlim<double>(0).AddTo(Disposables);
+        PlaceholderHeight = new ReactivePropertySlim<double>(0).AddTo(Disposables);
         IsBusy = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         Bookmarks = new ReactivePropertySlim<IReadOnlyList<BookmarkNode>>([]).AddTo(Disposables);
         Letters = new ReactivePropertySlim<IReadOnlyList<PdfTextLetter>>([]).AddTo(Disposables);
@@ -122,14 +151,15 @@ public sealed class LinkEditorViewModel : ViewModelBase
         EditLinkGroupCommand.Subscribe(BeginEditLinkGroup).AddTo(Disposables);
 
         // 各コマンドのCanExecute(CombineLatest)をCurrentPageIndex/ZoomScaleへ先に購読させた後で、
-        // 実際にページ描画をトリガーする副作用の購読を登録する。逆順にすると、
-        // 描画がFakePdfPageRenderer等で同期的に完了する環境(=単体テスト)で、
+        // 実際に副作用(現在ページのメタデータ取得・プレースホルダ再計算)をトリガーする購読を登録する。
+        // 逆順にすると、処理がFakePdfPageRenderer等で同期的に完了する環境(=単体テスト)で、
         // 「IsBusyの変化(CombineLatestへ古いCurrentPageIndexの値のまま伝播)」が
         // 「CurrentPageIndexの変化そのもの(CombineLatestへの再伝播)」より先に処理されてしまい、
         // CanExecuteの最終値が古いページ番号を基準にした値のまま取り残されるレースが発生しうる
         // (実際にテストのflaky failureとして観測してから、この順序に修正した)。
-        CurrentPageIndex.Subscribe(_ => TriggerRenderCurrentPage()).AddTo(Disposables);
-        ZoomScale.Subscribe(_ => TriggerRenderCurrentPage()).AddTo(Disposables);
+        CurrentPageIndex.Subscribe(OnCurrentPageIndexChanged).AddTo(Disposables);
+        ZoomScale.Subscribe(_ => TriggerZoomChanged()).AddTo(Disposables);
+        PageNumberInput.Subscribe(OnPageNumberInputChanged).AddTo(Disposables);
     }
 
     public ReactivePropertySlim<string?> FilePath { get; }
@@ -137,6 +167,10 @@ public sealed class LinkEditorViewModel : ViewModelBase
     public ReactivePropertySlim<int> PageCount { get; }
 
     public ReactivePropertySlim<int> CurrentPageIndex { get; }
+
+    /// <summary>ページ送りツールバーのテキストボックス向け、1始まりの現在ページ番号。
+    /// CurrentPageIndexと双方向に同期する(範囲外の入力は最も近い有効な値へ丸める)。</summary>
+    public ReactivePropertySlim<int> PageNumberInput { get; }
 
     /// <summary>現在ページの高さ(pt)。PdfCoordinateMapperでのピクセル座標変換に使う。</summary>
     public ReactivePropertySlim<double> PageHeight { get; }
@@ -161,7 +195,20 @@ public sealed class LinkEditorViewModel : ViewModelBase
 
     public ReactivePropertySlim<float> ZoomScale { get; }
 
-    public ReactivePropertySlim<byte[]?> PageImage { get; }
+    /// <summary>
+    /// 全ページ分のプレースホルダ。連続スクロール表示のItemsSourceとして使い、各要素の画像は
+    /// ビューポートに入った時にLoadPageSlotAsyncで遅延描画し、外れた時にUnloadPageSlotで破棄する
+    /// (数千ページ規模のPDFでも全ページの画像を同時に保持しないため)。
+    /// </summary>
+    public ObservableCollection<PdfPageSlotViewModel> PageSlots { get; }
+
+    /// <summary>
+    /// まだ描画されていないページの領域確保に使う、現在のズーム倍率でのプレースホルダの幅・高さ(px)。
+    /// 先頭ページのサイズを全ページで代用する(ページごとの実サイズ取得は大規模PDFで高コストなため)。
+    /// </summary>
+    public ReactivePropertySlim<double> PlaceholderWidth { get; }
+
+    public ReactivePropertySlim<double> PlaceholderHeight { get; }
 
     public ReactivePropertySlim<bool> IsBusy { get; }
 
@@ -189,36 +236,64 @@ public sealed class LinkEditorViewModel : ViewModelBase
 
     /// <summary>
     /// 結合・しおり設定済みの<paramref name="filePath"/>を読み込む。ページ数・しおり一覧を取得し、
-    /// 1ページ目を描画する。
+    /// 全ページ分のプレースホルダ(PageSlots)を用意する。各ページの実際の描画は、連続スクロール表示で
+    /// そのページがビューポートに入った時にLoadPageSlotAsyncが呼ばれてから行われる。
     /// </summary>
     public async Task LoadAsync(string filePath, CancellationToken ct = default)
     {
         IsBusy.Value = true;
         try
         {
-            var metadata = await _metadataService.ReadMetadataAsync(new PdfFileEntry { FilePath = filePath }, ct).ConfigureAwait(false);
+            var metadata = await _metadataService.ReadMetadataAsync(new PdfFileEntry { FilePath = filePath }, ct);
+            var (placeholderWidth, placeholderHeight) = metadata.PageCount > 0
+                ? await _pageRenderer.GetPageSizeAsync(filePath, 0, ct)
+                : (0.0, 0.0);
 
             FilePath.Value = filePath;
             PageCount.Value = metadata.PageCount;
             Bookmarks.Value = metadata.Bookmarks;
             ZoomScale.Value = 1.0f;
             Links.Clear();
+            _preExistingLinkIds.Clear();
             _lastLoadedLettersPageIndex = null;
+            _visiblePageIndices.Clear();
+            CancelAllSlotRenders();
             CancelPendingSelection();
 
-            // ファイルが実在する場合のみバックアップを作る(単体テストではフィクションのパスを
-            // 渡すことがあるため、存在しない場合はFinishAsyncが安全にno-opするだけに留める)。
+            _placeholderPageSizeInPoints = (placeholderWidth, placeholderHeight);
+            RecomputePlaceholderSize();
+
+            PageSlots.Clear();
+            for (var i = 0; i < metadata.PageCount; i++)
+            {
+                PageSlots.Add(new PdfPageSlotViewModel(i));
+            }
+
+            _currentSlot = null;
+
+            // ファイルが実在する場合のみバックアップを作り、既存のリンクを読み取る(単体テストでは
+            // フィクションのパスを渡すことがあるため、存在しない場合はバックアップなし=FinishAsyncが
+            // 安全にno-opするだけに留め、既存リンクの読み取りもスキップする)。
             DeletePristineBackup();
             if (File.Exists(filePath))
             {
                 _pristineBackupPath = Path.Combine(Path.GetTempPath(), $"pdfbookmarkmerger-prelinks-{Guid.NewGuid():N}.pdf");
                 File.Copy(filePath, _pristineBackupPath, overwrite: true);
+
+                var existingLinks = await _linkAnnotationService.ReadExistingLinksAsync(filePath, ct);
+                foreach (var link in existingLinks)
+                {
+                    _preExistingLinkIds.Add(link.Id);
+                    Links.Add(link);
+                }
             }
 
-            // CurrentPageIndexがすでに0の場合はSubscribeが発火しないため、明示的に描画をトリガーする。
+            // CurrentPageIndexがすでに0の場合はSubscribeが発火しないため、
+            // OnCurrentPageIndexChangedが行う処理を明示的に呼び出す。
             if (CurrentPageIndex.Value == 0)
             {
-                await RenderCurrentPageAsync(ct).ConfigureAwait(false);
+                SyncCurrentSlotAndPageNumber(0);
+                await LoadCurrentPageMetadataAsync(ct);
             }
             else
             {
@@ -235,6 +310,8 @@ public sealed class LinkEditorViewModel : ViewModelBase
     /// リンク編集を完了し、Linksの内容を出力ファイルへ反映する。FilePathを、LoadAsync直後(リンク未反映)の
     /// 状態を保持したバックアップから復元してからApplyLinksAsyncを呼ぶため、「完了」を複数回実行しても
     /// (その都度Linksの内容が変わっていても)注釈が重複することはない。
+    /// Linksのうち、LoadAsync時に読み取った既存リンク(_preExistingLinkIds)は、復元したバックアップに
+    /// 既に含まれているため、ApplyLinksAsyncには渡さない(渡すと二重に書き込まれてしまう)。
     /// </summary>
     public async Task FinishAsync(CancellationToken ct = default)
     {
@@ -247,7 +324,8 @@ public sealed class LinkEditorViewModel : ViewModelBase
         try
         {
             File.Copy(_pristineBackupPath, filePath, overwrite: true);
-            await _linkAnnotationService.ApplyLinksAsync(filePath, Links, ct).ConfigureAwait(false);
+            var newLinks = Links.Where(l => !_preExistingLinkIds.Contains(l.Id)).ToList();
+            await _linkAnnotationService.ApplyLinksAsync(filePath, newLinks, ct);
         }
         finally
         {
@@ -273,20 +351,71 @@ public sealed class LinkEditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// CurrentPageIndex/ZoomScaleの変更をfire-and-forgetで描画に反映する
-    /// (BookmarkTreeViewModel.TriggerRecomputeと同じラッパーパターン)。
+    /// CurrentPageIndexの変更を受けて、範囲を自己修正しつつPageNumberInputを同期し、
+    /// IsCurrentの付け替え・現在ページのメタデータ取得をfire-and-forgetでトリガーする。
     /// </summary>
-    private async void TriggerRenderCurrentPage() => await RenderCurrentPageAsync(CancellationToken.None);
+    private void OnCurrentPageIndexChanged(int pageIndex)
+    {
+        if (PageCount.Value > 0 && (pageIndex < 0 || pageIndex >= PageCount.Value))
+        {
+            // 範囲外の値が設定された場合(不正なJumpToPage呼び出し等)は最も近い有効な値へ丸める。
+            // 再入するが、ReactivePropertySlimは値が変化しない限り再通知しないため収束する。
+            CurrentPageIndex.Value = Math.Clamp(pageIndex, 0, PageCount.Value - 1);
+            return;
+        }
+
+        SyncCurrentSlotAndPageNumber(pageIndex);
+        TriggerLoadCurrentPageMetadata();
+    }
+
+    /// <summary>現在ページのIsCurrentフラグの付け替え・PageNumberInputの同期のみを行う
+    /// (メタデータ取得は伴わない、OnCurrentPageIndexChangedから切り出した同期処理)。</summary>
+    private void SyncCurrentSlotAndPageNumber(int pageIndex)
+    {
+        if (_currentSlot is not null)
+        {
+            _currentSlot.IsCurrent.Value = false;
+        }
+
+        _currentSlot = pageIndex >= 0 && pageIndex < PageSlots.Count ? PageSlots[pageIndex] : null;
+        if (_currentSlot is not null)
+        {
+            _currentSlot.IsCurrent.Value = true;
+        }
+
+        PageNumberInput.Value = pageIndex + 1;
+    }
 
     /// <summary>
-    /// 現在ページのビットマップ・サイズ・(ページが変わった場合のみ)文字一覧を描画・取得する。
-    /// ページ描画と文字抽出を同じCancellationTokenSource・同じIsBusyトグルの下で直列に行うことで、
-    /// 「CurrentPageIndexの変更で2つの独立したfire-and-foroundチェーンが競合し、片方のIsBusy解除が
-    /// もう片方の完了より早く走ってCanExecuteが不安定になる」というレースを避けている
-    /// (この設計は実際にテストのflaky failureとして観測してから導入した)。
-    /// ズームのみの変更では文字位置は変わらないため、ページが変わっていない場合は文字抽出をスキップする。
+    /// ページ送りツールバーのテキストボックス(1始まり)の変更を、範囲を丸めつつCurrentPageIndexへ反映する。
     /// </summary>
-    private async Task RenderCurrentPageAsync(CancellationToken ct)
+    private void OnPageNumberInputChanged(int pageNumber)
+    {
+        if (PageCount.Value <= 0)
+        {
+            return;
+        }
+
+        var clamped = Math.Clamp(pageNumber, 1, PageCount.Value);
+        if (clamped != pageNumber)
+        {
+            PageNumberInput.Value = clamped;
+            return;
+        }
+
+        CurrentPageIndex.Value = clamped - 1;
+    }
+
+    /// <summary>CurrentPageIndexの変更をfire-and-forgetでメタデータ取得に反映する
+    /// (BookmarkTreeViewModel.TriggerRecomputeと同じラッパーパターン)。</summary>
+    private async void TriggerLoadCurrentPageMetadata() => await LoadCurrentPageMetadataAsync(CancellationToken.None);
+
+    /// <summary>
+    /// 現在ページの高さ・(ページが変わった場合のみ)文字一覧を取得する。ページのビットマップ自体は
+    /// PageSlots/LoadPageSlotAsyncが担当するため、ここでは扱わない(選択・オーバーレイの座標変換に
+    /// 必要な、PDFユーザー空間のメタデータのみを取得する軽量な処理)。
+    /// </summary>
+    private async Task LoadCurrentPageMetadataAsync(CancellationToken ct)
     {
         var filePath = FilePath.Value;
         if (filePath is null)
@@ -294,29 +423,27 @@ public sealed class LinkEditorViewModel : ViewModelBase
             return;
         }
 
-        // ページ送り・ズームが連続操作された場合、古い描画要求を打ち切って最新のものだけを反映する。
-        _renderCts?.Cancel();
-        _renderCts?.Dispose();
+        // ページ送りが連続操作された場合、古い取得要求を打ち切って最新のものだけを反映する。
+        _metadataCts?.Cancel();
+        _metadataCts?.Dispose();
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _renderCts = cts;
+        _metadataCts = cts;
 
         var pageIndex = CurrentPageIndex.Value;
 
         IsBusy.Value = true;
         try
         {
-            var image = await _pageRenderer.RenderPageAsync(filePath, pageIndex, ZoomScale.Value, cts.Token).ConfigureAwait(false);
-            var (_, height) = await _pageRenderer.GetPageSizeAsync(filePath, pageIndex, cts.Token).ConfigureAwait(false);
+            var (_, height) = await _pageRenderer.GetPageSizeAsync(filePath, pageIndex, cts.Token);
 
             IReadOnlyList<PdfTextLetter>? letters = null;
             if (_lastLoadedLettersPageIndex != pageIndex)
             {
-                letters = await _textExtractor.ExtractLettersAsync(filePath, pageIndex, cts.Token).ConfigureAwait(false);
+                letters = await _textExtractor.ExtractLettersAsync(filePath, pageIndex, cts.Token);
             }
 
             if (!cts.IsCancellationRequested)
             {
-                PageImage.Value = image;
                 PageHeight.Value = height;
                 if (letters is not null)
                 {
@@ -328,19 +455,136 @@ public sealed class LinkEditorViewModel : ViewModelBase
         }
         catch (OperationCanceledException)
         {
-            // 新しい描画要求に置き換えられただけなので無視する。
+            // 新しい取得要求に置き換えられただけなので無視する。
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ページの描画に失敗しました: {FilePath} (page {PageIndex})", filePath, pageIndex);
+            _logger.LogError(ex, "ページ情報の取得に失敗しました: {FilePath} (page {PageIndex})", filePath, pageIndex);
         }
         finally
         {
-            if (ReferenceEquals(_renderCts, cts))
+            if (ReferenceEquals(_metadataCts, cts))
             {
                 IsBusy.Value = false;
             }
         }
+    }
+
+    /// <summary>
+    /// ズーム変更をfire-and-forgetでプレースホルダサイズ再計算・表示中ページの再描画に反映する。
+    /// </summary>
+    private async void TriggerZoomChanged() => await HandleZoomChangedAsync();
+
+    private Task HandleZoomChangedAsync()
+    {
+        RecomputePlaceholderSize();
+
+        // 描画済みの画像は古い倍率のものなので、いったん全て破棄する
+        // (ビューポート外のものは元々null、破棄済みのものへの再設定は無害)。
+        foreach (var slot in PageSlots)
+        {
+            slot.Image.Value = null;
+        }
+
+        // 現在ビューポートに入っているページだけを新しい倍率で再描画する
+        // (数千ページ規模のPDFで全ページを一括再描画しないため)。
+        var visibleSnapshot = _visiblePageIndices.ToList();
+        var loadTasks = visibleSnapshot.Select(LoadPageSlotAsync);
+        return Task.WhenAll(loadTasks);
+    }
+
+    private void RecomputePlaceholderSize()
+    {
+        var pixelsPerPoint = PdfCoordinateMapper.PixelsPerPoint(ZoomScale.Value);
+        PlaceholderWidth.Value = _placeholderPageSizeInPoints.Width * pixelsPerPoint;
+        PlaceholderHeight.Value = _placeholderPageSizeInPoints.Height * pixelsPerPoint;
+    }
+
+    /// <summary>
+    /// 連続スクロール表示で<paramref name="pageIndex"/>のコンテナがビューポートに入った時に呼び出す。
+    /// 未描画であれば描画し、描画済み・描画中であれば何もしない(コンテナのリサイクルによる
+    /// 重複呼び出しを許容する)。
+    /// </summary>
+    public async Task LoadPageSlotAsync(int pageIndex)
+    {
+        if (FilePath.Value is not { } filePath || pageIndex < 0 || pageIndex >= PageSlots.Count)
+        {
+            return;
+        }
+
+        _visiblePageIndices.Add(pageIndex);
+
+        var slot = PageSlots[pageIndex];
+        if (slot.Image.Value is not null)
+        {
+            return;
+        }
+
+        if (_slotRenderCts.TryGetValue(pageIndex, out var existingCts))
+        {
+            existingCts.Cancel();
+            existingCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _slotRenderCts[pageIndex] = cts;
+
+        try
+        {
+            var image = await _pageRenderer.RenderPageAsync(filePath, pageIndex, ZoomScale.Value, cts.Token);
+            if (!cts.IsCancellationRequested)
+            {
+                slot.Image.Value = image;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // ビューポート外へスクロールされ、UnloadPageSlotで打ち切られただけなので無視する。
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ページのプレビュー描画に失敗しました: {FilePath} (page {PageIndex})", filePath, pageIndex);
+        }
+        finally
+        {
+            if (_slotRenderCts.TryGetValue(pageIndex, out var currentCts) && ReferenceEquals(currentCts, cts))
+            {
+                _slotRenderCts.Remove(pageIndex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="pageIndex"/>のコンテナがビューポートから外れた時に呼び出す。描画中であれば打ち切り、
+    /// 保持していた画像を破棄してメモリを解放する(数千ページ規模のPDFでも全ページ分のビットマップを
+    /// 同時に保持しないための、連続スクロール表示の要)。
+    /// </summary>
+    public void UnloadPageSlot(int pageIndex)
+    {
+        _visiblePageIndices.Remove(pageIndex);
+
+        if (_slotRenderCts.TryGetValue(pageIndex, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+            _slotRenderCts.Remove(pageIndex);
+        }
+
+        if (pageIndex >= 0 && pageIndex < PageSlots.Count)
+        {
+            PageSlots[pageIndex].Image.Value = null;
+        }
+    }
+
+    private void CancelAllSlotRenders()
+    {
+        foreach (var cts in _slotRenderCts.Values)
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        _slotRenderCts.Clear();
     }
 
     /// <summary>プレビュー上のドラッグ開始位置(PDFユーザー空間座標)から、文字単位の選択を開始する。</summary>
@@ -459,6 +703,14 @@ public sealed class LinkEditorViewModel : ViewModelBase
     public void DeleteLinkGroup(Guid groupId)
     {
         var toRemove = Links.Where(l => l.GroupId == groupId).ToList();
+        if (toRemove.Count == 0 || toRemove.Any(l => _preExistingLinkIds.Contains(l.Id)))
+        {
+            // PDFに既に含まれているリンクは、PdfLinkAnnotationServiceがModifyモードでの追記のみを
+            // 行い既存の注釈を安全に削除できないため、この画面からは削除できない
+            // (UI側もLinkGroupInfo.IsPreExistingを見て削除ボタンを表示しない)。
+            return;
+        }
+
         foreach (var link in toRemove)
         {
             Links.Remove(link);
@@ -475,8 +727,10 @@ public sealed class LinkEditorViewModel : ViewModelBase
     public void BeginEditLinkGroup(Guid groupId)
     {
         var existing = Links.Where(l => l.GroupId == groupId).ToList();
-        if (existing.Count == 0)
+        if (existing.Count == 0 || existing.Any(l => _preExistingLinkIds.Contains(l.Id)))
         {
+            // PDFに既に含まれているリンクは、削除と同じ理由でジャンプ先を編集できない
+            // (UI側もLinkGroupInfo.IsPreExistingを見て編集ボタンを表示しない)。
             return;
         }
 
@@ -494,7 +748,12 @@ public sealed class LinkEditorViewModel : ViewModelBase
     {
         LinkGroups.Value = Links
             .GroupBy(l => l.GroupId)
-            .Select(g => new LinkGroupInfo(g.Key, g.First().SourcePageIndex, g.First().TargetPageIndex, g.Count()))
+            .Select(g => new LinkGroupInfo(
+                g.Key,
+                g.First().SourcePageIndex,
+                g.First().TargetPageIndex,
+                g.Count(),
+                IsPreExisting: g.All(l => _preExistingLinkIds.Contains(l.Id))))
             .ToList();
     }
 

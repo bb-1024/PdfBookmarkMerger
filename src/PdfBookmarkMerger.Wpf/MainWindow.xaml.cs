@@ -49,6 +49,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     /// 購読が古いウィンドウに残り続けないよう、Closedで一括破棄する。</summary>
     private readonly CompositeDisposable _viewModelSubscriptions = [];
 
+    /// <summary>trueの間は、ユーザーの手動スクロールに追従してCurrentPageIndexを更新している最中であることを示す。
+    /// この間はCurrentPageIndexの変更を受けてもプレビューのスクロール位置を動かし直さない
+    /// (動かすと、追従した瞬間に別の位置へジャンプしてしまいスクロールが成立しなくなる)。</summary>
+    private bool _isSyncingCurrentPageFromScroll;
+
     public MainWindow(MainWindowViewModel viewModel)
     {
         InitializeComponent();
@@ -88,9 +93,22 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         // リンクのホットスポット表示は、対象ページ・拡大率・ページ高さ(座標変換の基準)のいずれかが
         // 変わるたびに再計算が必要。リンク自体の追加・削除でも当然再描画する。
         ViewModel.LinkEditor.Links.CollectionChanged += OnLinkEditorLinksCollectionChanged;
-        ViewModel.LinkEditor.CurrentPageIndex.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
         ViewModel.LinkEditor.ZoomScale.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
         ViewModel.LinkEditor.PageHeight.Subscribe(_ => RedrawLinkOverlay()).AddTo(_viewModelSubscriptions);
+
+        // ページ送りボタン・しおりジャンプ等、ユーザーの手動スクロール以外の経路でCurrentPageIndexが
+        // 変わった時だけ、そのページの先頭が見える位置までスクロールする(_isSyncingCurrentPageFromScroll中は、
+        // 逆にスクロール操作がCurrentPageIndexを追従させただけなので、スクロール位置を動かし直さない)。
+        ViewModel.LinkEditor.CurrentPageIndex.Subscribe(pageIndex =>
+        {
+            if (_isSyncingCurrentPageFromScroll)
+            {
+                RedrawLinkOverlay();
+                return;
+            }
+
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => ScrollToPage(pageIndex)));
+        }).AddTo(_viewModelSubscriptions);
     }
 
     private void OnFileListFilesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => UpdateFileMoveButtonsEnabled();
@@ -771,11 +789,128 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private bool _isSelectingLinkText;
     private Point _linkSelectionStartPoint;
 
+    /// <summary>連続スクロールプレビューの1ページ分のコンテナがビューポートに入った時
+    /// (VirtualizingPanelによるコンテナの初回生成・再利用のいずれでも発生する)に、そのページの
+    /// 画像描画をトリガーする。現在ページのコンテナであれば、生成タイミングによってはRedrawLinkOverlayが
+    /// 実体化前に呼ばれて何もできなかった可能性があるため、ここでも改めてオーバーレイを描画する。</summary>
+    private void OnPageSlotLoaded(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not PdfPageSlotViewModel slot)
+        {
+            return;
+        }
+
+        _ = ViewModel.LinkEditor.LoadPageSlotAsync(slot.PageIndex);
+
+        if (slot.PageIndex == ViewModel.LinkEditor.CurrentPageIndex.Value)
+        {
+            RedrawLinkOverlay();
+        }
+    }
+
+    /// <summary>コンテナがビューポートから外れた(リサイクルされた)時に、保持していた画像を破棄する
+    /// (数千ページ規模のPDFでも全ページ分のビットマップを同時に保持しないため)。</summary>
+    private void OnPageSlotUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is PdfPageSlotViewModel slot)
+        {
+            ViewModel.LinkEditor.UnloadPageSlot(slot.PageIndex);
+        }
+    }
+
+    /// <summary>連続スクロールプレビューの各ページコンテナに設定しているMargin(下方向の余白)。
+    /// オフセット計算をXAML側のListBox.ItemContainerStyleと一致させるために使う。</summary>
+    private const double PageItemBottomMargin = 4;
+
+    /// <summary>プレビューのスクロール位置から、現在の操作対象とみなすページ(ビューポート内で
+    /// 最も表示面積が大きいページ)を求め、CurrentPageIndexへ反映する。これにより、ページ送り
+    /// ボタンを使わずスクロールするだけで1ページ目から最終ページまで移動できる。
+    /// VisualTreeHelper.HitTestによる検出は、Wpf.Ui(FluentWindow)がScrollViewerを独自の
+    /// PassiveScrollViewerへ差し替えており、そのヒットテスト結果が内部コンテンツまで到達せず
+    /// 常にPassiveScrollViewer自身で止まってしまうため機能しなかった。全ページ同一の
+    /// プレースホルダ高さを前提に、オフセットとビューポート高さから直接算出する。</summary>
+    private void OnPdfPreviewScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (ComputeMostVisiblePageIndex(e.VerticalOffset, e.ViewportHeight) is not { } pageIndex || pageIndex == ViewModel.LinkEditor.CurrentPageIndex.Value)
+        {
+            return;
+        }
+
+        _isSyncingCurrentPageFromScroll = true;
+        try
+        {
+            ViewModel.LinkEditor.CurrentPageIndex.Value = pageIndex;
+        }
+        finally
+        {
+            _isSyncingCurrentPageFromScroll = false;
+        }
+    }
+
+    /// <summary>垂直スクロールオフセット・ビューポート高さ(いずれもpx)から、ビューポート内で
+    /// 最も表示面積が大きいページ番号を算出する。全ページ同一のプレースホルダ高さを前提とする。</summary>
+    private int? ComputeMostVisiblePageIndex(double verticalOffset, double viewportHeight)
+    {
+        var linkEditor = ViewModel.LinkEditor;
+        var itemHeight = linkEditor.PlaceholderHeight.Value + PageItemBottomMargin;
+        if (itemHeight <= 0 || linkEditor.PageSlots.Count == 0)
+        {
+            return null;
+        }
+
+        var viewportTop = verticalOffset;
+        var viewportBottom = verticalOffset + viewportHeight;
+        var lastIndex = linkEditor.PageSlots.Count - 1;
+        var firstCandidate = Math.Clamp((int)(viewportTop / itemHeight) - 1, 0, lastIndex);
+        var lastCandidate = Math.Clamp((int)(viewportBottom / itemHeight) + 1, 0, lastIndex);
+
+        var bestIndex = firstCandidate;
+        var bestVisibleHeight = -1.0;
+        for (var i = firstCandidate; i <= lastCandidate; i++)
+        {
+            var itemTop = i * itemHeight;
+            var visibleHeight = Math.Min(viewportBottom, itemTop + itemHeight) - Math.Max(viewportTop, itemTop);
+            if (visibleHeight > bestVisibleHeight)
+            {
+                bestVisibleHeight = visibleHeight;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    /// <summary>指定ページの先頭が正確にビューポート上端へ来る位置までスクロールする
+    /// (ページ送りボタン・しおりジャンプ用)。
+    /// WPFのListBox.ScrollIntoViewは「最小限のスクロールで対象を見えるようにする」動作のため、
+    /// 対象ページの末尾がビューポート下端に揃ってしまい先頭に揃わないことがある(WPFの既知の挙動)。
+    /// さらにScrollIntoViewと直後のScrollToVerticalOffsetを続けて呼ぶと、Wpf.UiのPassiveScrollViewer
+    /// (アニメーション付きスクロールを内部で行っている可能性がある)側でどちらか一方の指示が
+    /// 反映されないことがあったため、ScrollIntoViewは使わずScrollToVerticalOffsetのみで直接指定する
+    /// (対象が仮想化によりまだ実体化されていなくても、VirtualizingStackPanelはスクロール位置に応じて
+    /// レイアウト時にコンテナを生成するため、これだけで数千ページ先へのジャンプにも対応できる)。</summary>
+    private void ScrollToPage(int pageIndex)
+    {
+        var linkEditor = ViewModel.LinkEditor;
+        if (pageIndex < 0 || pageIndex >= linkEditor.PageSlots.Count)
+        {
+            return;
+        }
+
+        if (FindDescendant<ScrollViewer>(PdfPageListBox) is { } scrollViewer)
+        {
+            var offset = pageIndex * (linkEditor.PlaceholderHeight.Value + PageItemBottomMargin);
+            scrollViewer.ScrollToVerticalOffset(offset);
+        }
+
+        RedrawLinkOverlay();
+    }
+
     private void OnPdfPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        var image = (Image)sender;
+        var hitLayer = (UIElement)sender;
         var linkEditor = ViewModel.LinkEditor;
-        var position = e.GetPosition(image);
+        var position = e.GetPosition(hitLayer);
         var (pdfX, pdfY) = PdfCoordinateMapper.ToPdf(position.X, position.Y, linkEditor.PageHeight.Value, linkEditor.ZoomScale.Value);
 
         if (linkEditor.IsPickingArbitraryTarget.Value)
@@ -787,9 +922,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         _isSelectingLinkText = true;
         _linkSelectionStartPoint = position;
-        image.CaptureMouse();
+        hitLayer.CaptureMouse();
         linkEditor.BeginTextSelection(pdfX, pdfY);
-        DrawLiveSelectionRect(position, position);
+        DrawLiveSelectionRect(hitLayer, position, position);
     }
 
     private void OnPdfPreviewMouseMove(object sender, MouseEventArgs e)
@@ -799,12 +934,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             return;
         }
 
-        var image = (Image)sender;
+        var hitLayer = (UIElement)sender;
         var linkEditor = ViewModel.LinkEditor;
-        var position = e.GetPosition(image);
+        var position = e.GetPosition(hitLayer);
         var (pdfX, pdfY) = PdfCoordinateMapper.ToPdf(position.X, position.Y, linkEditor.PageHeight.Value, linkEditor.ZoomScale.Value);
         linkEditor.UpdateTextSelection(pdfX, pdfY);
-        DrawLiveSelectionRect(_linkSelectionStartPoint, position);
+        DrawLiveSelectionRect(hitLayer, _linkSelectionStartPoint, position);
     }
 
     private void OnPdfPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -815,15 +950,29 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         _isSelectingLinkText = false;
-        ((Image)sender).ReleaseMouseCapture();
+        ((UIElement)sender).ReleaseMouseCapture();
         ViewModel.LinkEditor.EndTextSelection();
         RedrawLinkOverlay();
     }
 
-    /// <summary>ドラッグ中の選択範囲を、簡易的な単一矩形(始点〜現在点の外接矩形)として描画する。</summary>
-    private void DrawLiveSelectionRect(Point start, Point current)
+    /// <summary>選択・オーバーレイのヒットレイヤー(Rectangle)と同じGrid内にある、兄弟要素の
+    /// LinkOverlayCanvasを探す(連続スクロール表示では現在ページのコンテナ以外にも同名の
+    /// Canvasが存在しうるため、常に「今操作しているコンテナ自身」のCanvasを使う必要がある)。</summary>
+    private static Canvas? FindSiblingOverlayCanvas(UIElement hitLayer)
     {
-        LinkOverlayCanvas.Children.Clear();
+        var parent = VisualTreeHelper.GetParent(hitLayer);
+        return parent is null ? null : FindDescendant<Canvas>(parent);
+    }
+
+    /// <summary>ドラッグ中の選択範囲を、簡易的な単一矩形(始点〜現在点の外接矩形)として描画する。</summary>
+    private void DrawLiveSelectionRect(UIElement hitLayer, Point start, Point current)
+    {
+        if (FindSiblingOverlayCanvas(hitLayer) is not { } canvas)
+        {
+            return;
+        }
+
+        canvas.Children.Clear();
         var left = Math.Min(start.X, current.X);
         var top = Math.Min(start.Y, current.Y);
         var rect = new System.Windows.Shapes.Rectangle
@@ -836,13 +985,28 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         };
         Canvas.SetLeft(rect, left);
         Canvas.SetTop(rect, top);
-        LinkOverlayCanvas.Children.Add(rect);
+        canvas.Children.Add(rect);
+    }
+
+    /// <summary>現在ページのコンテナが実体化されている場合に限り、そのコンテナ内のLinkOverlayCanvasを返す。
+    /// 連続スクロール表示では、現在ページがスクロール未到達等でまだ仮想化により実体化されていないことがあり、
+    /// その間は描画対象が存在しないためnullを返す(コンテナが実体化された時にOnPageSlotLoadedから
+    /// 改めて呼ばれる)。</summary>
+    private Canvas? FindCurrentPageOverlayCanvas()
+    {
+        var container = PdfPageListBox.ItemContainerGenerator.ContainerFromIndex(ViewModel.LinkEditor.CurrentPageIndex.Value);
+        return container is null ? null : FindDescendant<Canvas>(container);
     }
 
     /// <summary>現在ページに属する確定済みリンクのホットスポットを、半透明の矩形として描画し直す。</summary>
     private void RedrawLinkOverlay()
     {
-        LinkOverlayCanvas.Children.Clear();
+        if (FindCurrentPageOverlayCanvas() is not { } canvas)
+        {
+            return;
+        }
+
+        canvas.Children.Clear();
 
         var linkEditor = ViewModel.LinkEditor;
         var pageHeight = linkEditor.PageHeight.Value;
@@ -867,7 +1031,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             };
             Canvas.SetLeft(rect, pixelRect.Left);
             Canvas.SetTop(rect, pixelRect.Top);
-            LinkOverlayCanvas.Children.Add(rect);
+            canvas.Children.Add(rect);
         }
     }
 

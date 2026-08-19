@@ -78,7 +78,9 @@
 
         <StackPanel Grid.Row="3" Margin="0,0,0,20">
             <CheckBox Content="{x:Static resx:Strings.ShowPropertiesDialogCheckbox}"
-                      IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" />
+                      IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" Margin="0,0,0,4" />
+            <CheckBox Content="{x:Static resx:Strings.ShowMergeAndEditLinksButtonCheckbox}"
+                      IsChecked="{Binding ShowMergeAndEditLinksButton.Value, Mode=TwoWay}" />
         </StackPanel>
 
         <TextBlock Grid.Row="4" Margin="0,0,0,8" HorizontalAlignment="Right"

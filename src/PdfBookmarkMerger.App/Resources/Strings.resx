@@ -100,7 +100,8 @@
   <data name="UndoButton" xml:space="preserve"><value>元に戻す</value></data>
   <data name="ForceFitCheckbox" xml:space="preserve"><value>一律でFitに設定</value></data>
   <data name="GlobalExpandCheckbox" xml:space="preserve"><value>一律で展開表示を設定</value></data>
-  <data name="MergeButton" xml:space="preserve"><value>結合してリンク編集へ進む...</value></data>
+  <data name="MergeButton" xml:space="preserve"><value>結合してPDFを保存...</value></data>
+  <data name="MergeAndEditLinksButton" xml:space="preserve"><value>結合してリンク編集へ進む...</value></data>
   <data name="SaveBookmarkSettingsButton" xml:space="preserve"><value>しおり設定ファイルを保存...</value></data>
   <data name="StatusBarProcessingLabel" xml:space="preserve"><value>処理中...</value></data>
   <data name="BusyProgressCountOnlyFormat" xml:space="preserve"><value>{0} / {1} 件</value></data>
@@ -110,7 +111,7 @@
   <data name="EditLinksInstructionLine1" xml:space="preserve"><value>PDFをプレビューしながら、リンクを設定してください。</value></data>
   <data name="PreviousPageButton" xml:space="preserve"><value>前のページ</value></data>
   <data name="NextPageButton" xml:space="preserve"><value>次のページ</value></data>
-  <data name="PageIndicatorFormat" xml:space="preserve"><value>{0} / {1} ページ</value></data>
+  <data name="TotalPageCountFormat" xml:space="preserve"><value>/ {0} ページ</value></data>
   <data name="ZoomInButton" xml:space="preserve"><value>拡大</value></data>
   <data name="ZoomOutButton" xml:space="preserve"><value>縮小</value></data>
   <data name="BackToBookmarksButton" xml:space="preserve"><value>しおり編集画面に戻る</value></data>
@@ -121,6 +122,7 @@
   <data name="CancelSelectionButton" xml:space="preserve"><value>キャンセル</value></data>
   <data name="LinkListHeader" xml:space="preserve"><value>設定済みリンク</value></data>
   <data name="LinkGroupDisplayFormat" xml:space="preserve"><value>{0}ページ目 → {1}ページ目</value></data>
+  <data name="PreExistingLinkBadge" xml:space="preserve"><value>(既存)</value></data>
   <data name="LinkJumpButton" xml:space="preserve"><value>表示</value></data>
   <data name="LinkEditButton" xml:space="preserve"><value>編集</value></data>
   <data name="FinishLinkEditingButton" xml:space="preserve"><value>完了</value></data>
@@ -142,6 +144,7 @@
   <data name="ThemeModeLabel" xml:space="preserve"><value>表示モード</value></data>
   <data name="LanguageLabel" xml:space="preserve"><value>表示言語</value></data>
   <data name="ShowPropertiesDialogCheckbox" xml:space="preserve"><value>PDF結合時にプロパティ編集ダイアログを表示する</value></data>
+  <data name="ShowMergeAndEditLinksButtonCheckbox" xml:space="preserve"><value>PDF結合時にリンク編集ボタンを表示する</value></data>
   <data name="AppVersionFormat" xml:space="preserve"><value>バージョン: {0}</value></data>
   <data name="ThemeModeLight" xml:space="preserve"><value>ライト</value></data>
   <data name="ThemeModeDark" xml:space="preserve"><value>ダーク</value></data>
@@ -168,7 +171,9 @@
   <data name="StatusMerging" xml:space="preserve"><value>PDFを結合しています...</value></data>
   <data name="StatusMergeCompleteFormat" xml:space="preserve"><value>結合が完了しました: {0}</value></data>
   <data name="MergeCompleteDialogTitle" xml:space="preserve"><value>結合完了</value></data>
-  <data name="MergeCompleteMessageFormat" xml:space="preserve"><value>PDFファイルを結合しました。続けてリンクを設定してください。
+  <data name="MergeCompleteMessageFormat" xml:space="preserve"><value>PDFファイルを結合しました。
+{0}</value></data>
+  <data name="MergeAndEditLinksCompleteMessageFormat" xml:space="preserve"><value>PDFファイルを結合しました。続けてリンクを設定してください。
 {0}</value></data>
   <data name="MergeErrorDialogTitle" xml:space="preserve"><value>結合エラー</value></data>
   <data name="MergeErrorMessageFormat" xml:space="preserve"><value>PDFの結合に失敗しました。

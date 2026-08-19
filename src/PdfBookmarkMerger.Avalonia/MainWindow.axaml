@@ -23,7 +23,6 @@
         <conv:BusyProgressToTextConverter x:Key="BusyProgressToTextConverter" />
         <conv:PageCountToTextConverter x:Key="PageCountToTextConverter" />
         <conv:ByteArrayToImageConverter x:Key="ByteArrayToImageConverter" />
-        <conv:PageIndicatorConverter x:Key="PageIndicatorConverter" />
         <conv:LinkGroupDisplayConverter x:Key="LinkGroupDisplayConverter" />
     </Window.Resources>
 
@@ -211,6 +210,8 @@
                               VerticalAlignment="Center" Margin="0,0,16,0" />
                     <Button Content="{x:Static resx:Strings.SaveBookmarkSettingsButton}" Command="{Binding SaveBookmarkSettingsCommand}" />
                     <Button Content="{x:Static resx:Strings.MergeButton}" Command="{Binding MergeCommand}" />
+                    <Button Content="{x:Static resx:Strings.MergeAndEditLinksButton}" Command="{Binding MergeAndEditLinksCommand}"
+                            IsVisible="{Binding ShowMergeAndEditLinksButton.Value}" />
                 </StackPanel>
             </StackPanel>
         </Grid>
@@ -222,34 +223,62 @@
             <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"
                        Text="{x:Static resx:Strings.EditLinksInstructionLine1}" />
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
-                <Button Content="{x:Static resx:Strings.PreviousPageButton}" Command="{Binding LinkEditor.PreviousPageCommand}" />
-                <Button Content="{x:Static resx:Strings.NextPageButton}" Command="{Binding LinkEditor.NextPageCommand}" Margin="0,0,8,0" />
-                <TextBlock VerticalAlignment="Center" Margin="0,0,8,0">
-                    <TextBlock.Text>
-                        <MultiBinding Converter="{StaticResource PageIndicatorConverter}">
-                            <Binding Path="LinkEditor.CurrentPageIndex.Value" x:CompileBindings="False" />
-                            <Binding Path="LinkEditor.PageCount.Value" x:CompileBindings="False" />
-                        </MultiBinding>
-                    </TextBlock.Text>
-                </TextBlock>
-                <Button Content="{x:Static resx:Strings.ZoomOutButton}" Command="{Binding LinkEditor.ZoomOutCommand}" />
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="0" Margin="0,0,0,8">
+                <Button Content="{x:Static resx:Strings.PreviousPageButton}" Command="{Binding LinkEditor.PreviousPageCommand}" Margin="0,0,4,0" />
+                <TextBox Text="{Binding LinkEditor.PageNumberInput.Value}" Width="48" TextAlignment="Right"
+                         VerticalContentAlignment="Center" Margin="0,0,4,0" />
+                <TextBlock VerticalAlignment="Center" Margin="0,0,16,0"
+                           Text="{Binding LinkEditor.PageCount.Value, StringFormat={x:Static resx:Strings.TotalPageCountFormat}}" />
+                <Button Content="{x:Static resx:Strings.NextPageButton}" Command="{Binding LinkEditor.NextPageCommand}" Margin="0,0,24,0" />
+                <Button Content="{x:Static resx:Strings.ZoomOutButton}" Command="{Binding LinkEditor.ZoomOutCommand}" Margin="0,0,8,0" />
                 <Button Content="{x:Static resx:Strings.ZoomInButton}" Command="{Binding LinkEditor.ZoomInCommand}" />
             </StackPanel>
 
             <Grid Grid.Row="2" ColumnDefinitions="*,220">
                 <Border Grid.Column="0" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0">
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="#11808080">
-                        <Grid>
-                            <Image Name="PdfPreviewImage"
-                                   Source="{Binding LinkEditor.PageImage.Value, Converter={StaticResource ByteArrayToImageConverter}}"
-                                   Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top"
-                                   PointerPressed="OnPdfPreviewPointerPressed"
-                                   PointerMoved="OnPdfPreviewPointerMoved"
-                                   PointerReleased="OnPdfPreviewPointerReleased" />
-                            <Canvas Name="LinkOverlayCanvas" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" />
-                        </Grid>
-                    </ScrollViewer>
+                    <!-- 連続スクロールプレビュー: 全ページ分のプレースホルダ(LinkEditor.PageSlots)を
+                         仮想化されたListBoxで縦に並べる。ビューポートに入ったページだけがLoadPageSlotAsyncで
+                         描画され、外れたページはUnloadPageSlotで破棄されるため、数千ページ規模のPDFでも
+                         全ページを同時に保持しない。選択・リンク作成・ホットスポット表示の対象は常に
+                         現在ページ(IsCurrent)のみ。 -->
+                    <ListBox Name="PdfPageListBox" ItemsSource="{Binding LinkEditor.PageSlots}"
+                             Background="#11808080" BorderThickness="0" SelectionMode="Single" Focusable="False"
+                             ScrollViewer.ScrollChanged="OnPdfPreviewScrollChanged">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,0,0,4" />
+                                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                <Setter Property="Focusable" Value="False" />
+                            </Style>
+                        </ListBox.Styles>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:PdfPageSlotViewModel">
+                                <Grid Loaded="OnPageSlotLoaded" Unloaded="OnPageSlotUnloaded">
+                                    <Grid.Width>
+                                        <Binding Path="DataContext.LinkEditor.PlaceholderWidth.Value"
+                                                 RelativeSource="{RelativeSource AncestorType=ListBox}"
+                                                 FallbackValue="0" x:CompileBindings="False" />
+                                    </Grid.Width>
+                                    <Grid.Height>
+                                        <Binding Path="DataContext.LinkEditor.PlaceholderHeight.Value"
+                                                 RelativeSource="{RelativeSource AncestorType=ListBox}"
+                                                 FallbackValue="0" x:CompileBindings="False" />
+                                    </Grid.Height>
+                                    <Image Source="{Binding Image.Value, Converter={StaticResource ByteArrayToImageConverter}}"
+                                           Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                    <!-- 現在ページのみ、選択・リンク作成のヒットレイヤーとホットスポットのオーバーレイを重ねる。 -->
+                                    <Grid IsVisible="{Binding IsCurrent.Value}">
+                                        <Rectangle Fill="Transparent"
+                                                   PointerPressed="OnPdfPreviewPointerPressed"
+                                                   PointerMoved="OnPdfPreviewPointerMoved"
+                                                   PointerReleased="OnPdfPreviewPointerReleased" />
+                                        <Canvas Name="LinkOverlayCanvas" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                    </Grid>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Border>
 
                 <Grid Grid.Column="1" RowDefinitions="*,*">
@@ -267,15 +296,22 @@
                                 <Button Content="{x:Static resx:Strings.CancelSelectionButton}" Command="{Binding LinkEditor.CancelPendingSelectionCommand}" />
                             </StackPanel>
 
-                            <ListBox Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate DataType="models:BookmarkNode">
-                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
+                            <!-- 読み取り専用のジャンプ用一覧のため、しおり編集画面のTreeViewと異なり
+                                 展開状態の保持は不要。全ノードを常に展開表示する。 -->
+                            <TreeView Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <TreeView.Styles>
+                                    <Style Selector="TreeViewItem">
+                                        <Setter Property="IsExpanded" Value="True" />
+                                    </Style>
+                                </TreeView.Styles>
+                                <TreeView.ItemTemplate>
+                                    <TreeDataTemplate DataType="models:BookmarkNode" ItemsSource="{Binding Children}">
+                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="2"
                                                    Tag="{Binding}" PointerReleased="OnLinkEditorBookmarkClick" />
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                                    </TreeDataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
                         </Grid>
                     </Border>
 
@@ -287,14 +323,18 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="vm:LinkGroupInfo">
                                         <StackPanel Margin="4" Spacing="2">
-                                            <TextBlock Text="{Binding Converter={StaticResource LinkGroupDisplayConverter}}" TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{Binding Converter={StaticResource LinkGroupDisplayConverter}}" TextWrapping="Wrap" />
+                                                <TextBlock Text="{x:Static resx:Strings.PreExistingLinkBadge}" FontSize="10" Foreground="Gray"
+                                                           VerticalAlignment="Center" IsVisible="{Binding IsPreExisting}" />
+                                            </StackPanel>
                                             <StackPanel Orientation="Horizontal" Spacing="4">
                                                 <Button Content="{x:Static resx:Strings.LinkJumpButton}" FontSize="11" Padding="6,2"
                                                         Tag="{Binding}" Click="OnLinkGroupJumpClick" />
                                                 <Button Content="{x:Static resx:Strings.LinkEditButton}" FontSize="11" Padding="6,2"
-                                                        Tag="{Binding}" Click="OnLinkGroupEditClick" />
+                                                        Tag="{Binding}" Click="OnLinkGroupEditClick" IsVisible="{Binding !IsPreExisting}" />
                                                 <Button Content="{x:Static resx:Strings.DeleteButton}" FontSize="11" Padding="6,2"
-                                                        Tag="{Binding}" Click="OnLinkGroupDeleteClick" />
+                                                        Tag="{Binding}" Click="OnLinkGroupDeleteClick" IsVisible="{Binding !IsPreExisting}" />
                                             </StackPanel>
                                         </StackPanel>
                                     </DataTemplate>
@@ -306,6 +346,7 @@
             </Grid>
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+                <Button Content="{x:Static resx:Strings.SettingsButton}" Command="{Binding OpenSettingsCommand}" Margin="0,0,16,0" />
                 <Button Content="{x:Static resx:Strings.BackToBookmarksButton}" Command="{Binding BackToBookmarksCommand}" Margin="0,0,8,0" />
                 <Button Content="{x:Static resx:Strings.FinishLinkEditingButton}" Command="{Binding FinishLinkEditingCommand}" />
             </StackPanel>

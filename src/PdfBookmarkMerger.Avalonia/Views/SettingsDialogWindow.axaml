@@ -45,7 +45,10 @@
         </StackPanel>
 
         <CheckBox Content="{x:Static resx:Strings.ShowPropertiesDialogCheckbox}"
-                  IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" Margin="0,0,0,8" />
+                  IsChecked="{Binding ShowPropertiesDialogOnMerge.Value, Mode=TwoWay}" />
+
+        <CheckBox Content="{x:Static resx:Strings.ShowMergeAndEditLinksButtonCheckbox}"
+                  IsChecked="{Binding ShowMergeAndEditLinksButton.Value, Mode=TwoWay}" Margin="0,0,0,8" />
 
         <TextBlock HorizontalAlignment="Right" FontSize="11" Foreground="Gray">
             <TextBlock.Text>

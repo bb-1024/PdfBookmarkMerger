@@ -87,6 +87,9 @@ internal sealed class FakePdfLinkAnnotationService : IPdfLinkAnnotationService
 
     public int CallCount { get; private set; }
 
+    /// <summary>ExistingLinksByFilePathに登録があれば返す、事前設定式のフェイク。既定は空。</summary>
+    public Dictionary<string, IReadOnlyList<LinkAnnotationNode>> ExistingLinksByFilePath { get; } = [];
+
     public Task ApplyLinksAsync(string filePath, IReadOnlyList<LinkAnnotationNode> links, CancellationToken ct = default)
     {
         LastFilePath = filePath;
@@ -94,6 +97,9 @@ internal sealed class FakePdfLinkAnnotationService : IPdfLinkAnnotationService
         CallCount++;
         return Task.CompletedTask;
     }
+
+    public Task<IReadOnlyList<LinkAnnotationNode>> ReadExistingLinksAsync(string filePath, CancellationToken ct = default) =>
+        Task.FromResult(ExistingLinksByFilePath.TryGetValue(filePath, out var links) ? links : (IReadOnlyList<LinkAnnotationNode>)[]);
 }
 
 /// <summary>実際にはPDFを結合せず、最後に受け取ったリクエストを記録するだけのフェイク。</summary>
@@ -161,8 +167,11 @@ internal sealed class FakeDialogService : IDialogService
     public Task<PdfDocumentPropertiesModel?> ShowPropertiesDialogAsync(PdfDocumentPropertiesModel initial) =>
         Task.FromResult(PropertiesDialogResult);
 
+    /// <summary>既定はnull(ダイアログをキャンセルしたことを表す)。</summary>
+    public PdfBookmarkMergerOptions? SettingsDialogResult { get; set; }
+
     public Task<PdfBookmarkMergerOptions?> ShowSettingsDialogAsync(PdfBookmarkMergerOptions current) =>
-        Task.FromResult<PdfBookmarkMergerOptions?>(null);
+        Task.FromResult(SettingsDialogResult);
 
     public Task<int?> ShowLevelCapDialogAsync(int minLevel, int maxLevel)
     {

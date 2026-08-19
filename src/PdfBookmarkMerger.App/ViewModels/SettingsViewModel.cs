@@ -19,6 +19,7 @@ public sealed class SettingsViewModel : ViewModelBase
 
         ThemeMode = new ReactivePropertySlim<ThemeMode>(initial.ThemeMode).AddTo(Disposables);
         ShowPropertiesDialogOnMerge = new ReactivePropertySlim<bool>(initial.ShowPropertiesDialogOnMerge).AddTo(Disposables);
+        ShowMergeAndEditLinksButton = new ReactivePropertySlim<bool>(initial.ShowMergeAndEditLinksButton).AddTo(Disposables);
         Language = new ReactivePropertySlim<AppLanguage>(initial.Language ?? AppLanguage.Japanese).AddTo(Disposables);
     }
 
@@ -36,6 +37,8 @@ public sealed class SettingsViewModel : ViewModelBase
 
     public ReactivePropertySlim<bool> ShowPropertiesDialogOnMerge { get; }
 
+    public ReactivePropertySlim<bool> ShowMergeAndEditLinksButton { get; }
+
     /// <summary>
     /// 表示言語。OK押下時にThemeModeと同様その場で反映される(WpfDialogService/AvaloniaDialogServiceの
     /// ShowSettingsDialogAsync参照)。x:Static参照はウィンドウ構築時点の値で固定されるため、
@@ -50,6 +53,7 @@ public sealed class SettingsViewModel : ViewModelBase
         WindowHeight = _source.WindowHeight,
         ThemeMode = ThemeMode.Value,
         ShowPropertiesDialogOnMerge = ShowPropertiesDialogOnMerge.Value,
+        ShowMergeAndEditLinksButton = ShowMergeAndEditLinksButton.Value,
         Language = Language.Value,
     };
 }

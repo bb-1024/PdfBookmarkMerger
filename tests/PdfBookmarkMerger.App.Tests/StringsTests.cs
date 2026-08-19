@@ -28,7 +28,7 @@ public sealed class StringsTests
         Strings.Culture = CultureInfo.GetCultureInfo("en");
 
         Strings.SettingsButton.ShouldBe("Settings...");
-        Strings.MergeButton.ShouldBe("Merge and Continue to Link Editing...");
+        Strings.MergeButton.ShouldBe("Merge and Save PDF...");
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using PdfBookmarkMerger.App.Options;
 using PdfBookmarkMerger.App.Services;
 using PdfBookmarkMerger.App.Tests.TestHelpers;
 using PdfBookmarkMerger.App.ViewModels;
@@ -15,7 +16,7 @@ namespace PdfBookmarkMerger.App.Tests;
 /// </summary>
 public sealed class MainWindowViewModelTests
 {
-    private static (MainWindowViewModel MainVm, FakeMetadataService Metadata, FakeMergeService Merge, FakeBookmarkSettingsExportService Export, FakeDialogService Dialog)
+    private static (MainWindowViewModel MainVm, FakeMetadataService Metadata, FakeMergeService Merge, FakeBookmarkSettingsExportService Export, FakeDialogService Dialog, FakeUserSettingsService UserSettings)
         CreateSut()
     {
         var collector = new FakeFileCollectorService();
@@ -44,13 +45,13 @@ public sealed class MainWindowViewModelTests
             userSettings,
             NullLogger<MainWindowViewModel>.Instance);
 
-        return (mainVm, metadata, merge, export, dialog);
+        return (mainVm, metadata, merge, export, dialog, userSettings);
     }
 
     [Fact]
     public async Task MergeAsync_ExcludesFilesThatFailedMetadataLoad_EvenThoughTheyRemainInFileList()
     {
-        var (mainVm, metadata, merge, _, _) = CreateSut();
+        var (mainVm, metadata, merge, _, _, _) = CreateSut();
 
         var goodEntry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
         var brokenEntry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\b-broken.pdf" });
@@ -84,9 +85,44 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task MergeAsync_StaysOnEditBookmarksStep_AndDoesNotLoadTheLinkEditor()
+    {
+        var (mainVm, metadata, merge, _, dialog, _) = CreateSut();
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(entry.FilePath, pageCount: 3);
+        await mainVm.ConfirmFilesAsync();
+
+        await mainVm.MergeAsync();
+
+        merge.CallCount.ShouldBe(1);
+        mainVm.Step.Value.ShouldBe(WorkflowStep.EditBookmarks);
+        mainVm.LinkEditor.FilePath.Value.ShouldBeNull();
+        dialog.Infos.ShouldContain(i => i.Message.Contains(dialog.SaveDialogResult!));
+    }
+
+    [Fact]
+    public async Task MergeAndEditLinksAsync_AdvancesToEditLinksStep_AndLoadsTheMergedFileIntoTheLinkEditor()
+    {
+        var (mainVm, metadata, merge, _, dialog, _) = CreateSut();
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(entry.FilePath, pageCount: 3);
+        await mainVm.ConfirmFilesAsync();
+
+        await mainVm.MergeAndEditLinksAsync();
+
+        merge.CallCount.ShouldBe(1);
+        mainVm.Step.Value.ShouldBe(WorkflowStep.EditLinks);
+        mainVm.LinkEditor.FilePath.Value.ShouldBe(dialog.SaveDialogResult);
+    }
+
+    [Fact]
     public async Task ConfirmFilesAsync_WhenAllFilesFail_DoesNotAdvanceToEditBookmarksStep()
     {
-        var (mainVm, metadata, _, _, dialog) = CreateSut();
+        var (mainVm, metadata, _, _, dialog, _) = CreateSut();
 
         var brokenEntry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\broken.pdf" });
         mainVm.FileList.Files.Add(brokenEntry);
@@ -101,7 +137,7 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task SaveBookmarkSettingsAsync_SuggestsXmlExtensionOfMergeDefaultFileName_AndCallsExportService()
     {
-        var (mainVm, metadata, _, export, dialog) = CreateSut();
+        var (mainVm, metadata, _, export, dialog, _) = CreateSut();
 
         var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\report.pdf" });
         mainVm.FileList.Files.Add(entry);
@@ -123,7 +159,7 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task SaveBookmarkSettingsAsync_WhenDialogCancelled_DoesNotCallExportService()
     {
-        var (mainVm, metadata, _, export, dialog) = CreateSut();
+        var (mainVm, metadata, _, export, dialog, _) = CreateSut();
 
         var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\report.pdf" });
         mainVm.FileList.Files.Add(entry);
@@ -139,7 +175,7 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task EditingPreOffsetPageNumber_DisablesMergeCommand_ButKeepsSaveBookmarkSettingsCommandEnabled()
     {
-        var (mainVm, metadata, _, _, _) = CreateSut();
+        var (mainVm, metadata, _, _, _, _) = CreateSut();
 
         var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
         mainVm.FileList.Files.Add(entry);
@@ -165,7 +201,7 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task EditingPreOffsetPageNumberToInvalidValue_DisablesBothMergeAndSaveBookmarkSettingsCommands()
     {
-        var (mainVm, metadata, _, _, _) = CreateSut();
+        var (mainVm, metadata, _, _, _, _) = CreateSut();
 
         var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
         mainVm.FileList.Files.Add(entry);
@@ -188,7 +224,7 @@ public sealed class MainWindowViewModelTests
         // しおりが大量にある状態でBookmarkTree.RecomputeAllPageNumberDisplaysAsyncがバックグラウンドへ
         // 分岐する際、専用のUIを新設せず既存のIsBusy/BusyProgress/処理中オーバーレイをそのまま
         // 再利用できるよう転送していることを確認する回帰テスト。
-        var (mainVm, metadata, _, _, _) = CreateSut();
+        var (mainVm, metadata, _, _, _, _) = CreateSut();
 
         var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
         mainVm.FileList.Files.Add(entry);
@@ -213,5 +249,39 @@ public sealed class MainWindowViewModelTests
         busyStates[^1].ShouldBeFalse();
         progressSnapshots.ShouldContain(p => p != null && p.CompletedCount == 1 && p.TotalCount == 500);
         mainVm.StatusMessage.Value.ShouldBe(originalStatusMessage, "busy終了後は元のステータスメッセージへ復元されるべき");
+    }
+
+    [Fact]
+    public void ShowMergeAndEditLinksButton_DefaultsToFalse_WhenNoSettingsFileHasBeenLoaded()
+    {
+        // FakeUserSettingsService.Currentは既定でnew PdfBookmarkMergerOptions()(設定ファイル未読み込み
+        // 相当)を返す。ShowMergeAndEditLinksButtonのbool既定値(false)がそのままMainWindowViewModelの
+        // 初期値になることを確認する。
+        var (mainVm, _, _, _, _, _) = CreateSut();
+
+        mainVm.ShowMergeAndEditLinksButton.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task OpenSettingsCommand_UpdatesShowMergeAndEditLinksButton_AssoonAsTheDialogIsConfirmed()
+    {
+        var (mainVm, _, _, _, dialog, userSettings) = CreateSut();
+
+        mainVm.ShowMergeAndEditLinksButton.Value.ShouldBeFalse();
+
+        var updated = new PdfBookmarkMergerOptions
+        {
+            ThemeMode = userSettings.Current.ThemeMode,
+            ShowMergeAndEditLinksButton = true,
+        };
+        dialog.SettingsDialogResult = updated;
+
+        await mainVm.OpenSettingsAsync();
+
+        // 「結合してリンク編集へ進む」ボタンの表示・非表示のみをリアルタイムに切り替える
+        // (ウィンドウの再構築を伴うLanguage設定と異なり、このプロパティへの反映だけで
+        // XAML側のバインディングが即座に追従する)。
+        mainVm.ShowMergeAndEditLinksButton.Value.ShouldBeTrue();
+        userSettings.Current.ShowMergeAndEditLinksButton.ShouldBeTrue();
     }
 }

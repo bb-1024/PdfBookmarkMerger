@@ -51,6 +51,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         IsBusy = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         StatusMessage = new ReactivePropertySlim<string>(Strings.StatusReady).AddTo(Disposables);
         BusyProgress = new ReactivePropertySlim<BusyProgressInfo?>(null).AddTo(Disposables);
+        ShowMergeAndEditLinksButton = new ReactivePropertySlim<bool>(_userSettings.Current.ShowMergeAndEditLinksButton).AddTo(Disposables);
 
         // しおりが大量にある状態での編集・追加・削除・元に戻す操作は、BookmarkTree内部で
         // 結合前ページ数の再計算(BookmarkTreeViewModel.RecomputeAllPageNumberDisplaysAsync)を
@@ -93,6 +94,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         MergeCommand = new AsyncReactiveCommand(canMerge).AddTo(Disposables);
         MergeCommand.Subscribe(async () => await MergeAsync()).AddTo(Disposables);
 
+        MergeAndEditLinksCommand = new AsyncReactiveCommand(canMerge).AddTo(Disposables);
+        MergeAndEditLinksCommand.Subscribe(async () => await MergeAndEditLinksAsync()).AddTo(Disposables);
+
         var canSaveBookmarkSettings = canEdit.CombineLatest(BookmarkTree.HasPageNumberInconsistency, (editable, hasInconsistency) => editable && !hasInconsistency);
         SaveBookmarkSettingsCommand = new AsyncReactiveCommand(canSaveBookmarkSettings).AddTo(Disposables);
         SaveBookmarkSettingsCommand.Subscribe(async () => await SaveBookmarkSettingsAsync()).AddTo(Disposables);
@@ -127,14 +131,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         }).AddTo(Disposables);
 
         OpenSettingsCommand = new AsyncReactiveCommand(IsBusy.Select(b => !b)).AddTo(Disposables);
-        OpenSettingsCommand.Subscribe(async () =>
-        {
-            var updated = await _dialogService.ShowSettingsDialogAsync(_userSettings.Current);
-            if (updated is not null)
-            {
-                await _userSettings.SaveAsync(updated);
-            }
-        }).AddTo(Disposables);
+        OpenSettingsCommand.Subscribe(async () => await OpenSettingsAsync()).AddTo(Disposables);
     }
 
     public FileListViewModel FileList { get; }
@@ -156,6 +153,13 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ReactivePropertySlim<BusyProgressInfo?> BusyProgress { get; }
 
     /// <summary>
+    /// しおり編集画面に「結合してリンク編集へ進む」ボタンを表示するかどうか。設定ダイアログでの
+    /// 変更が、ダイアログを閉じた時点でこのプロパティ経由でボタンの表示・非表示へ即座に反映される
+    /// (Language設定と異なり、ウィンドウの再構築は不要)。
+    /// </summary>
+    public ReactivePropertySlim<bool> ShowMergeAndEditLinksButton { get; }
+
+    /// <summary>
     /// 大量ファイル読み込み時の並列実行数の上限。CPUコア数に連動しつつ、
     /// 極端な同時オープンによるスレッドプール枯渇・I/O競合を避けるため上限を設ける。
     /// </summary>
@@ -164,6 +168,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public AsyncReactiveCommand ConfirmFilesCommand { get; }
 
     public AsyncReactiveCommand MergeCommand { get; }
+
+    public AsyncReactiveCommand MergeAndEditLinksCommand { get; }
 
     public AsyncReactiveCommand SaveBookmarkSettingsCommand { get; }
 
@@ -267,8 +273,15 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。</summary>
-    internal async Task MergeAsync()
+    /// <summary>internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。
+    /// 結合してPDFを保存するだけで手順を終える(リンク編集画面へは進まない)。</summary>
+    internal async Task MergeAsync() => await MergeCoreAsync(continueToLinkEditing: false);
+
+    /// <summary>internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。
+    /// 結合完了後、続けてこの出力先ファイルへリンクを設定するリンク編集画面へ遷移する。</summary>
+    internal async Task MergeAndEditLinksAsync() => await MergeCoreAsync(continueToLinkEditing: true);
+
+    private async Task MergeCoreAsync(bool continueToLinkEditing)
     {
         // ConfirmFilesAsyncでメタデータ読み込みに失敗したファイルは、しおりツリーに含まれていないため
         // ここでも除外する。含めてしまうと、結合失敗やページオフセットのずれの原因になる。
@@ -337,18 +350,26 @@ public sealed class MainWindowViewModel : ViewModelBase
                     WindowHeight = _userSettings.Current.WindowHeight,
                     ThemeMode = _userSettings.Current.ThemeMode,
                     ShowPropertiesDialogOnMerge = _userSettings.Current.ShowPropertiesDialogOnMerge,
+                    ShowMergeAndEditLinksButton = _userSettings.Current.ShowMergeAndEditLinksButton,
                     Language = _userSettings.Current.Language,
                 };
                 await _userSettings.SaveAsync(updated);
             }
 
             StatusMessage.Value = string.Format(Strings.StatusMergeCompleteFormat, outputPath);
-            _dialogService.ShowInfo(Strings.MergeCompleteDialogTitle, string.Format(Strings.MergeCompleteMessageFormat, outputPath));
 
-            // 「結合してPDFを保存」はここで終わりではなく、続けてこの出力先ファイルへリンクを
-            // 設定する画面へ遷移する(LinkEditorは既に結合・しおり設定済みの実ファイルを対象に動く)。
-            await LinkEditor.LoadAsync(outputPath);
-            Step.Value = WorkflowStep.EditLinks;
+            if (continueToLinkEditing)
+            {
+                _dialogService.ShowInfo(Strings.MergeCompleteDialogTitle, string.Format(Strings.MergeAndEditLinksCompleteMessageFormat, outputPath));
+
+                // LinkEditorは既に結合・しおり設定済みの実ファイルを対象に動く。
+                await LinkEditor.LoadAsync(outputPath);
+                Step.Value = WorkflowStep.EditLinks;
+            }
+            else
+            {
+                _dialogService.ShowInfo(Strings.MergeCompleteDialogTitle, string.Format(Strings.MergeCompleteMessageFormat, outputPath));
+            }
         }
         catch (Exception ex)
         {
@@ -428,5 +449,22 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             IsBusy.Value = false;
         }
+    }
+
+    /// <summary>internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。</summary>
+    internal async Task OpenSettingsAsync()
+    {
+        var updated = await _dialogService.ShowSettingsDialogAsync(_userSettings.Current);
+        if (updated is null)
+        {
+            return;
+        }
+
+        await _userSettings.SaveAsync(updated);
+
+        // 「結合してリンク編集へ進む」ボタンの表示・非表示のみをリアルタイムに切り替える
+        // (ThemeMode/Languageと異なり、テーマ再適用やウィンドウ再構築を伴わない単純な
+        // バインディング先の値なので、ここで更新するだけでXAML側が即座に追従する)。
+        ShowMergeAndEditLinksButton.Value = updated.ShowMergeAndEditLinksButton;
     }
 }

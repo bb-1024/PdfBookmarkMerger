@@ -59,6 +59,7 @@ public static class Strings
     public static string ForceFitCheckbox => Get(nameof(ForceFitCheckbox));
     public static string GlobalExpandCheckbox => Get(nameof(GlobalExpandCheckbox));
     public static string MergeButton => Get(nameof(MergeButton));
+    public static string MergeAndEditLinksButton => Get(nameof(MergeAndEditLinksButton));
     public static string SaveBookmarkSettingsButton => Get(nameof(SaveBookmarkSettingsButton));
     public static string StatusBarProcessingLabel => Get(nameof(StatusBarProcessingLabel));
     public static string BusyProgressCountOnlyFormat => Get(nameof(BusyProgressCountOnlyFormat));
@@ -67,7 +68,7 @@ public static class Strings
     public static string EditLinksInstructionLine1 => Get(nameof(EditLinksInstructionLine1));
     public static string PreviousPageButton => Get(nameof(PreviousPageButton));
     public static string NextPageButton => Get(nameof(NextPageButton));
-    public static string PageIndicatorFormat => Get(nameof(PageIndicatorFormat));
+    public static string TotalPageCountFormat => Get(nameof(TotalPageCountFormat));
     public static string ZoomInButton => Get(nameof(ZoomInButton));
     public static string ZoomOutButton => Get(nameof(ZoomOutButton));
     public static string BackToBookmarksButton => Get(nameof(BackToBookmarksButton));
@@ -78,6 +79,7 @@ public static class Strings
     public static string CancelSelectionButton => Get(nameof(CancelSelectionButton));
     public static string LinkListHeader => Get(nameof(LinkListHeader));
     public static string LinkGroupDisplayFormat => Get(nameof(LinkGroupDisplayFormat));
+    public static string PreExistingLinkBadge => Get(nameof(PreExistingLinkBadge));
     public static string LinkJumpButton => Get(nameof(LinkJumpButton));
     public static string LinkEditButton => Get(nameof(LinkEditButton));
     public static string FinishLinkEditingButton => Get(nameof(FinishLinkEditingButton));
@@ -96,6 +98,7 @@ public static class Strings
     public static string ThemeModeLabel => Get(nameof(ThemeModeLabel));
     public static string LanguageLabel => Get(nameof(LanguageLabel));
     public static string ShowPropertiesDialogCheckbox => Get(nameof(ShowPropertiesDialogCheckbox));
+    public static string ShowMergeAndEditLinksButtonCheckbox => Get(nameof(ShowMergeAndEditLinksButtonCheckbox));
     public static string AppVersionFormat => Get(nameof(AppVersionFormat));
     public static string ThemeModeLight => Get(nameof(ThemeModeLight));
     public static string ThemeModeDark => Get(nameof(ThemeModeDark));
@@ -120,6 +123,7 @@ public static class Strings
     public static string StatusMergeCompleteFormat => Get(nameof(StatusMergeCompleteFormat));
     public static string MergeCompleteDialogTitle => Get(nameof(MergeCompleteDialogTitle));
     public static string MergeCompleteMessageFormat => Get(nameof(MergeCompleteMessageFormat));
+    public static string MergeAndEditLinksCompleteMessageFormat => Get(nameof(MergeAndEditLinksCompleteMessageFormat));
     public static string MergeErrorDialogTitle => Get(nameof(MergeErrorDialogTitle));
     public static string MergeErrorMessageFormat => Get(nameof(MergeErrorMessageFormat));
     public static string DefaultBookmarkSettingsFileName => Get(nameof(DefaultBookmarkSettingsFileName));
