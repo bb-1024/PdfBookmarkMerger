@@ -24,6 +24,8 @@
         <conv:InverseBooleanConverter x:Key="InverseBooleanConverter" />
         <conv:BusyProgressToTextConverter x:Key="BusyProgressToTextConverter" />
         <conv:PageCountToTextConverter x:Key="PageCountToTextConverter" />
+        <conv:ByteArrayToImageConverter x:Key="ByteArrayToImageConverter" />
+        <conv:PageIndicatorConverter x:Key="PageIndicatorConverter" />
         <ObjectDataProvider x:Key="DestinationTypeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
             <ObjectDataProvider.MethodParameters>
                 <x:Type TypeName="models:BookmarkDestinationType" />
@@ -275,6 +277,74 @@
                     <ui:Button Content="{x:Static resx:Strings.SaveBookmarkSettingsButton}" Appearance="Primary" Command="{Binding SaveBookmarkSettingsCommand}" Margin="0,0,8,0" />
                     <ui:Button Content="{x:Static resx:Strings.MergeButton}" Appearance="Primary" Command="{Binding MergeCommand}" />
                 </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- 手順4: リンク編集 -->
+        <Grid Grid.Row="1" Margin="16"
+              IsEnabled="{Binding IsBusy.Value, Converter={StaticResource InverseBooleanConverter}}"
+              Visibility="{Binding Step.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=EditLinks}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Margin="0,0,0,8" FontSize="14" TextWrapping="Wrap"
+                       Text="{x:Static resx:Strings.EditLinksInstructionLine1}" />
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                <ui:Button Content="{x:Static resx:Strings.PreviousPageButton}" Command="{Binding LinkEditor.PreviousPageCommand}" Margin="0,0,8,0" />
+                <ui:Button Content="{x:Static resx:Strings.NextPageButton}" Command="{Binding LinkEditor.NextPageCommand}" Margin="0,0,16,0" />
+                <TextBlock VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{StaticResource PageIndicatorConverter}">
+                            <Binding Path="LinkEditor.CurrentPageIndex.Value" />
+                            <Binding Path="LinkEditor.PageCount.Value" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <ui:Button Content="{x:Static resx:Strings.ZoomOutButton}" Command="{Binding LinkEditor.ZoomOutCommand}" Margin="0,0,8,0" />
+                <ui:Button Content="{x:Static resx:Strings.ZoomInButton}" Command="{Binding LinkEditor.ZoomInCommand}" />
+            </StackPanel>
+
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="220" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                  Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}">
+                        <Image Source="{Binding LinkEditor.PageImage.Value, Converter={StaticResource ByteArrayToImageConverter}}"
+                               Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    </ScrollViewer>
+                </Border>
+
+                <Border Grid.Column="1" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkEditorBookmarksHeader}" FontWeight="Bold" Margin="8" />
+                        <ListBox Grid.Row="1" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type models:BookmarkNode}">
+                                    <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
+                                               Tag="{Binding OriginalPageIndex}" MouseLeftButtonUp="OnLinkEditorBookmarkClick" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+                <ui:Button Content="{x:Static resx:Strings.BackToBookmarksButton}" Command="{Binding BackToBookmarksCommand}" />
             </StackPanel>
         </Grid>
 

@@ -1,12 +1,9 @@
-using System.Runtime.Versioning;
 using PdfBookmarkMerger.Core.Services;
 using PdfBookmarkMerger.Core.Tests.TestHelpers;
 using Shouldly;
 
 namespace PdfBookmarkMerger.Core.Tests;
 
-[SupportedOSPlatform("windows")]
-[SupportedOSPlatform("macos")]
 public sealed class PdfPageRendererTests : IDisposable
 {
     private readonly string _workDirectory;

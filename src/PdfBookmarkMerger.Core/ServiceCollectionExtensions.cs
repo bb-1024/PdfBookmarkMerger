@@ -9,5 +9,8 @@ public static class ServiceCollectionExtensions
         .AddSingleton<IPdfFileCollectorService, PdfFileCollectorService>()
         .AddSingleton<IPdfMetadataService, PdfMetadataService>()
         .AddSingleton<IPdfMergeService, PdfMergeService>()
-        .AddSingleton<IBookmarkSettingsExportService, BookmarkSettingsExportService>();
+        .AddSingleton<IBookmarkSettingsExportService, BookmarkSettingsExportService>()
+        .AddSingleton<IPdfPageRenderer, PdfPageRenderer>()
+        .AddSingleton<IPdfTextExtractor, PdfTextExtractor>()
+        .AddSingleton<IPdfLinkAnnotationService, PdfLinkAnnotationService>();
 }

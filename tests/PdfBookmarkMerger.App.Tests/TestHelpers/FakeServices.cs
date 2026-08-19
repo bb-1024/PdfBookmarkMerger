@@ -59,6 +59,16 @@ internal sealed class FakeMetadataService : IPdfMetadataService
     }
 }
 
+/// <summary>実際には描画せず、固定の1バイトPNGもどきを返すだけのフェイク。</summary>
+internal sealed class FakePdfPageRenderer : IPdfPageRenderer
+{
+    public Task<byte[]> RenderPageAsync(string filePath, int pageIndex, float scale, CancellationToken ct = default) =>
+        Task.FromResult<byte[]>([0x89, 0x50, 0x4E, 0x47]);
+
+    public Task<(double Width, double Height)> GetPageSizeAsync(string filePath, int pageIndex, CancellationToken ct = default) =>
+        Task.FromResult((595.0, 842.0));
+}
+
 /// <summary>実際にはPDFを結合せず、最後に受け取ったリクエストを記録するだけのフェイク。</summary>
 internal sealed class FakeMergeService : IPdfMergeService
 {

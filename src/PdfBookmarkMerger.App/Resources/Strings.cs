@@ -64,6 +64,15 @@ public static class Strings
     public static string BusyProgressCountOnlyFormat => Get(nameof(BusyProgressCountOnlyFormat));
     public static string BusyProgressWithDetailFormat => Get(nameof(BusyProgressWithDetailFormat));
 
+    public static string EditLinksInstructionLine1 => Get(nameof(EditLinksInstructionLine1));
+    public static string PreviousPageButton => Get(nameof(PreviousPageButton));
+    public static string NextPageButton => Get(nameof(NextPageButton));
+    public static string PageIndicatorFormat => Get(nameof(PageIndicatorFormat));
+    public static string ZoomInButton => Get(nameof(ZoomInButton));
+    public static string ZoomOutButton => Get(nameof(ZoomOutButton));
+    public static string BackToBookmarksButton => Get(nameof(BackToBookmarksButton));
+    public static string LinkEditorBookmarksHeader => Get(nameof(LinkEditorBookmarksHeader));
+
     public static string CancelButton => Get(nameof(CancelButton));
     public static string OkButton => Get(nameof(OkButton));
 

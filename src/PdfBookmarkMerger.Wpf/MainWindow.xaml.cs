@@ -734,6 +734,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private void OnExpandLevelTextBoxLostFocus(object sender, RoutedEventArgs e) =>
         ViewModel.BookmarkTree.NormalizeExpandLevelInput();
 
+    /// <summary>リンク編集画面のしおり一覧をクリックすると、該当ページへプレビューをジャンプする。</summary>
+    private void OnLinkEditorBookmarkClick(object sender, MouseButtonEventArgs e)
+    {
+        if (((FrameworkElement)sender).Tag is int pageIndex)
+        {
+            ViewModel.LinkEditor.JumpToPageCommand.Execute(pageIndex);
+        }
+    }
+
     private static T? FindAncestor<T>(DependencyObject current) where T : DependencyObject
     {
         while (current is not null)

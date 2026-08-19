@@ -100,11 +100,21 @@
   <data name="UndoButton" xml:space="preserve"><value>Undo</value></data>
   <data name="ForceFitCheckbox" xml:space="preserve"><value>Force Fit for All</value></data>
   <data name="GlobalExpandCheckbox" xml:space="preserve"><value>Force Expand for All</value></data>
-  <data name="MergeButton" xml:space="preserve"><value>Merge and Save PDF...</value></data>
+  <data name="MergeButton" xml:space="preserve"><value>Merge and Continue to Link Editing...</value></data>
   <data name="SaveBookmarkSettingsButton" xml:space="preserve"><value>Save Bookmark Settings File...</value></data>
   <data name="StatusBarProcessingLabel" xml:space="preserve"><value>Processing...</value></data>
   <data name="BusyProgressCountOnlyFormat" xml:space="preserve"><value>{0} / {1} item(s)</value></data>
   <data name="BusyProgressWithDetailFormat" xml:space="preserve"><value>{0} / {1} item(s) (Processing: {2})</value></data>
+
+  <!-- EditLinks -->
+  <data name="EditLinksInstructionLine1" xml:space="preserve"><value>Preview the PDF and set up links.</value></data>
+  <data name="PreviousPageButton" xml:space="preserve"><value>Previous Page</value></data>
+  <data name="NextPageButton" xml:space="preserve"><value>Next Page</value></data>
+  <data name="PageIndicatorFormat" xml:space="preserve"><value>Page {0} / {1}</value></data>
+  <data name="ZoomInButton" xml:space="preserve"><value>Zoom In</value></data>
+  <data name="ZoomOutButton" xml:space="preserve"><value>Zoom Out</value></data>
+  <data name="BackToBookmarksButton" xml:space="preserve"><value>Back to Bookmark Editing</value></data>
+  <data name="LinkEditorBookmarksHeader" xml:space="preserve"><value>Bookmarks</value></data>
 
   <!-- Common buttons -->
   <data name="CancelButton" xml:space="preserve"><value>Cancel</value></data>
@@ -149,7 +159,7 @@
   <data name="StatusMerging" xml:space="preserve"><value>Merging PDFs...</value></data>
   <data name="StatusMergeCompleteFormat" xml:space="preserve"><value>Merge complete: {0}</value></data>
   <data name="MergeCompleteDialogTitle" xml:space="preserve"><value>Merge Complete</value></data>
-  <data name="MergeCompleteMessageFormat" xml:space="preserve"><value>The PDF files have been merged.
+  <data name="MergeCompleteMessageFormat" xml:space="preserve"><value>The PDF files have been merged. Continue by setting up links.
 {0}</value></data>
   <data name="MergeErrorDialogTitle" xml:space="preserve"><value>Merge Error</value></data>
   <data name="MergeErrorMessageFormat" xml:space="preserve"><value>Failed to merge the PDFs.

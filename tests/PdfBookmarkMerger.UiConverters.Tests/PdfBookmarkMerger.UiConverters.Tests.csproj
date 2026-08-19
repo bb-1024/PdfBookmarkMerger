@@ -15,6 +15,10 @@
     <PackageReference Include="Shouldly" Version="4.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- ByteArrayToImageConverter(Avalonia)がAvalonia.Media.Imaging.Bitmapを生成するには、
+         プラットフォームレンダリング基盤の初期化(通常はアプリ起動時に行われる)が必要なため、
+         テストではヘッドレスプラットフォームを使って初期化する。 -->
+    <PackageReference Include="Avalonia.Headless" Version="12.1.0" />
   </ItemGroup>
 
   <ItemGroup>

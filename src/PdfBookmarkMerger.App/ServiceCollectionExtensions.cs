@@ -10,5 +10,6 @@ public static class ServiceCollectionExtensions
         .AddSingleton<IUserSettingsService, UserSettingsService>()
         .AddSingleton<FileListViewModel>()
         .AddSingleton<BookmarkTreeViewModel>()
+        .AddSingleton<LinkEditorViewModel>()
         .AddSingleton<MainWindowViewModel>();
 }

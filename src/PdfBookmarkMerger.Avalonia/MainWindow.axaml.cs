@@ -726,4 +726,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnExpandLevelTextBoxLostFocus(object? sender, RoutedEventArgs e) =>
         ViewModel.BookmarkTree.NormalizeExpandLevelInput();
+
+    /// <summary>リンク編集画面のしおり一覧をクリックすると、該当ページへプレビューをジャンプする。</summary>
+    private void OnLinkEditorBookmarkClick(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is Control { Tag: int pageIndex })
+        {
+            ViewModel.LinkEditor.JumpToPageCommand.Execute(pageIndex);
+        }
+    }
 }

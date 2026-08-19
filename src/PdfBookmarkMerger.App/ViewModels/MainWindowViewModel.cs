@@ -29,6 +29,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(
         FileListViewModel fileList,
         BookmarkTreeViewModel bookmarkTree,
+        LinkEditorViewModel linkEditor,
         IPdfMetadataService metadataService,
         IPdfMergeService mergeService,
         IBookmarkSettingsExportService bookmarkSettingsExportService,
@@ -38,6 +39,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         FileList = fileList;
         BookmarkTree = bookmarkTree;
+        LinkEditor = linkEditor;
         _metadataService = metadataService;
         _mergeService = mergeService;
         _bookmarkSettingsExportService = bookmarkSettingsExportService;
@@ -73,6 +75,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         }).AddTo(Disposables);
         BookmarkTree.BusyProgress.Subscribe(p => BusyProgress.Value = p).AddTo(Disposables);
 
+        // リンク編集画面でのページ描画中も、しおり編集時と同じ処理中オーバーレイ・CanExecuteゲートを
+        // 再利用できるよう、LinkEditor側のIsBusyをこちらへ転送する(BookmarkTreeと同じ仕組み)。
+        LinkEditor.IsBusy.Subscribe(busy => IsBusy.Value = busy).AddTo(Disposables);
+
         var canConfirm = FileList.HasFiles.CombineLatest(IsBusy, (hasFiles, busy) => hasFiles && !busy);
         ConfirmFilesCommand = new AsyncReactiveCommand(canConfirm).AddTo(Disposables);
         ConfirmFilesCommand.Subscribe(async () => await ConfirmFilesAsync()).AddTo(Disposables);
@@ -93,6 +99,11 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         BackToFileListCommand = new ReactiveCommand(canEdit).AddTo(Disposables);
         BackToFileListCommand.Subscribe(() => Step.Value = WorkflowStep.SelectFiles).AddTo(Disposables);
+
+        var isEditingLinks = Step.Select(s => s == WorkflowStep.EditLinks);
+        var canBackToBookmarks = isEditingLinks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
+        BackToBookmarksCommand = new ReactiveCommand(canBackToBookmarks).AddTo(Disposables);
+        BackToBookmarksCommand.Subscribe(() => Step.Value = WorkflowStep.EditBookmarks).AddTo(Disposables);
 
         AddFilesViaDialogCommand = new AsyncReactiveCommand(IsBusy.Select(b => !b)).AddTo(Disposables);
         AddFilesViaDialogCommand.Subscribe(async () =>
@@ -126,6 +137,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public BookmarkTreeViewModel BookmarkTree { get; }
 
+    public LinkEditorViewModel LinkEditor { get; }
+
     public ReactivePropertySlim<WorkflowStep> Step { get; }
 
     public ReactivePropertySlim<bool> IsBusy { get; }
@@ -151,6 +164,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public AsyncReactiveCommand SaveBookmarkSettingsCommand { get; }
 
     public ReactiveCommand BackToFileListCommand { get; }
+
+    public ReactiveCommand BackToBookmarksCommand { get; }
 
     public AsyncReactiveCommand AddFilesViaDialogCommand { get; }
 
@@ -323,6 +338,11 @@ public sealed class MainWindowViewModel : ViewModelBase
 
             StatusMessage.Value = string.Format(Strings.StatusMergeCompleteFormat, outputPath);
             _dialogService.ShowInfo(Strings.MergeCompleteDialogTitle, string.Format(Strings.MergeCompleteMessageFormat, outputPath));
+
+            // 「結合してPDFを保存」はここで終わりではなく、続けてこの出力先ファイルへリンクを
+            // 設定する画面へ遷移する(LinkEditorは既に結合・しおり設定済みの実ファイルを対象に動く)。
+            await LinkEditor.LoadAsync(outputPath);
+            Step.Value = WorkflowStep.EditLinks;
         }
         catch (Exception ex)
         {

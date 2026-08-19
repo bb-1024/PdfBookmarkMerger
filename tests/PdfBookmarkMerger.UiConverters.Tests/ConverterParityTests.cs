@@ -33,6 +33,16 @@ public sealed class ConverterParityTests
     private static readonly WpfConverters.EditedHighlightBrushConverter WpfEditedHighlight = new();
     private static readonly AvaloniaConverters.EditedHighlightBrushConverter AvaloniaEditedHighlight = new();
 
+    private static readonly WpfConverters.ByteArrayToImageConverter WpfByteArrayToImage = new();
+    private static readonly AvaloniaConverters.ByteArrayToImageConverter AvaloniaByteArrayToImage = new();
+
+    private static readonly WpfConverters.PageIndicatorConverter WpfPageIndicator = new();
+    private static readonly AvaloniaConverters.PageIndicatorConverter AvaloniaPageIndicator = new();
+
+    // 1x1の透明PNG(最小の有効なPNG)。
+    private static readonly byte[] OnePixelPng =
+        System.Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
     [Theory]
     [InlineData(0.0)]
     [InlineData(1.0)]
@@ -174,5 +184,43 @@ public sealed class ConverterParityTests
         wpfBrush.Color.R.ShouldBe(avaloniaBrush.Color.R);
         wpfBrush.Color.G.ShouldBe(avaloniaBrush.Color.G);
         wpfBrush.Color.B.ShouldBe(avaloniaBrush.Color.B);
+    }
+
+    [Fact]
+    public void ByteArrayToImageConverter_Convert_NullOrEmpty_BothReturnNull()
+    {
+        WpfByteArrayToImage.Convert(null, typeof(object), null, CultureInfo.InvariantCulture).ShouldBeNull();
+        AvaloniaByteArrayToImage.Convert(null, typeof(object), null, CultureInfo.InvariantCulture).ShouldBeNull();
+
+        WpfByteArrayToImage.Convert(Array.Empty<byte>(), typeof(object), null, CultureInfo.InvariantCulture).ShouldBeNull();
+        AvaloniaByteArrayToImage.Convert(Array.Empty<byte>(), typeof(object), null, CultureInfo.InvariantCulture).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ByteArrayToImageConverter_Convert_ValidPng_BothProduceAnImageOfMatchingPixelSize()
+    {
+        var wpfImage = (System.Windows.Media.Imaging.BitmapImage)WpfByteArrayToImage.Convert(
+            OnePixelPng, typeof(object), null, CultureInfo.InvariantCulture)!;
+        var avaloniaImage = (Avalonia.Media.Imaging.Bitmap)AvaloniaByteArrayToImage.Convert(
+            OnePixelPng, typeof(object), null, CultureInfo.InvariantCulture)!;
+
+        wpfImage.PixelWidth.ShouldBe(avaloniaImage.PixelSize.Width);
+        wpfImage.PixelHeight.ShouldBe(avaloniaImage.PixelSize.Height);
+        wpfImage.PixelWidth.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(0, 10)]
+    [InlineData(9, 10)]
+    [InlineData(4, 0)]
+    public void PageIndicatorConverter_Convert_MatchesBetweenWpfAndAvalonia(int currentPageIndex, int pageCount)
+    {
+        var wpfResult = WpfPageIndicator.Convert([currentPageIndex, pageCount], typeof(string), null, CultureInfo.InvariantCulture);
+        var avaloniaResult = AvaloniaPageIndicator.Convert([currentPageIndex, pageCount], typeof(string), null, CultureInfo.InvariantCulture);
+
+        wpfResult.ShouldBe(avaloniaResult);
+        // 表示は1始まりへ変換される(CurrentPageIndexは0始まり)。
+        wpfResult.ShouldBe(string.Format(App.Resources.Strings.PageIndicatorFormat, currentPageIndex + 1, pageCount));
     }
 }
