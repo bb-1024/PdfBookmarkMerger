@@ -23,7 +23,12 @@ public sealed class BookmarkTreeViewModelTests
 
         dialog = new FakeDialogService();
         var vm = new BookmarkTreeViewModel(dialog);
-        vm.Load([], new Dictionary<Guid, string> { [FileId] = "sample.pdf" }, [FileId]);
+
+        // 空リストのLoadAsyncはRecomputeChunkSizeを超えるノードが無いため、内部で一度も
+        // 実際にawaitで中断せず同期的に完了する(RebuildTreeAsyncのshowProgress分岐を参照)。
+        // このヘルパーは多数のsyncテストから呼ばれ、それら全てをasyncへ変換する影響範囲が
+        // 大きいため、GetAwaiter().GetResult()で安全に同期的に受け取る。
+        vm.LoadAsync([], new Dictionary<Guid, string> { [FileId] = "sample.pdf" }, [FileId]).GetAwaiter().GetResult();
         return vm;
     }
 
@@ -368,11 +373,12 @@ public sealed class BookmarkTreeViewModelTests
         var page9 = new BookmarkNode { SourceFileEntryId = FileId, Title = "Page9", OriginalPageIndex = 8, MergedPageIndex = 8 };
         var otherFilePage1 = new BookmarkNode { SourceFileEntryId = FileIdB, Title = "OtherPage1", OriginalPageIndex = 0, MergedPageIndex = 10 };
 
-        vm.Load([page1, page5, page9, otherFilePage1], new Dictionary<Guid, string>
+        // 4ノードのみでRecomputeChunkSizeを大きく下回るため、同期的に完了する(CreateSut参照)。
+        vm.LoadAsync([page1, page5, page9, otherFilePage1], new Dictionary<Guid, string>
         {
             [FileId] = "a.pdf",
             [FileIdB] = "b.pdf",
-        }, [FileId, FileIdB]);
+        }, [FileId, FileIdB]).GetAwaiter().GetResult();
 
         var page1Vm = vm.RootNodes.Single(n => n.Title.Value == "Page1");
         var page5Vm = vm.RootNodes.Single(n => n.Title.Value == "Page5");

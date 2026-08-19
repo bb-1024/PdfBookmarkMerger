@@ -259,7 +259,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             var fileNames = orderedFiles.ToDictionary(f => f.Id, f => f.FileName);
             var orderedFileIds = orderedFiles.Select(f => f.Id).ToList();
 
-            BookmarkTree.Load(merged, fileNames, orderedFileIds);
+            await BookmarkTree.LoadAsync(merged, fileNames, orderedFileIds);
             Step.Value = WorkflowStep.EditBookmarks;
 
             StatusMessage.Value = failedCount == 0

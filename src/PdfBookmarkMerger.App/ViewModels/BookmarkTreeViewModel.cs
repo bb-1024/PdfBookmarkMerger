@@ -73,7 +73,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         // CanExecute自体もfalseにしておく(この間にUndoを実行すると、進行中の再計算と競合しうるため)。
         var canUndo = CanUndo.CombineLatest(IsBusy, (canUndo, busy) => canUndo && !busy);
         UndoCommand = new ReactiveCommand(canUndo).AddTo(Disposables);
-        UndoCommand.Subscribe(Undo).AddTo(Disposables);
+        UndoCommand.Subscribe(TriggerUndo).AddTo(Disposables);
 
         HasPageNumberEdits = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
         HasPageNumberInconsistency = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
@@ -164,35 +164,94 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
     /// 新規ドキュメントの読み込み。前のドキュメントのUndo履歴は引き継がない(クリアする)。
     /// orderedFileIdsは結合順のファイルID一覧(結合後ページ数の連鎖計算に使う、しおりツリー上の
     /// 表示順ではなくファイル一覧の並び順)。
+    /// internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。
     /// </summary>
-    public void Load(IReadOnlyList<BookmarkNode> rootBookmarks, IReadOnlyDictionary<Guid, string> fileNames, IReadOnlyList<Guid> orderedFileIds)
+    internal async Task LoadAsync(IReadOnlyList<BookmarkNode> rootBookmarks, IReadOnlyDictionary<Guid, string> fileNames, IReadOnlyList<Guid> orderedFileIds)
     {
         _fileNames = fileNames;
         _orderedFileIds = orderedFileIds;
-        RebuildTree(rootBookmarks);
+        await RebuildTreeAsync(rootBookmarks);
         _undoHistory.Clear();
         _lastSnapshotPushAt.Clear();
         CanUndo.Value = false;
     }
 
-    /// <summary>RootNodes/_rootModelを指定内容で再構築する。Load(新規読込)とUndo(履歴復元)の両方から使う、
-    /// Undo履歴自体には触れない下位処理。</summary>
-    private void RebuildTree(IReadOnlyList<BookmarkNode> rootBookmarks)
+    /// <summary>
+    /// RootNodes/_rootModelを指定内容で再構築する。Load(新規読込)とUndo(履歴復元)の両方から使う、
+    /// Undo履歴自体には触れない下位処理。
+    /// BookmarkNodeViewModelは(コンストラクタでは)子孫を再帰構築しないため、ここで1ノードずつ
+    /// 深さ優先に構築・追加していく。RecomputeAllPageNumberDisplaysAsync/ApplyExpandLevelAsyncと
+    /// 同じ「RecomputeChunkSizeごとにawait Task.Yield()でUIスレッドへ制御を返しつつIsBusy/
+    /// BusyProgressを更新する」枠組みを踏襲する。これが無いと、大量しおり(2000件規模)を丸ごと
+    /// 読み込む・元に戻す操作が、1ノードごとに重いRx購読を組み立てる処理をノード数分連続して
+    /// 同期実行することになり、UIスレッドを長時間(実測で1分規模)占有し、処理中オーバーレイ自体の
+    /// 描画すら行われないまま固まって見える不具合の原因になっていた。
+    /// internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。
+    /// </summary>
+    internal async Task RebuildTreeAsync(IReadOnlyList<BookmarkNode> rootBookmarks)
     {
         _rootModel = rootBookmarks.ToList();
         _preOverrideExpandState.Clear();
         _preOverrideDestinationType.Clear();
 
-        RootNodes.Clear();
-        foreach (var node in _rootModel)
+        var total = CountAllModelNodes(_rootModel);
+        var showProgress = total > RecomputeChunkSize;
+
+        if (showProgress)
         {
-            var name = _fileNames.GetValueOrDefault(node.SourceFileEntryId, "?");
-            RootNodes.Add(new BookmarkNodeViewModel(node, name, null, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot, OnPreOffsetPageNumberChanged));
+            IsBusy.Value = true;
+            BusyProgress.Value = new BusyProgressInfo(0, total, []);
+            await Task.Yield();
         }
 
-        TriggerRecompute();
-        NormalizeExpandLevelInput();
+        RootNodes.Clear();
+        var processed = 0;
+
+        async Task BuildChildrenAsync(IReadOnlyList<BookmarkNode> models, ObservableCollection<BookmarkNodeViewModel> target, BookmarkNodeViewModel? parent)
+        {
+            foreach (var model in models)
+            {
+                var name = _fileNames.GetValueOrDefault(model.SourceFileEntryId, "?");
+                var vm = new BookmarkNodeViewModel(model, name, parent, ForceFitForAll, GlobalExpandOverride, PushUndoSnapshot, OnPreOffsetPageNumberChanged);
+                target.Add(vm);
+                processed++;
+
+                if (showProgress && processed % RecomputeChunkSize == 0)
+                {
+                    BusyProgress.Value = new BusyProgressInfo(processed, total, []);
+                    await Task.Yield();
+                }
+
+                await BuildChildrenAsync(model.Children, vm.Children, vm);
+            }
+        }
+
+        try
+        {
+            await BuildChildrenAsync(_rootModel, RootNodes, null);
+            NormalizeExpandLevelInput();
+
+            // ここはTriggerRecompute()(fire-and-forget)を使わず直接awaitする。ThreadPoolに
+            // ポストされたTask.Yield()の継続はスケジューリング順が保証されないため、fire-and-forget
+            // にすると「構築フェーズのIsBusy=false」から「再計算フェーズのIsBusy=true」までの間に
+            // 一瞬IsBusyがfalseへ戻る窓が生まれ、その隙にIsBusyのfalseを検知して処理完了とみなす
+            // 呼び出し元(WaitUntilIdleAsync等のポーリング)が、再計算が終わる前に先へ進んでしまう
+            // レースが実際に発生した(回帰テストでflaky failureとして確認)。直接awaitすることで、
+            // 構築〜再計算の間ずっとIsBusyをtrueに保ったまま1回のオーバーレイとして提示できる。
+            await RecomputeAllPageNumberDisplaysAsync();
+        }
+        finally
+        {
+            if (showProgress)
+            {
+                IsBusy.Value = false;
+                BusyProgress.Value = null;
+            }
+        }
     }
+
+    private static int CountAllModelNodes(IReadOnlyList<BookmarkNode> nodes) =>
+        nodes.Sum(n => 1 + CountAllModelNodes(n.Children));
 
     /// <summary>
     /// 直前の状態をUndo履歴へ積む(構造的な操作の直前に呼ぶ、コアレス無し=常に1件積む)。
@@ -230,7 +289,11 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         CanUndo.Value = true;
     }
 
-    private void Undo()
+    /// <summary>UndoAsyncを実行して結果を待たず即座に制御を返す(TriggerRecomputeと同様のfire-and-forgetラッパー)。</summary>
+    private async void TriggerUndo() => await UndoAsync();
+
+    /// <summary>internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。</summary>
+    internal async Task UndoAsync()
     {
         if (!_undoHistory.TryPop(out var json))
         {
@@ -238,7 +301,7 @@ public sealed class BookmarkTreeViewModel : ViewModelBase
         }
 
         var restored = JsonSerializer.Deserialize<List<BookmarkNode>>(json) ?? [];
-        RebuildTree(restored);
+        await RebuildTreeAsync(restored);
         CanUndo.Value = _undoHistory.CanUndo;
     }
 

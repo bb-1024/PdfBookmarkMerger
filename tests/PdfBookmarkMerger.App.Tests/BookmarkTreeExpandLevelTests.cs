@@ -26,7 +26,9 @@ public sealed class BookmarkTreeExpandLevelTests
 
         dialog = new FakeDialogService();
         var vm = new BookmarkTreeViewModel(dialog);
-        vm.Load([], new Dictionary<Guid, string> { [FileId] = "sample.pdf" }, [FileId]);
+
+        // 空リストのLoadAsyncは同期的に完了する(BookmarkTreeViewModelTests.CreateSut参照)。
+        vm.LoadAsync([], new Dictionary<Guid, string> { [FileId] = "sample.pdf" }, [FileId]).GetAwaiter().GetResult();
         return vm;
     }
 
@@ -42,26 +44,38 @@ public sealed class BookmarkTreeExpandLevelTests
         return (vm, level1, level2, level3, level4);
     }
 
-    private static BookmarkTreeViewModel CreateSutWithFlatTree(int nodeCount, out FakeDialogService dialog)
+    private static async Task<BookmarkTreeViewModel> CreateSutWithFlatTreeAsync(int nodeCount)
     {
         Strings.Culture = null;
 
-        dialog = new FakeDialogService();
+        var dialog = new FakeDialogService();
         var vm = new BookmarkTreeViewModel(dialog);
 
         var nodes = Enumerable.Range(0, nodeCount)
             .Select(i => new BookmarkNode { SourceFileEntryId = FileId, Title = $"Page{i}", OriginalPageIndex = i, MergedPageIndex = i })
             .ToList();
 
-        vm.Load(nodes, new Dictionary<Guid, string> { [FileId] = "large.pdf" }, [FileId]);
+        // 大量ノードの場合、LoadAsync自体がRecomputeChunkSizeごとにawait Task.Yield()するため、
+        // ここでは(GetAwaiter().GetResult()の同期ブロックではなく)きちんとawaitする。
+        await vm.LoadAsync(nodes, new Dictionary<Guid, string> { [FileId] = "large.pdf" }, [FileId]);
         return vm;
     }
 
+    /// <summary>falseを2回連続で観測できるまで待つ(BookmarkTreeLargePageNumberRecomputeTests参照)。</summary>
     private static async Task WaitUntilIdleAsync(BookmarkTreeViewModel vm)
     {
-        while (vm.IsBusy.Value)
+        while (true)
         {
+            while (vm.IsBusy.Value)
+            {
+                await Task.Delay(1);
+            }
+
             await Task.Delay(1);
+            if (!vm.IsBusy.Value)
+            {
+                return;
+            }
         }
     }
 
@@ -209,7 +223,7 @@ public sealed class BookmarkTreeExpandLevelTests
     public async Task ApplyExpandLevelAsync_OnALargeTree_TogglesIsBusyAndAppliesTheLevelToAllNodes()
     {
         var nodeCount = (BookmarkTreeViewModel.RecomputeChunkSize * 2) + 1;
-        var vm = CreateSutWithFlatTree(nodeCount, out _);
+        var vm = await CreateSutWithFlatTreeAsync(nodeCount);
         await WaitUntilIdleAsync(vm);
 
         var busyStates = new List<bool>();
@@ -225,7 +239,7 @@ public sealed class BookmarkTreeExpandLevelTests
     [Fact]
     public async Task ApplyExpandLevelAsync_OnASmallTree_NeverTogglesIsBusy()
     {
-        var vm = CreateSutWithFlatTree(5, out _);
+        var vm = await CreateSutWithFlatTreeAsync(5);
         await WaitUntilIdleAsync(vm);
 
         var busyStates = new List<bool>();

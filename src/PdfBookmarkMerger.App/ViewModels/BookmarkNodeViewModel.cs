@@ -83,8 +83,15 @@ public sealed class BookmarkNodeViewModel : ViewModelBase
                 (type, forced) => !forced && type is BookmarkDestinationType.XYZ)
             .ToReadOnlyReactivePropertySlim().AddTo(Disposables);
 
-        Children = new ObservableCollection<BookmarkNodeViewModel>(
-            model.Children.Select(c => new BookmarkNodeViewModel(c, sourceFileName, this, forceFitForAll, globalExpandOverride, requestUndoSnapshot, onPreOffsetPageNumberChanged)));
+        // 子ノードはここでmodel.Childrenから再帰構築しない(空のまま初期化する)。1ノードのコンストラクタ
+        // だけでも、8個のReactivePropertySlim+Skip(1).Subscribe・4個のCombineLatest+
+        // ToReadOnlyReactivePropertySlim・IsExpandToggleEditable用のFromEventPattern+CombineLatestと、
+        // 決して軽くないRx購読の組み立てを行っている。これを子孫までまとめてコンストラクタ内で再帰すると、
+        // 大量しおり(2000件規模)のツリーを丸ごと構築するBookmarkTreeViewModel.RebuildTreeAsync
+        // (読込・元に戻す時に呼ばれる)が、途中でawait Task.Yield()する機会を一切持てず、UIスレッドを
+        // 長時間(実測で1分規模)占有し続ける不具合の直接の原因になっていた。子の構築・追加は、
+        // RebuildTreeAsync側が1ノードずつ非同期に行い、RecomputeChunkSizeごとにUIスレッドへ制御を返す。
+        Children = [];
 
         // 最下位(子を持たない)要素は展開/折りたたみの区別に意味がないため編集不可にする。
         // 「一律で展開表示を設定」がON/OFF(非null)の間も、個別の展開表示チェックボックスは編集不可にする。
