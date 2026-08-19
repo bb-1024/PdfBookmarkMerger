@@ -343,16 +343,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             var outputDirectory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(outputDirectory))
             {
-                var updated = new PdfBookmarkMergerOptions
-                {
-                    LastOutputDirectory = outputDirectory,
-                    WindowWidth = _userSettings.Current.WindowWidth,
-                    WindowHeight = _userSettings.Current.WindowHeight,
-                    ThemeMode = _userSettings.Current.ThemeMode,
-                    ShowPropertiesDialogOnMerge = _userSettings.Current.ShowPropertiesDialogOnMerge,
-                    ShowMergeAndEditLinksButton = _userSettings.Current.ShowMergeAndEditLinksButton,
-                    Language = _userSettings.Current.Language,
-                };
+                var updated = _userSettings.Current.Clone();
+                updated.LastOutputDirectory = outputDirectory;
                 await _userSettings.SaveAsync(updated);
             }
 

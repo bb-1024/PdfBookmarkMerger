@@ -46,14 +46,13 @@ public sealed class SettingsViewModel : ViewModelBase
     /// </summary>
     public ReactivePropertySlim<AppLanguage> Language { get; }
 
-    public PdfBookmarkMergerOptions ToOptions() => new()
+    public PdfBookmarkMergerOptions ToOptions()
     {
-        LastOutputDirectory = _source.LastOutputDirectory,
-        WindowWidth = _source.WindowWidth,
-        WindowHeight = _source.WindowHeight,
-        ThemeMode = ThemeMode.Value,
-        ShowPropertiesDialogOnMerge = ShowPropertiesDialogOnMerge.Value,
-        ShowMergeAndEditLinksButton = ShowMergeAndEditLinksButton.Value,
-        Language = Language.Value,
-    };
+        var options = _source.Clone();
+        options.ThemeMode = ThemeMode.Value;
+        options.ShowPropertiesDialogOnMerge = ShowPropertiesDialogOnMerge.Value;
+        options.ShowMergeAndEditLinksButton = ShowMergeAndEditLinksButton.Value;
+        options.Language = Language.Value;
+        return options;
+    }
 }

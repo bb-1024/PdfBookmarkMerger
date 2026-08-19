@@ -284,4 +284,32 @@ public sealed class MainWindowViewModelTests
         mainVm.ShowMergeAndEditLinksButton.Value.ShouldBeTrue();
         userSettings.Current.ShowMergeAndEditLinksButton.ShouldBeTrue();
     }
+
+    /// <summary>
+    /// MergeCoreAsyncは結合成功後、LastOutputDirectoryだけを更新して設定を保存し直す。
+    /// かつてはこれをPdfBookmarkMergerOptionsのフィールドを1つずつ手動で列挙して複製しており、
+    /// 新しいフィールド(ShowMergeAndEditLinksButton)の追加時に書き漏れて既定値のfalseへ
+    /// 黙って戻ってしまうバグが実際にあった。PdfBookmarkMergerOptions.Clone()経由に修正した後も、
+    /// 既存のユーザー設定(ここではShowMergeAndEditLinksButton=true)が結合のたびに保持されることを
+    /// 回帰テストで固定する。
+    /// </summary>
+    [Fact]
+    public async Task MergeAsync_PreservesExistingUserSettings_WhileUpdatingOnlyTheLastOutputDirectory()
+    {
+        var (mainVm, metadata, _, _, dialog, userSettings) = CreateSut();
+        userSettings.Current.ShowMergeAndEditLinksButton = true;
+        userSettings.Current.ThemeMode = ThemeMode.Dark;
+
+        var entry = new PdfFileEntryViewModel(new PdfFileEntry { FilePath = @"C:\pdfs\a.pdf" });
+        mainVm.FileList.Files.Add(entry);
+        metadata.RegisterSuccess(entry.FilePath, pageCount: 3);
+        await mainVm.ConfirmFilesAsync();
+
+        dialog.SaveDialogResult = @"C:\another-output\merged.pdf";
+        await mainVm.MergeAsync();
+
+        userSettings.Current.LastOutputDirectory.ShouldBe(@"C:\another-output");
+        userSettings.Current.ShowMergeAndEditLinksButton.ShouldBeTrue();
+        userSettings.Current.ThemeMode.ShouldBe(ThemeMode.Dark);
+    }
 }

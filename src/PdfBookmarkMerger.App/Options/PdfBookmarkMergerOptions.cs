@@ -30,4 +30,22 @@ public sealed class PdfBookmarkMergerOptions
     /// この値として保存する。以降は明示的にこの値が使われ、再判定は行わない。
     /// </summary>
     public AppLanguage? Language { get; set; }
+
+    /// <summary>
+    /// 全プロパティをコピーした複製を返す。設定の一部だけを書き換えて保存する呼び出し元
+    /// (MainWindowViewModel.MergeCoreAsync・SettingsViewModel.ToOptions)は、フィールドを
+    /// 手動で1つずつ列挙するのではなく必ずこれを経由すること。新しいプロパティを追加する際に
+    /// 呼び出し側の書き漏れで既定値へ黙って戻ってしまう不具合(実際にShowMergeAndEditLinksButtonで
+    /// 一度発生した)を防ぐため。
+    /// </summary>
+    public PdfBookmarkMergerOptions Clone() => new()
+    {
+        LastOutputDirectory = LastOutputDirectory,
+        WindowWidth = WindowWidth,
+        WindowHeight = WindowHeight,
+        ThemeMode = ThemeMode,
+        ShowPropertiesDialogOnMerge = ShowPropertiesDialogOnMerge,
+        ShowMergeAndEditLinksButton = ShowMergeAndEditLinksButton,
+        Language = Language,
+    };
 }
