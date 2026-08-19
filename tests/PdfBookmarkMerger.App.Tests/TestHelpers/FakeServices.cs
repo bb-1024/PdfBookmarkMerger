@@ -78,6 +78,24 @@ internal sealed class FakePdfTextExtractor : IPdfTextExtractor
         Task.FromResult(Letters);
 }
 
+/// <summary>実際にはPDFへ書き込まず、最後に受け取った引数を記録するだけのフェイク。</summary>
+internal sealed class FakePdfLinkAnnotationService : IPdfLinkAnnotationService
+{
+    public string? LastFilePath { get; private set; }
+
+    public IReadOnlyList<LinkAnnotationNode>? LastLinks { get; private set; }
+
+    public int CallCount { get; private set; }
+
+    public Task ApplyLinksAsync(string filePath, IReadOnlyList<LinkAnnotationNode> links, CancellationToken ct = default)
+    {
+        LastFilePath = filePath;
+        LastLinks = links;
+        CallCount++;
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>実際にはPDFを結合せず、最後に受け取ったリクエストを記録するだけのフェイク。</summary>
 internal sealed class FakeMergeService : IPdfMergeService
 {

@@ -123,6 +123,7 @@
   <data name="LinkGroupDisplayFormat" xml:space="preserve"><value>{0}ページ目 → {1}ページ目</value></data>
   <data name="LinkJumpButton" xml:space="preserve"><value>表示</value></data>
   <data name="LinkEditButton" xml:space="preserve"><value>編集</value></data>
+  <data name="FinishLinkEditingButton" xml:space="preserve"><value>完了</value></data>
 
   <!-- 共通ボタン -->
   <data name="CancelButton" xml:space="preserve"><value>キャンセル</value></data>
@@ -180,6 +181,14 @@
 {0}</value></data>
   <data name="SaveBookmarkSettingsErrorDialogTitle" xml:space="preserve"><value>保存エラー</value></data>
   <data name="SaveBookmarkSettingsErrorMessageFormat" xml:space="preserve"><value>しおり設定ファイルの保存に失敗しました。
+{0}</value></data>
+  <data name="StatusApplyingLinks" xml:space="preserve"><value>リンクをPDFに反映しています...</value></data>
+  <data name="StatusApplyLinksCompleteFormat" xml:space="preserve"><value>リンクを反映しました: {0}</value></data>
+  <data name="ApplyLinksCompleteDialogTitle" xml:space="preserve"><value>リンク設定完了</value></data>
+  <data name="ApplyLinksCompleteMessageFormat" xml:space="preserve"><value>リンクを反映したPDFファイルを出力しました。
+{0}</value></data>
+  <data name="ApplyLinksErrorDialogTitle" xml:space="preserve"><value>リンク反映エラー</value></data>
+  <data name="ApplyLinksErrorMessageFormat" xml:space="preserve"><value>リンクの反映に失敗しました。
 {0}</value></data>
 
   <!-- BookmarkTreeViewModel -->

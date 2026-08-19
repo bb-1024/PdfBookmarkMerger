@@ -401,7 +401,8 @@
             </Grid>
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
-                <ui:Button Content="{x:Static resx:Strings.BackToBookmarksButton}" Command="{Binding BackToBookmarksCommand}" />
+                <ui:Button Content="{x:Static resx:Strings.BackToBookmarksButton}" Command="{Binding BackToBookmarksCommand}" Margin="0,0,8,0" />
+                <ui:Button Content="{x:Static resx:Strings.FinishLinkEditingButton}" Appearance="Primary" Command="{Binding FinishLinkEditingCommand}" />
             </StackPanel>
         </Grid>
 

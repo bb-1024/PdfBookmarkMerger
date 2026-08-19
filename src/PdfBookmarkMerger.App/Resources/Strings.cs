@@ -80,6 +80,7 @@ public static class Strings
     public static string LinkGroupDisplayFormat => Get(nameof(LinkGroupDisplayFormat));
     public static string LinkJumpButton => Get(nameof(LinkJumpButton));
     public static string LinkEditButton => Get(nameof(LinkEditButton));
+    public static string FinishLinkEditingButton => Get(nameof(FinishLinkEditingButton));
 
     public static string CancelButton => Get(nameof(CancelButton));
     public static string OkButton => Get(nameof(OkButton));
@@ -128,6 +129,12 @@ public static class Strings
     public static string SaveBookmarkSettingsCompleteMessageFormat => Get(nameof(SaveBookmarkSettingsCompleteMessageFormat));
     public static string SaveBookmarkSettingsErrorDialogTitle => Get(nameof(SaveBookmarkSettingsErrorDialogTitle));
     public static string SaveBookmarkSettingsErrorMessageFormat => Get(nameof(SaveBookmarkSettingsErrorMessageFormat));
+    public static string StatusApplyingLinks => Get(nameof(StatusApplyingLinks));
+    public static string StatusApplyLinksCompleteFormat => Get(nameof(StatusApplyLinksCompleteFormat));
+    public static string ApplyLinksCompleteDialogTitle => Get(nameof(ApplyLinksCompleteDialogTitle));
+    public static string ApplyLinksCompleteMessageFormat => Get(nameof(ApplyLinksCompleteMessageFormat));
+    public static string ApplyLinksErrorDialogTitle => Get(nameof(ApplyLinksErrorDialogTitle));
+    public static string ApplyLinksErrorMessageFormat => Get(nameof(ApplyLinksErrorMessageFormat));
 
     public static string NewBookmarkDefaultTitle => Get(nameof(NewBookmarkDefaultTitle));
     public static string NoMergeTargetFilesError => Get(nameof(NoMergeTargetFilesError));

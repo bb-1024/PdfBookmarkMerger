@@ -105,6 +105,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         BackToBookmarksCommand = new ReactiveCommand(canBackToBookmarks).AddTo(Disposables);
         BackToBookmarksCommand.Subscribe(() => Step.Value = WorkflowStep.EditBookmarks).AddTo(Disposables);
 
+        var canFinishLinkEditing = isEditingLinks.CombineLatest(IsBusy, (editing, busy) => editing && !busy);
+        FinishLinkEditingCommand = new AsyncReactiveCommand(canFinishLinkEditing).AddTo(Disposables);
+        FinishLinkEditingCommand.Subscribe(async () => await FinishLinkEditingAsync()).AddTo(Disposables);
+
         AddFilesViaDialogCommand = new AsyncReactiveCommand(IsBusy.Select(b => !b)).AddTo(Disposables);
         AddFilesViaDialogCommand.Subscribe(async () =>
         {
@@ -166,6 +170,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ReactiveCommand BackToFileListCommand { get; }
 
     public ReactiveCommand BackToBookmarksCommand { get; }
+
+    public AsyncReactiveCommand FinishLinkEditingCommand { get; }
 
     public AsyncReactiveCommand AddFilesViaDialogCommand { get; }
 
@@ -391,6 +397,32 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             _logger.LogError(ex, "しおり設定ファイルの保存に失敗しました: {OutputPath}", outputPath);
             _dialogService.ShowError(Strings.SaveBookmarkSettingsErrorDialogTitle, string.Format(Strings.SaveBookmarkSettingsErrorMessageFormat, ex.Message));
+        }
+        finally
+        {
+            IsBusy.Value = false;
+        }
+    }
+
+    /// <summary>internal: PdfBookmarkMerger.App.Testsから直接呼び出して回帰テストするため。</summary>
+    internal async Task FinishLinkEditingAsync()
+    {
+        var filePath = LinkEditor.FilePath.Value;
+
+        IsBusy.Value = true;
+        StatusMessage.Value = Strings.StatusApplyingLinks;
+
+        try
+        {
+            await LinkEditor.FinishAsync();
+
+            StatusMessage.Value = string.Format(Strings.StatusApplyLinksCompleteFormat, filePath);
+            _dialogService.ShowInfo(Strings.ApplyLinksCompleteDialogTitle, string.Format(Strings.ApplyLinksCompleteMessageFormat, filePath));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "リンクの反映に失敗しました: {FilePath}", filePath);
+            _dialogService.ShowError(Strings.ApplyLinksErrorDialogTitle, string.Format(Strings.ApplyLinksErrorMessageFormat, ex.Message));
         }
         finally
         {

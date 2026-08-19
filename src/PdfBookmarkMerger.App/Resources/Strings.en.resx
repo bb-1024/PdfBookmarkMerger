@@ -123,6 +123,7 @@
   <data name="LinkGroupDisplayFormat" xml:space="preserve"><value>Page {0} &#8594; Page {1}</value></data>
   <data name="LinkJumpButton" xml:space="preserve"><value>Show</value></data>
   <data name="LinkEditButton" xml:space="preserve"><value>Edit</value></data>
+  <data name="FinishLinkEditingButton" xml:space="preserve"><value>Finish</value></data>
 
   <!-- Common buttons -->
   <data name="CancelButton" xml:space="preserve"><value>Cancel</value></data>
@@ -180,6 +181,14 @@
 {0}</value></data>
   <data name="SaveBookmarkSettingsErrorDialogTitle" xml:space="preserve"><value>Save Error</value></data>
   <data name="SaveBookmarkSettingsErrorMessageFormat" xml:space="preserve"><value>Failed to save the bookmark settings file.
+{0}</value></data>
+  <data name="StatusApplyingLinks" xml:space="preserve"><value>Applying links to the PDF...</value></data>
+  <data name="StatusApplyLinksCompleteFormat" xml:space="preserve"><value>Links applied: {0}</value></data>
+  <data name="ApplyLinksCompleteDialogTitle" xml:space="preserve"><value>Link Setup Complete</value></data>
+  <data name="ApplyLinksCompleteMessageFormat" xml:space="preserve"><value>The PDF file with links applied has been saved.
+{0}</value></data>
+  <data name="ApplyLinksErrorDialogTitle" xml:space="preserve"><value>Link Apply Error</value></data>
+  <data name="ApplyLinksErrorMessageFormat" xml:space="preserve"><value>Failed to apply the links.
 {0}</value></data>
 
   <!-- BookmarkTreeViewModel -->

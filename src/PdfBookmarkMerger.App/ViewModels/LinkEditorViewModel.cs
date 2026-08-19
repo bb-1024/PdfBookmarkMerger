@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Microsoft.Extensions.Logging;
 using PdfBookmarkMerger.Core.Models;
@@ -34,6 +35,7 @@ public sealed class LinkEditorViewModel : ViewModelBase
     private readonly IPdfPageRenderer _pageRenderer;
     private readonly IPdfTextExtractor _textExtractor;
     private readonly IPdfMetadataService _metadataService;
+    private readonly IPdfLinkAnnotationService _linkAnnotationService;
     private readonly ILogger<LinkEditorViewModel> _logger;
 
     private CancellationTokenSource? _renderCts;
@@ -41,16 +43,26 @@ public sealed class LinkEditorViewModel : ViewModelBase
     private int? _selectionAnchorLetterIndex;
     private int? _selectionFocusLetterIndex;
 
+    /// <summary>
+    /// LoadAsync直後(まだリンクを一切反映していない状態)の一時的な複製。FinishAsyncは毎回この状態を
+    /// FilePathへ復元してからLinksを反映するため、「完了」を複数回押しても注釈が重複しない。
+    /// </summary>
+    private string? _pristineBackupPath;
+
     public LinkEditorViewModel(
         IPdfPageRenderer pageRenderer,
         IPdfTextExtractor textExtractor,
         IPdfMetadataService metadataService,
+        IPdfLinkAnnotationService linkAnnotationService,
         ILogger<LinkEditorViewModel> logger)
     {
         _pageRenderer = pageRenderer;
         _textExtractor = textExtractor;
         _metadataService = metadataService;
+        _linkAnnotationService = linkAnnotationService;
         _logger = logger;
+
+        Disposable.Create(DeletePristineBackup).AddTo(Disposables);
 
         FilePath = new ReactivePropertySlim<string?>(null).AddTo(Disposables);
         PageCount = new ReactivePropertySlim<int>(0).AddTo(Disposables);
@@ -194,6 +206,15 @@ public sealed class LinkEditorViewModel : ViewModelBase
             _lastLoadedLettersPageIndex = null;
             CancelPendingSelection();
 
+            // ファイルが実在する場合のみバックアップを作る(単体テストではフィクションのパスを
+            // 渡すことがあるため、存在しない場合はFinishAsyncが安全にno-opするだけに留める)。
+            DeletePristineBackup();
+            if (File.Exists(filePath))
+            {
+                _pristineBackupPath = Path.Combine(Path.GetTempPath(), $"pdfbookmarkmerger-prelinks-{Guid.NewGuid():N}.pdf");
+                File.Copy(filePath, _pristineBackupPath, overwrite: true);
+            }
+
             // CurrentPageIndexがすでに0の場合はSubscribeが発火しないため、明示的に描画をトリガーする。
             if (CurrentPageIndex.Value == 0)
             {
@@ -208,6 +229,47 @@ public sealed class LinkEditorViewModel : ViewModelBase
         {
             IsBusy.Value = false;
         }
+    }
+
+    /// <summary>
+    /// リンク編集を完了し、Linksの内容を出力ファイルへ反映する。FilePathを、LoadAsync直後(リンク未反映)の
+    /// 状態を保持したバックアップから復元してからApplyLinksAsyncを呼ぶため、「完了」を複数回実行しても
+    /// (その都度Linksの内容が変わっていても)注釈が重複することはない。
+    /// </summary>
+    public async Task FinishAsync(CancellationToken ct = default)
+    {
+        if (FilePath.Value is not { } filePath || _pristineBackupPath is null)
+        {
+            return;
+        }
+
+        IsBusy.Value = true;
+        try
+        {
+            File.Copy(_pristineBackupPath, filePath, overwrite: true);
+            await _linkAnnotationService.ApplyLinksAsync(filePath, Links, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            IsBusy.Value = false;
+        }
+    }
+
+    private void DeletePristineBackup()
+    {
+        if (_pristineBackupPath is not null && File.Exists(_pristineBackupPath))
+        {
+            try
+            {
+                File.Delete(_pristineBackupPath);
+            }
+            catch (IOException)
+            {
+                // ベストエフォート。一時フォルダはいずれOSが回収する。
+            }
+        }
+
+        _pristineBackupPath = null;
     }
 
     /// <summary>

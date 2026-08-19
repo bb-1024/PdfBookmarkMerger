@@ -8,12 +8,13 @@ namespace PdfBookmarkMerger.App.Tests;
 
 public sealed class LinkEditorViewModelTests
 {
-    private static (LinkEditorViewModel Vm, FakeMetadataService Metadata, FakePdfTextExtractor TextExtractor) CreateSut()
+    private static (LinkEditorViewModel Vm, FakeMetadataService Metadata, FakePdfTextExtractor TextExtractor, FakePdfLinkAnnotationService LinkAnnotationService) CreateSut()
     {
         var metadata = new FakeMetadataService();
         var textExtractor = new FakePdfTextExtractor();
-        var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), textExtractor, metadata, NullLogger<LinkEditorViewModel>.Instance);
-        return (vm, metadata, textExtractor);
+        var linkAnnotationService = new FakePdfLinkAnnotationService();
+        var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), textExtractor, metadata, linkAnnotationService, NullLogger<LinkEditorViewModel>.Instance);
+        return (vm, metadata, textExtractor, linkAnnotationService);
     }
 
     private static async Task WaitUntilIdleAsync(LinkEditorViewModel vm)
@@ -27,7 +28,7 @@ public sealed class LinkEditorViewModelTests
     [Fact]
     public async Task LoadAsync_PopulatesPageCountAndBookmarks_AndRendersTheFirstPage()
     {
-        var (vm, metadata, _) = CreateSut();
+        var (vm, metadata, _, _) = CreateSut();
         var bookmark = new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 2, Title = "Chapter 1" };
         metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 5, bookmarks: [bookmark]);
 
@@ -44,7 +45,7 @@ public sealed class LinkEditorViewModelTests
     [Fact]
     public async Task NextPageCommand_And_PreviousPageCommand_MoveCurrentPageIndexWithinBounds()
     {
-        var (vm, metadata, _) = CreateSut();
+        var (vm, metadata, _, _) = CreateSut();
         metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 3);
         await vm.LoadAsync(@"C:\out\merged.pdf");
         await WaitUntilIdleAsync(vm);
@@ -69,7 +70,7 @@ public sealed class LinkEditorViewModelTests
     [Fact]
     public async Task PreviousPageCommand_CannotExecute_OnTheFirstPage()
     {
-        var (vm, metadata, _) = CreateSut();
+        var (vm, metadata, _, _) = CreateSut();
         metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 3);
         await vm.LoadAsync(@"C:\out\merged.pdf");
         await WaitUntilIdleAsync(vm);
@@ -80,7 +81,7 @@ public sealed class LinkEditorViewModelTests
     [Fact]
     public async Task JumpToPageCommand_MovesToTheSpecifiedPage_ButIgnoresOutOfRangeValues()
     {
-        var (vm, metadata, _) = CreateSut();
+        var (vm, metadata, _, _) = CreateSut();
         metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 5);
         await vm.LoadAsync(@"C:\out\merged.pdf");
         await WaitUntilIdleAsync(vm);
@@ -97,7 +98,7 @@ public sealed class LinkEditorViewModelTests
     [Fact]
     public async Task ZoomInCommand_And_ZoomOutCommand_ChangeZoomScaleWithinBounds()
     {
-        var (vm, metadata, _) = CreateSut();
+        var (vm, metadata, _, _) = CreateSut();
         metadata.RegisterSuccess(@"C:\out\merged.pdf", pageCount: 1);
         await vm.LoadAsync(@"C:\out\merged.pdf");
         await WaitUntilIdleAsync(vm);
@@ -117,7 +118,7 @@ public sealed class LinkEditorViewModelTests
     [Fact]
     public async Task LoadAsync_CalledASecondTime_ResetsPageIndexAndZoom()
     {
-        var (vm, metadata, _) = CreateSut();
+        var (vm, metadata, _, _) = CreateSut();
         metadata.RegisterSuccess(@"C:\out\first.pdf", pageCount: 5);
         metadata.RegisterSuccess(@"C:\out\second.pdf", pageCount: 2);
 
@@ -149,7 +150,7 @@ public sealed class LinkEditorViewModelTests
     {
         var metadata = metadataOverride ?? new FakeMetadataService();
         var textExtractor = new FakePdfTextExtractor { Letters = TwoLineLetters };
-        var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), textExtractor, metadata, NullLogger<LinkEditorViewModel>.Instance);
+        var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), textExtractor, metadata, new FakePdfLinkAnnotationService(), NullLogger<LinkEditorViewModel>.Instance);
 
         if (metadataOverride is null)
         {
@@ -348,5 +349,73 @@ public sealed class LinkEditorViewModelTests
 
         vm.Links.ShouldBeEmpty();
         vm.PendingSelection.Value.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task FinishAsync_RestoresThePristineBackupBeforeApplyingLinks_SoTheServiceSeesAFreshCopyEachTime()
+    {
+        var workDirectory = Path.Combine(Path.GetTempPath(), "LinkEditorFinishAsyncTests_" + Guid.NewGuid());
+        Directory.CreateDirectory(workDirectory);
+        try
+        {
+            var filePath = Path.Combine(workDirectory, "merged.pdf");
+            await File.WriteAllTextAsync(filePath, "original content");
+
+            var metadata = new FakeMetadataService();
+            metadata.RegisterSuccess(filePath, pageCount: 3);
+            var linkAnnotationService = new FakePdfLinkAnnotationService();
+            var vm = new LinkEditorViewModel(new FakePdfPageRenderer(), new FakePdfTextExtractor(), metadata, linkAnnotationService, NullLogger<LinkEditorViewModel>.Instance);
+
+            await vm.LoadAsync(filePath);
+            await WaitUntilIdleAsync(vm);
+
+            var link = new LinkAnnotationNode
+            {
+                GroupId = Guid.NewGuid(),
+                SourcePageIndex = 0,
+                SourceRect = new PdfRect(0, 0, 10, 10),
+                TargetPageIndex = 1,
+            };
+            vm.Links.Add(link);
+
+            // ロード後にファイルの内容が変わっても(このアプリでは通常起きないが)、
+            // FinishAsyncはロード直後のバックアップを基準に動作を続ける。
+            await File.WriteAllTextAsync(filePath, "content changed after load, e.g. by another process");
+
+            await vm.FinishAsync();
+
+            linkAnnotationService.CallCount.ShouldBe(1);
+            linkAnnotationService.LastFilePath.ShouldBe(filePath);
+            linkAnnotationService.LastLinks.ShouldNotBeNull();
+            linkAnnotationService.LastLinks.ShouldContain(link);
+            (await File.ReadAllTextAsync(filePath)).ShouldBe("original content");
+
+            // 2回目もバックアップから復元されるため、1回目の呼び出しの影響を引きずらない
+            // (実際にはApplyLinksAsyncは注釈を書き込むが、フェイクなのでファイル内容自体は変わらない —
+            // ここではFinishAsyncが毎回バックアップへ復元してから呼び出す、という手順自体を検証する)。
+            await vm.FinishAsync();
+            linkAnnotationService.CallCount.ShouldBe(2);
+            (await File.ReadAllTextAsync(filePath)).ShouldBe("original content");
+        }
+        finally
+        {
+            Directory.Delete(workDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FinishAsync_WithNoPristineBackup_DoesNothingAndLeavesLinksIntact()
+    {
+        // CreateLoadedSutWithTwoLineLettersAsyncはフィクションのパス(C:\out\merged.pdf)を使うため、
+        // 実ファイルが存在せずバックアップが作られない = FinishAsyncは何もしない(何も投げず、
+        // 既存のLinksもそのまま)。実ファイルを使った完全な経路は上のテストで検証済み。
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+        vm.BeginTextSelection(2, 705);
+        vm.EndTextSelection();
+        vm.CreateLinkToBookmarkCommand.Execute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 1 });
+
+        await vm.FinishAsync();
+
+        vm.Links.Count.ShouldBe(1);
     }
 }
