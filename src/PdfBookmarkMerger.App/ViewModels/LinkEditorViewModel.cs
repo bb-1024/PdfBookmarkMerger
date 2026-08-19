@@ -14,6 +14,9 @@ namespace PdfBookmarkMerger.App.ViewModels;
 /// </summary>
 public sealed record PendingLinkSelection(int SourcePageIndex, IReadOnlyList<PdfRect> LineRects);
 
+/// <summary>リンク一覧UI向けの、1件のリンク(GroupId単位)の要約情報。</summary>
+public sealed record LinkGroupInfo(Guid GroupId, int SourcePageIndex, int TargetPageIndex, int RectCount);
+
 /// <summary>
 /// リンク編集画面(手順4)を統括するViewModel。結合・しおり設定済みの単一PDFファイルを対象に、
 /// ページのプレビュー描画・ページ送り・拡大縮小・しおり一覧からのジャンプ・文字選択によるリンク作成・
@@ -59,6 +62,8 @@ public sealed class LinkEditorViewModel : ViewModelBase
         Letters = new ReactivePropertySlim<IReadOnlyList<PdfTextLetter>>([]).AddTo(Disposables);
         PageHeight = new ReactivePropertySlim<double>(0).AddTo(Disposables);
         Links = [];
+        LinkGroups = new ReactivePropertySlim<IReadOnlyList<LinkGroupInfo>>([]).AddTo(Disposables);
+        Links.CollectionChanged += (_, _) => RecomputeLinkGroups();
         PendingSelection = new ReactivePropertySlim<PendingLinkSelection?>(null).AddTo(Disposables);
         IsPickingArbitraryTarget = new ReactivePropertySlim<bool>(false).AddTo(Disposables);
 
@@ -101,6 +106,9 @@ public sealed class LinkEditorViewModel : ViewModelBase
         DeleteLinkGroupCommand = new ReactiveCommand<Guid>().AddTo(Disposables);
         DeleteLinkGroupCommand.Subscribe(DeleteLinkGroup).AddTo(Disposables);
 
+        EditLinkGroupCommand = new ReactiveCommand<Guid>().AddTo(Disposables);
+        EditLinkGroupCommand.Subscribe(BeginEditLinkGroup).AddTo(Disposables);
+
         // 各コマンドのCanExecute(CombineLatest)をCurrentPageIndex/ZoomScaleへ先に購読させた後で、
         // 実際にページ描画をトリガーする副作用の購読を登録する。逆順にすると、
         // 描画がFakePdfPageRenderer等で同期的に完了する環境(=単体テスト)で、
@@ -126,6 +134,9 @@ public sealed class LinkEditorViewModel : ViewModelBase
 
     /// <summary>これまでに作成した全リンク(全ページ分)。</summary>
     public ObservableCollection<LinkAnnotationNode> Links { get; }
+
+    /// <summary>リンク一覧UI向けの要約情報。GroupIdごとに1件、Linksの変化のたびに再計算される。</summary>
+    public ReactivePropertySlim<IReadOnlyList<LinkGroupInfo>> LinkGroups { get; }
 
     /// <summary>
     /// 文字選択が確定し、ジャンプ先の指定待ちになっているリンク候補。nullの間は選択操作前・
@@ -161,6 +172,8 @@ public sealed class LinkEditorViewModel : ViewModelBase
     public ReactiveCommand<BookmarkNode> CreateLinkToBookmarkCommand { get; }
 
     public ReactiveCommand<Guid> DeleteLinkGroupCommand { get; }
+
+    public ReactiveCommand<Guid> EditLinkGroupCommand { get; }
 
     /// <summary>
     /// 結合・しおり設定済みの<paramref name="filePath"/>を読み込む。ページ数・しおり一覧を取得し、
@@ -388,6 +401,39 @@ public sealed class LinkEditorViewModel : ViewModelBase
         {
             Links.Remove(link);
         }
+    }
+
+    /// <summary>
+    /// 指定GroupIdのリンクのジャンプ先を編集する。既存のリンクをいったん削除し、同じホットスポット
+    /// (SourceRect群)をPendingSelectionへ復元する。これにより、CreateLinkToBookmark/
+    /// PickArbitraryTargetAndCreateLinkをそのまま使って新しいジャンプ先を選び直せる
+    /// (確定後は新しいGroupIdが振られる。GroupId自体は内部的な集約用の値でしかないため、
+    /// 編集の前後で同一である必要はない)。
+    /// </summary>
+    public void BeginEditLinkGroup(Guid groupId)
+    {
+        var existing = Links.Where(l => l.GroupId == groupId).ToList();
+        if (existing.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var link in existing)
+        {
+            Links.Remove(link);
+        }
+
+        var sourcePageIndex = existing[0].SourcePageIndex;
+        var lineRects = existing.Select(l => l.SourceRect).ToList();
+        PendingSelection.Value = new PendingLinkSelection(sourcePageIndex, lineRects);
+    }
+
+    private void RecomputeLinkGroups()
+    {
+        LinkGroups.Value = Links
+            .GroupBy(l => l.GroupId)
+            .Select(g => new LinkGroupInfo(g.Key, g.First().SourcePageIndex, g.First().TargetPageIndex, g.Count()))
+            .ToList();
     }
 
     /// <summary>

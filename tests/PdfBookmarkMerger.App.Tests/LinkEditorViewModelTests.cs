@@ -294,4 +294,59 @@ public sealed class LinkEditorViewModelTests
         vm.PendingSelection.Value.ShouldBeNull();
         vm.IsPickingArbitraryTarget.Value.ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task LinkGroups_ReflectsOneEntryPerGroupId_RegardlessOfHowManyLineRectsItHas()
+    {
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+
+        // 1件目: 2行にまたがる選択(2件のLinkAnnotationNode、同一GroupId)。
+        vm.BeginTextSelection(2, 705);
+        vm.UpdateTextSelection(15, 685);
+        vm.EndTextSelection();
+        vm.CreateLinkToBookmarkCommand.Execute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 1 });
+
+        // 2件目: 1行のみの選択。
+        vm.BeginTextSelection(2, 705);
+        vm.EndTextSelection();
+        vm.CreateLinkToBookmarkCommand.Execute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 2 });
+
+        vm.Links.Count.ShouldBe(3);
+        vm.LinkGroups.Value.Count.ShouldBe(2);
+        vm.LinkGroups.Value.ShouldContain(g => g.RectCount == 2 && g.TargetPageIndex == 1);
+        vm.LinkGroups.Value.ShouldContain(g => g.RectCount == 1 && g.TargetPageIndex == 2);
+    }
+
+    [Fact]
+    public async Task BeginEditLinkGroup_RemovesTheOldLinksAndRestoresThemAsAPendingSelection()
+    {
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+        vm.BeginTextSelection(2, 705);
+        vm.UpdateTextSelection(15, 685);
+        vm.EndTextSelection();
+        vm.CreateLinkToBookmarkCommand.Execute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 1 });
+        var groupId = vm.Links[0].GroupId;
+
+        vm.EditLinkGroupCommand.Execute(groupId);
+
+        vm.Links.ShouldBeEmpty();
+        var pending = vm.PendingSelection.Value.ShouldNotBeNull();
+        pending.LineRects.Count.ShouldBe(2);
+
+        // 新しいジャンプ先を選び直すと、(新しいGroupIdで)リンクが復元される。
+        vm.CreateLinkToBookmarkCommand.Execute(new BookmarkNode { SourceFileEntryId = Guid.Empty, OriginalPageIndex = 2 });
+        vm.Links.Count.ShouldBe(2);
+        vm.Links.ShouldAllBe(l => l.TargetPageIndex == 2);
+    }
+
+    [Fact]
+    public async Task BeginEditLinkGroup_WithAnUnknownGroupId_DoesNothing()
+    {
+        var vm = await CreateLoadedSutWithTwoLineLettersAsync();
+
+        vm.EditLinkGroupCommand.Execute(Guid.NewGuid());
+
+        vm.Links.ShouldBeEmpty();
+        vm.PendingSelection.Value.ShouldBeNull();
+    }
 }

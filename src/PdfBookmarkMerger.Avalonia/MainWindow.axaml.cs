@@ -863,4 +863,30 @@ public partial class MainWindow : Window
             LinkOverlayCanvas.Children.Add(rect);
         }
     }
+
+    /// <summary>リンク一覧の「表示」ボタン: そのリンクのホットスポットがあるページへプレビューをジャンプする(動作確認用)。</summary>
+    private void OnLinkGroupJumpClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { Tag: LinkGroupInfo group })
+        {
+            ViewModel.LinkEditor.JumpToPageCommand.Execute(group.SourcePageIndex);
+        }
+    }
+
+    /// <summary>リンク一覧の「編集」ボタン: 既存リンクを一旦外し、同じホットスポットのままジャンプ先を選び直せる状態にする。</summary>
+    private void OnLinkGroupEditClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { Tag: LinkGroupInfo group })
+        {
+            ViewModel.LinkEditor.EditLinkGroupCommand.Execute(group.GroupId);
+        }
+    }
+
+    private void OnLinkGroupDeleteClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { Tag: LinkGroupInfo group })
+        {
+            ViewModel.LinkEditor.DeleteLinkGroupCommand.Execute(group.GroupId);
+        }
+    }
 }

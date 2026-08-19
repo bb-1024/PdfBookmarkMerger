@@ -119,6 +119,10 @@
   <data name="PickArbitraryTargetButton" xml:space="preserve"><value>Pick a Position...</value></data>
   <data name="PickArbitraryTargetHint" xml:space="preserve"><value>Click the position in the preview you want to jump to.</value></data>
   <data name="CancelSelectionButton" xml:space="preserve"><value>Cancel</value></data>
+  <data name="LinkListHeader" xml:space="preserve"><value>Links</value></data>
+  <data name="LinkGroupDisplayFormat" xml:space="preserve"><value>Page {0} &#8594; Page {1}</value></data>
+  <data name="LinkJumpButton" xml:space="preserve"><value>Show</value></data>
+  <data name="LinkEditButton" xml:space="preserve"><value>Edit</value></data>
 
   <!-- Common buttons -->
   <data name="CancelButton" xml:space="preserve"><value>Cancel</value></data>

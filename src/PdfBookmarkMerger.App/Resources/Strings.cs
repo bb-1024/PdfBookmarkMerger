@@ -76,6 +76,10 @@ public static class Strings
     public static string PickArbitraryTargetButton => Get(nameof(PickArbitraryTargetButton));
     public static string PickArbitraryTargetHint => Get(nameof(PickArbitraryTargetHint));
     public static string CancelSelectionButton => Get(nameof(CancelSelectionButton));
+    public static string LinkListHeader => Get(nameof(LinkListHeader));
+    public static string LinkGroupDisplayFormat => Get(nameof(LinkGroupDisplayFormat));
+    public static string LinkJumpButton => Get(nameof(LinkJumpButton));
+    public static string LinkEditButton => Get(nameof(LinkEditButton));
 
     public static string CancelButton => Get(nameof(CancelButton));
     public static string OkButton => Get(nameof(OkButton));

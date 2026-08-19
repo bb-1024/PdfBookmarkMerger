@@ -119,6 +119,10 @@
   <data name="PickArbitraryTargetButton" xml:space="preserve"><value>任意の位置を指定...</value></data>
   <data name="PickArbitraryTargetHint" xml:space="preserve"><value>プレビュー上でジャンプ先にしたい位置をクリックしてください。</value></data>
   <data name="CancelSelectionButton" xml:space="preserve"><value>キャンセル</value></data>
+  <data name="LinkListHeader" xml:space="preserve"><value>設定済みリンク</value></data>
+  <data name="LinkGroupDisplayFormat" xml:space="preserve"><value>{0}ページ目 → {1}ページ目</value></data>
+  <data name="LinkJumpButton" xml:space="preserve"><value>表示</value></data>
+  <data name="LinkEditButton" xml:space="preserve"><value>編集</value></data>
 
   <!-- 共通ボタン -->
   <data name="CancelButton" xml:space="preserve"><value>キャンセル</value></data>

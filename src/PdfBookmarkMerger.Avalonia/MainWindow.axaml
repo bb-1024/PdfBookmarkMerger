@@ -24,6 +24,7 @@
         <conv:PageCountToTextConverter x:Key="PageCountToTextConverter" />
         <conv:ByteArrayToImageConverter x:Key="ByteArrayToImageConverter" />
         <conv:PageIndicatorConverter x:Key="PageIndicatorConverter" />
+        <conv:LinkGroupDisplayConverter x:Key="LinkGroupDisplayConverter" />
     </Window.Resources>
 
     <Grid RowDefinitions="*,Auto">
@@ -251,31 +252,57 @@
                     </ScrollViewer>
                 </Border>
 
-                <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
-                    <Grid RowDefinitions="Auto,Auto,*">
-                        <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkEditorBookmarksHeader}" FontWeight="Bold" Margin="8" />
+                <Grid Grid.Column="1" RowDefinitions="*,*">
+                    <Border Grid.Row="0" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Margin="0,0,0,8">
+                        <Grid RowDefinitions="Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkEditorBookmarksHeader}" FontWeight="Bold" Margin="8" />
 
-                        <!-- 文字選択が確定し、ジャンプ先の指定待ちの間だけ表示する。 -->
-                        <StackPanel Grid.Row="1" Margin="8,0,8,8" Spacing="4"
-                                    IsVisible="{Binding LinkEditor.PendingSelection.Value, Converter={x:Static dataConv:ObjectConverters.IsNotNull}}">
-                            <TextBlock Text="{x:Static resx:Strings.LinkDestinationPickerHeader}" FontWeight="Bold" />
-                            <TextBlock Text="{x:Static resx:Strings.PickArbitraryTargetHint}" TextWrapping="Wrap" FontSize="11" Foreground="Gray"
-                                       IsVisible="{Binding LinkEditor.IsPickingArbitraryTarget.Value}" />
-                            <Button Content="{x:Static resx:Strings.PickArbitraryTargetButton}" Command="{Binding LinkEditor.BeginPickArbitraryTargetCommand}" />
-                            <Button Content="{x:Static resx:Strings.CancelSelectionButton}" Command="{Binding LinkEditor.CancelPendingSelectionCommand}" />
-                        </StackPanel>
+                            <!-- 文字選択が確定し、ジャンプ先の指定待ちの間だけ表示する。 -->
+                            <StackPanel Grid.Row="1" Margin="8,0,8,8" Spacing="4"
+                                        IsVisible="{Binding LinkEditor.PendingSelection.Value, Converter={x:Static dataConv:ObjectConverters.IsNotNull}}">
+                                <TextBlock Text="{x:Static resx:Strings.LinkDestinationPickerHeader}" FontWeight="Bold" />
+                                <TextBlock Text="{x:Static resx:Strings.PickArbitraryTargetHint}" TextWrapping="Wrap" FontSize="11" Foreground="Gray"
+                                           IsVisible="{Binding LinkEditor.IsPickingArbitraryTarget.Value}" />
+                                <Button Content="{x:Static resx:Strings.PickArbitraryTargetButton}" Command="{Binding LinkEditor.BeginPickArbitraryTargetCommand}" />
+                                <Button Content="{x:Static resx:Strings.CancelSelectionButton}" Command="{Binding LinkEditor.CancelPendingSelectionCommand}" />
+                            </StackPanel>
 
-                        <ListBox Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate DataType="models:BookmarkNode">
-                                    <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
-                                               Tag="{Binding}" PointerReleased="OnLinkEditorBookmarkClick" />
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </Grid>
-                </Border>
+                            <ListBox Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="models:BookmarkNode">
+                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
+                                                   Tag="{Binding}" PointerReleased="OnLinkEditorBookmarkClick" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
+                        <Grid RowDefinitions="Auto,*">
+                            <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkListHeader}" FontWeight="Bold" Margin="8" />
+                            <ListBox Grid.Row="1" ItemsSource="{Binding LinkEditor.LinkGroups.Value}" Background="Transparent"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="vm:LinkGroupInfo">
+                                        <StackPanel Margin="4" Spacing="2">
+                                            <TextBlock Text="{Binding Converter={StaticResource LinkGroupDisplayConverter}}" TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Button Content="{x:Static resx:Strings.LinkJumpButton}" FontSize="11" Padding="6,2"
+                                                        Tag="{Binding}" Click="OnLinkGroupJumpClick" />
+                                                <Button Content="{x:Static resx:Strings.LinkEditButton}" FontSize="11" Padding="6,2"
+                                                        Tag="{Binding}" Click="OnLinkGroupEditClick" />
+                                                <Button Content="{x:Static resx:Strings.DeleteButton}" FontSize="11" Padding="6,2"
+                                                        Tag="{Binding}" Click="OnLinkGroupDeleteClick" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </Grid>
             </Grid>
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">

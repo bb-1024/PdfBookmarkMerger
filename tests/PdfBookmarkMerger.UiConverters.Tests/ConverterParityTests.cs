@@ -1,5 +1,6 @@
 using System.Globalization;
 using PdfBookmarkMerger.App.Options;
+using PdfBookmarkMerger.App.ViewModels;
 using Shouldly;
 using WpfConverters = PdfBookmarkMerger.WpfApp.Converters;
 using AvaloniaConverters = PdfBookmarkMerger.AvaloniaApp.Converters;
@@ -38,6 +39,9 @@ public sealed class ConverterParityTests
 
     private static readonly WpfConverters.PageIndicatorConverter WpfPageIndicator = new();
     private static readonly AvaloniaConverters.PageIndicatorConverter AvaloniaPageIndicator = new();
+
+    private static readonly WpfConverters.LinkGroupDisplayConverter WpfLinkGroupDisplay = new();
+    private static readonly AvaloniaConverters.LinkGroupDisplayConverter AvaloniaLinkGroupDisplay = new();
 
     // 1x1の透明PNG(最小の有効なPNG)。
     private static readonly byte[] OnePixelPng =
@@ -222,5 +226,17 @@ public sealed class ConverterParityTests
         wpfResult.ShouldBe(avaloniaResult);
         // 表示は1始まりへ変換される(CurrentPageIndexは0始まり)。
         wpfResult.ShouldBe(string.Format(App.Resources.Strings.PageIndicatorFormat, currentPageIndex + 1, pageCount));
+    }
+
+    [Fact]
+    public void LinkGroupDisplayConverter_Convert_MatchesBetweenWpfAndAvalonia_AndUsesOneBasedPageNumbers()
+    {
+        var group = new LinkGroupInfo(Guid.NewGuid(), SourcePageIndex: 2, TargetPageIndex: 9, RectCount: 1);
+
+        var wpfResult = WpfLinkGroupDisplay.Convert(group, typeof(string), null, CultureInfo.InvariantCulture);
+        var avaloniaResult = AvaloniaLinkGroupDisplay.Convert(group, typeof(string), null, CultureInfo.InvariantCulture);
+
+        wpfResult.ShouldBe(avaloniaResult);
+        wpfResult.ShouldBe(string.Format(App.Resources.Strings.LinkGroupDisplayFormat, 3, 10));
     }
 }

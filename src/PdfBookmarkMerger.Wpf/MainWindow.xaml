@@ -27,6 +27,7 @@
         <conv:ByteArrayToImageConverter x:Key="ByteArrayToImageConverter" />
         <conv:PageIndicatorConverter x:Key="PageIndicatorConverter" />
         <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter" />
+        <conv:LinkGroupDisplayConverter x:Key="LinkGroupDisplayConverter" />
         <ObjectDataProvider x:Key="DestinationTypeValues" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
             <ObjectDataProvider.MethodParameters>
                 <x:Type TypeName="models:BookmarkDestinationType" />
@@ -331,37 +332,72 @@
                     </ScrollViewer>
                 </Border>
 
-                <Border Grid.Column="1" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkEditorBookmarksHeader}" FontWeight="Bold" Margin="8" />
+                <Grid Grid.Column="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
 
-                        <!-- 文字選択が確定し、ジャンプ先の指定待ちの間だけ表示する。 -->
-                        <StackPanel Grid.Row="1" Margin="8,0,8,8"
-                                    Visibility="{Binding LinkEditor.PendingSelection.Value, Converter={StaticResource NotNullToVisibilityConverter}}">
-                            <TextBlock Text="{x:Static resx:Strings.LinkDestinationPickerHeader}" FontWeight="Bold" Margin="0,0,0,4" />
-                            <TextBlock Text="{x:Static resx:Strings.PickArbitraryTargetHint}" TextWrapping="Wrap" FontSize="11"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       Visibility="{Binding LinkEditor.IsPickingArbitraryTarget.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=True}" />
-                            <ui:Button Content="{x:Static resx:Strings.PickArbitraryTargetButton}" Command="{Binding LinkEditor.BeginPickArbitraryTargetCommand}" Margin="0,4,0,4" />
-                            <ui:Button Content="{x:Static resx:Strings.CancelSelectionButton}" Command="{Binding LinkEditor.CancelPendingSelectionCommand}" />
-                        </StackPanel>
+                    <Border Grid.Row="0" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkEditorBookmarksHeader}" FontWeight="Bold" Margin="8" />
 
-                        <ListBox Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate DataType="{x:Type models:BookmarkNode}">
-                                    <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
-                                               Tag="{Binding}" MouseLeftButtonUp="OnLinkEditorBookmarkClick" />
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </Grid>
-                </Border>
+                            <!-- 文字選択が確定し、ジャンプ先の指定待ちの間だけ表示する。 -->
+                            <StackPanel Grid.Row="1" Margin="8,0,8,8"
+                                        Visibility="{Binding LinkEditor.PendingSelection.Value, Converter={StaticResource NotNullToVisibilityConverter}}">
+                                <TextBlock Text="{x:Static resx:Strings.LinkDestinationPickerHeader}" FontWeight="Bold" Margin="0,0,0,4" />
+                                <TextBlock Text="{x:Static resx:Strings.PickArbitraryTargetHint}" TextWrapping="Wrap" FontSize="11"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           Visibility="{Binding LinkEditor.IsPickingArbitraryTarget.Value, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=True}" />
+                                <ui:Button Content="{x:Static resx:Strings.PickArbitraryTargetButton}" Command="{Binding LinkEditor.BeginPickArbitraryTargetCommand}" Margin="0,4,0,4" />
+                                <ui:Button Content="{x:Static resx:Strings.CancelSelectionButton}" Command="{Binding LinkEditor.CancelPendingSelectionCommand}" />
+                            </StackPanel>
+
+                            <ListBox Grid.Row="2" ItemsSource="{Binding LinkEditor.Bookmarks.Value}" Background="Transparent"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type models:BookmarkNode}">
+                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="4"
+                                                   Tag="{Binding}" MouseLeftButtonUp="OnLinkEditorBookmarkClick" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="1" BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{x:Static resx:Strings.LinkListHeader}" FontWeight="Bold" Margin="8" />
+                            <ListBox Grid.Row="1" ItemsSource="{Binding LinkEditor.LinkGroups.Value}" Background="Transparent"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:LinkGroupInfo}">
+                                        <StackPanel Margin="4">
+                                            <TextBlock Text="{Binding Converter={StaticResource LinkGroupDisplayConverter}}" TextWrapping="Wrap" Margin="0,0,0,2" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <ui:Button Content="{x:Static resx:Strings.LinkJumpButton}" FontSize="11" Padding="6,2" Margin="0,0,4,0"
+                                                           Click="OnLinkGroupJumpClick" Tag="{Binding}" />
+                                                <ui:Button Content="{x:Static resx:Strings.LinkEditButton}" FontSize="11" Padding="6,2" Margin="0,0,4,0"
+                                                           Click="OnLinkGroupEditClick" Tag="{Binding}" />
+                                                <ui:Button Content="{x:Static resx:Strings.DeleteButton}" FontSize="11" Padding="6,2"
+                                                           Click="OnLinkGroupDeleteClick" Tag="{Binding}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </Grid>
             </Grid>
 
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
