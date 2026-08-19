@@ -53,6 +53,9 @@
             <tr><td class="mono">PdfMergeRequest</td><td><code class="inline">PdfMergeService.MergeAsync</code> への入力(ファイル順序・編集済みしおりツリー・出力プロパティ・保存先)。</td></tr>
             <tr><td class="mono">MergeProgress</td><td><code class="inline">record(int CompletedFileCount, int TotalFileCount, string CurrentFileName)</code>。結合処理の進捗通知。</td></tr>
             <tr><td class="mono">BookmarkDestinationType</td><td><code class="inline">XYZ</code> / <code class="inline">Fit</code> / <code class="inline">FitH</code> / <code class="inline">FitV</code> の4種のみ(バウンディングボックス指定の <code class="inline">FitB*</code>・矩形指定の <code class="inline">FitR</code> はUI非対応、読込時に簡略化する)。</td></tr>
+            <tr><td class="mono">PdfRect</td><td><code class="inline">record struct(double Left, double Bottom, double Right, double Top)</code>。PDFユーザー空間(pt、左下原点)の矩形。<strong>フィールド順はPDF仕様の <code class="inline">/Rect</code> 配列順であり、見た目の読み順(Left,Top,Right,Bottom)とは異なる</strong>。位置引数での構築は取り違えの罠になるため、必ず名前付き引数で構築する(実際に取り違えのバグが発生し、テストで検出・修正した実例が<a href="#link-editor-services">§2.10</a>にある)。</td></tr>
+            <tr><td class="mono">LinkAnnotationNode</td><td>リンク編集画面で作成・読み取った1件のリンク注釈。<code class="inline">GroupId</code>(複数行選択から生成された一連のリンクをUI上でまとめて扱うための集約キー。単一行選択なら<code class="inline">GroupId==Id</code>)・<code class="inline">SourcePageIndex</code>/<code class="inline">SourceRect</code>(ホットスポット)・<code class="inline">TargetPageIndex</code>+<code class="inline">DestinationType</code>+座標(ジャンプ先、<code class="inline">BookmarkNode</code>と同じ形の表現)を持つ。<code class="inline">BookmarkNode</code>と共通の基底型には括り出していない(3行程度の重複より早すぎる抽象化を避ける、という方針)。</td></tr>
+            <tr><td class="mono">PdfTextLetter</td><td><code class="inline">record struct(string Value, PdfRect Rect)</code>。文字(グリフ)1つとそのPDFユーザー空間上の矩形。文字単位の範囲選択のヒットテストに使う。</td></tr>
           </tbody>
         </table>
       </div>
@@ -159,6 +162,89 @@
         <code class="inline">PdfPageDestinationType</code> を相互変換する。Modelsをライブラリ非依存に保つため、
         変換ロジックはServices層に配置している。
       </p>
+
+      <h3 id="link-editor-services"><code class="inline">PdfPageRenderer</code></h3>
+      <p>
+        リンク編集画面のプレビュー用に、PDFの1ページをPNGバイト列へ描画する。<code class="inline">PDFtoImage</code>
+        (PDFium — Chromeのネイティブ(非JS)PDF表示と同じ描画エンジン — のラッパー)を使う。
+      </p>
+      <ul>
+        <li><code class="inline">RenderPageAsync(filePath, pageIndex, scale, ct)</code> — <code class="inline">Conversion.ToImage(...)</code> を呼びPNGを返す。</li>
+        <li><code class="inline">GetPageSizeAsync(filePath, pageIndex, ct)</code> — ページのPDFユーザー空間サイズ(pt)を返す。</li>
+      </ul>
+      <p>
+        <code class="inline">PDFtoImage</code> の公開APIは完全にステートレス(ファイルパス/バイト列を毎回渡す
+        ワンショットAPIのみで、文書ハンドルを保持して使い回す公開APIは存在しない)。設計時点では「開いた文書
+        ハンドルを保持して使い回す」想定だったが、実装着手時に判明したため、2000ページ級のサンプルPDFで
+        簡易ベンチマークを取った(自前のPDFsharp製生成ツールで作成)。結果は<strong>ページ位置に関わらず
+        1ページあたり16&#12316;26ms</strong>で安定しており、ステートレスであることによる速度上の問題はないと
+        判断した。PDFium自体はスレッドセーフでないため、<code class="inline">SemaphoreSlim</code>(上限1)で
+        呼び出しを直列化する。PDFium呼び出し箇所は<a href="01-architecture.html#cross-cutting">01-architecture.html §4.6</a>
+        の通り、クラス単位ではなく該当2&#12316;3行だけを <code class="inline">#pragma warning disable/restore CA1416</code>
+        で囲んでいる。
+      </p>
+
+      <h3><code class="inline">PdfTextExtractor</code></h3>
+      <p>
+        <code class="inline">ExtractLettersAsync(filePath, pageIndex, ct)</code> —
+        <code class="inline">UglyToad.PdfPig</code>(純粋管理コード、ネイティブ依存なし)で指定ページの
+        文字(グリフ)ごとの矩形+文字を抽出し <code class="inline">PdfTextLetter</code> の一覧を返す。
+        PdfPigの<code class="inline">Letter.GlyphRectangle</code>はPDFユーザー空間(pt、左下原点)で、
+        PDFsharpの<code class="inline">/Rect</code>と同じ座標系のため、PdfPig&harr;PdfSharp間の追加変換は
+        不要(PDF空間&harr;描画ビットマップのピクセル空間の変換のみ<code class="inline">PdfCoordinateMapper</code>が
+        担う)。文書全体は一括抽出せず、現在表示中のページのみを対象とする。
+      </p>
+
+      <h3><code class="inline">PdfCoordinateMapper</code> <span class="tag">static</span></h3>
+      <p>
+        PDFユーザー空間(pt、左下原点)と、<code class="inline">PdfPageRenderer</code>が描画したビットマップの
+        ピクセル座標(左上原点、<code class="inline">96 * scale / 72</code> px/pt)を相互変換する。
+      </p>
+      <pre class="code">public static double PixelsPerPoint(float scale) =&gt; 96.0 * scale / 72.0;
+public static (double X, double Y) ToPixel(double pdfX, double pdfY, double pageHeightPt, float scale);
+public static (double X, double Y) ToPdf(double pixelX, double pixelY, double pageHeightPt, float scale);
+public static PdfRect ToPixelRect(PdfRect pdfRect, double pageHeightPt, float scale);</pre>
+      <p>
+        <code class="inline">ToPixelRect</code>は実装時に一度、<code class="inline">PdfRect</code>を位置引数で
+        誤った順序(Left,Top,Right,Bottom)で構築しTop/Bottomが入れ替わるバグが実際に発生した
+        (専用テストで検出)。<code class="inline">PdfRect</code>のフィールド順がPDF仕様順
+        (Left,Bottom,Right,Top)であり見た目の読み順と異なることが原因のため、<a href="#models">§1</a>の通り
+        常に名前付き引数で構築する。
+      </p>
+
+      <h3><code class="inline">PdfLinkAnnotationService</code></h3>
+      <p>リンク編集画面で作成したリンクの書き込み・PDFに元から含まれるリンクの読み取りを担う。</p>
+      <div class="card">
+        <h4><code class="inline">ApplyLinksAsync(filePath, links, ct)</code></h4>
+        <p>
+          <code class="inline">PdfDocumentOpenMode.Modify</code>(<code class="inline">AddPage</code>による
+          ページ再構築を伴わない、PDFsharpの追記専用オープンモード)で開き、既存の
+          <code class="inline">PdfPage</code>オブジェクトへ直接<code class="inline">/Annots</code>エントリを
+          追加して同じパスへ保存する。<strong><code class="inline">AddPage</code>を一切使わない</strong>のが
+          重要な設計判断で、<code class="inline">AddPage</code>経由でページを再構築すると、<a href="#link-remap">§2.5</a>
+          で修正した「内部リンクのジャンプ先が結合後に壊れる」不具合と同種の問題を、既存のしおり・既存リンクに
+          対して再度引き起こしうるため。リンク注釈自体も高水準の
+          <code class="inline">PdfLinkAnnotation.CreateDocumentLink</code>は使わず(ページ番号ベースの単純な
+          <code class="inline">/XYZ</code>しか組み立てられないため)、<code class="inline">PdfDictionary</code>/
+          <code class="inline">PdfArray</code>を直接構築する低レベルAPIで<code class="inline">BookmarkDestinationType</code>の
+          全パターンを再現する。<code class="inline">/Border</code>を明示的に<code class="inline">[0 0 0]</code>
+          (幅0)で書き込む点にも注意(省略時のPDF仕様上の既定値<code class="inline">[0 0 1]</code>だと、ビューワに
+          よってはリンク範囲に矩形の枠線が表示されてしまう)。
+        </p>
+      </div>
+      <div class="card">
+        <h4><code class="inline">ReadExistingLinksAsync(filePath, ct)</code></h4>
+        <p>
+          逆に、ファイルに既に含まれる<code class="inline">/Subtype /Link</code>の注釈を読み取り
+          <code class="inline">LinkAnnotationNode</code>の一覧として返す。<code class="inline">/A</code>
+          (<code class="inline">/S /GoTo /D [...]</code>)経由・<code class="inline">/Dest</code>直接指定の
+          いずれの形式にも対応する。ジャンプ先配列の先頭要素(ページへの間接参照)は、
+          <code class="inline">PdfReference.ObjectID</code>をキーにした辞書(全ページを1度だけ走査して構築)で
+          実ページ番号へ解決する。書き込み&rarr;読み取りのラウンドトリップをテストで検証している。App層側での
+          扱い(既存リンクは編集・削除不可)は
+          <a href="03-app-design.html#link-editor-existing-links">03-app-design.html §7.6</a> を参照。
+        </p>
+      </div>
     </section>
 
     <section id="pipeline">

@@ -38,9 +38,13 @@
 
 | 層 | 登録内容 |
 |---|---|
-| Core | `IPdfFileCollectorService`, `IPdfMetadataService`, `IPdfMergeService`, `IBookmarkSettingsExportService` |
-| App | `IUserSettingsService`, `FileListViewModel`, `BookmarkTreeViewModel`, `MainWindowViewModel` |
+| Core | `IPdfFileCollectorService`, `IPdfMetadataService`, `IPdfMergeService`, `IBookmarkSettingsExportService`, `IPdfPageRenderer`, `IPdfTextExtractor`, `IPdfLinkAnnotationService` |
+| App | `IUserSettingsService`, `FileListViewModel`, `BookmarkTreeViewModel`, `LinkEditorViewModel`, `MainWindowViewModel` |
 | UIフレームワーク側 | `IDialogService`, `MainWindow` |
+
+`IPdfPageRenderer`/`IPdfTextExtractor`/`IPdfLinkAnnotationService` はリンク編集画面
+(`WorkflowStep.EditLinks`)向けのCore層サービス。詳細は
+[02-core-design.md §2.8〜§2.11](02-core-design.md#link-editor-services) を参照。
 
 <a id="startup"></a>
 ## 3. 起動シーケンス
@@ -100,3 +104,22 @@ WPF版(`Wpf.App.OnStartup`)・Avalonia版(`AvaloniaApp.App.OnFrameworkInitializa
 配置場所(読み取り専用の可能性がある)にも依存しない。設定ファイルの書き込みは、同一フォルダの
 一時ファイルへ書いてから `File.Move(..., overwrite: true)` で原子的に置き換える方式
 (`UserSettingsService.SaveAsync`)で、書き込み中のプロセス強制終了によるJSON破損を避けている。
+
+### 4.5 App層の非同期メソッドは `ConfigureAwait(false)` を使わない
+
+ViewModelの非同期メソッド(`LoadAsync`・`RecomputeAllPageNumberDisplaysAsync` 等)は、
+`await` に `ConfigureAwait(false)` を付けない。WPF版はコマンドの `CanExecuteChanged` を
+`CommandManager`(UIスレッド専用)経由で処理するため、`ConfigureAwait(false)` を付けると
+最初の `await` 以降の継続処理がスレッドプールスレッドで実行され、その中で
+`ReactivePropertySlim<T>.Value` を書き換えた瞬間に `InvalidOperationException`
+(クロススレッドアクセス)が発生する。この既定を意図的に破った箇所が
+[03-app-design.md §7.7](03-app-design.md#link-editor-thread) に事例として残っている。
+
+### 4.6 PDFium呼び出し箇所への `[SupportedOSPlatform]` の付け方
+
+`IPdfPageRenderer` の実装はPDFium(ネイティブライブラリ)を呼ぶため .NETアナライザーが
+CA1416(プラットフォーム互換性)を警告する。クラス単位・アセンブリ単位で
+`[SupportedOSPlatform]` を付けると、そのアセンブリ内の無関係な型(`BookmarkNode` 等)まで
+プラットフォーム制限が波及し大量の警告を誘発するため、実際にPDFiumを呼ぶ2〜3行だけを
+`#pragma warning disable/restore CA1416` で囲む(理由をコメントで残す)。詳細は
+[02-core-design.md §2.8](02-core-design.md#link-editor-services) を参照。

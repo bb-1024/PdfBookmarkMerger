@@ -15,6 +15,9 @@ bookmark-merging logic. Every public service is registered as a Singleton via
 | `PdfMergeRequest` | Input to `PdfMergeService.MergeAsync` (file order, the edited bookmark tree, output properties, output path). |
 | `MergeProgress` | `record(int CompletedFileCount, int TotalFileCount, string CurrentFileName)` — progress notification for the merge process. |
 | `BookmarkDestinationType` | Only 4 values: `XYZ` / `Fit` / `FitH` / `FitV` (the bounding-box variants `FitB*` and the rectangle variant `FitR` aren't exposed in the UI and get simplified on read). |
+| `PdfRect` | `record struct(double Left, double Bottom, double Right, double Top)`. A rectangle in PDF user space (points, bottom-left origin). **The field order matches the PDF spec's `/Rect` array order, which is not the same as the natural reading order** (Left,Top,Right,Bottom). Constructing one positionally is a silent-failure trap, so always use named arguments (a real Top/Bottom-swap bug from positional construction is documented in [§2.10](#link-editor-services), caught by a dedicated test). |
+| `LinkAnnotationNode` | A single link created or read in the link editor. Holds `GroupId` (the aggregation key shared by a run of links generated from one multi-line selection, so the UI can treat them as one unit; `GroupId == Id` for a single-line selection), `SourcePageIndex`/`SourceRect` (the hotspot), and `TargetPageIndex` + `DestinationType` + coordinates (the jump target, shaped the same way as `BookmarkNode`'s). Deliberately not factored into a shared base type with `BookmarkNode` (a few lines of duplication beats a premature abstraction here). |
+| `PdfTextLetter` | `record struct(string Value, PdfRect Rect)` — a single character (glyph) and its rectangle in PDF user space. Used for hit-testing character-level range selection. |
 
 `BookmarkNode` deliberately separates "where it sits in the bookmark tree" (`SourceFileEntryId` +
 `OriginalPageIndex`) from "where it displays after merging" (`MergedPageIndex`). That way, reordering
@@ -84,6 +87,7 @@ Even if only some files managed to open in Phase 1 (password-protected/corrupted
 process, or a cancellation), everything opened so far is still guaranteed to get `Dispose`d, since
 Phases 1 and 2 are wrapped together in a single `try/finally`.
 
+<a id="link-remap"></a>
 **Remapping in-page link destinations (since v1.2.3)**: PDFsharp's `AddPage` duplicates page-internal
 link annotations (`/Subtype /Link`) themselves, but unlike bookmarks, it does not rewrite the page
 object referenced by a link's destination (`/Dest`, or `/A`'s (GoTo action) `/D`) to point at the
@@ -110,6 +114,75 @@ treats that as equivalent to null. The XML declaration line is written by hand, 
 Converts between `Core.Models.BookmarkDestinationType` and PDFsharp's `PdfPageDestinationType`. The
 conversion logic lives in the Services layer specifically to keep Models free of any library
 dependency.
+
+<a id="link-editor-services"></a>
+### 2.8 `PdfPageRenderer`
+
+Renders a single PDF page to PNG bytes for the link editor's preview, using `PDFtoImage` (a wrapper
+around PDFium — the same rendering engine Chrome's native, non-JS PDF viewer uses).
+
+- `RenderPageAsync(filePath, pageIndex, scale, ct)` — calls `Conversion.ToImage(...)` and returns PNG
+  bytes.
+- `GetPageSizeAsync(filePath, pageIndex, ct)` — returns the page's size in PDF user space (points).
+
+`PDFtoImage`'s public API is entirely stateless — only one-shot APIs that take a file path/byte array
+each call exist; there is no public API for holding a document handle open and reusing it. The
+original design assumed a reusable handle would be available; once that turned out not to be the
+case, a quick benchmark against a ~2000-page sample PDF (generated with an in-house PDFsharp-based
+tool) was run to check whether statelessness would be a real performance problem. The result was a
+steady **16–26 ms per page regardless of page position**, so the stateless API was accepted as fine.
+PDFium itself is not thread-safe, so calls are serialized behind a `SemaphoreSlim` (capacity 1). The
+PDFium call sites themselves are wrapped in `#pragma warning disable/restore CA1416` around just those
+2–3 lines rather than at the class level — see [01-architecture.md §4.6](01-architecture.md).
+
+### 2.9 `PdfTextExtractor`
+
+`ExtractLettersAsync(filePath, pageIndex, ct)` — extracts per-character (glyph) rectangles and text
+for the given page using `UglyToad.PdfPig` (pure managed code, no native dependency), returning a list
+of `PdfTextLetter`. PdfPig's `Letter.GlyphRectangle` is in PDF user space (points, bottom-left origin)
+— the same coordinate system PDFsharp's `/Rect` uses — so no extra conversion is needed between PdfPig
+and PdfSharp (only between PDF space and the rendered bitmap's pixel space, which
+`PdfCoordinateMapper` handles). The whole document is never extracted at once; only the currently
+displayed page is.
+
+### 2.10 `PdfCoordinateMapper` (static)
+
+Converts between PDF user space (points, bottom-left origin) and the pixel coordinates of the bitmap
+`PdfPageRenderer` produced (top-left origin, `96 * scale / 72` px/pt).
+
+```csharp
+public static double PixelsPerPoint(float scale) => 96.0 * scale / 72.0;
+public static (double X, double Y) ToPixel(double pdfX, double pdfY, double pageHeightPt, float scale);
+public static (double X, double Y) ToPdf(double pixelX, double pixelY, double pageHeightPt, float scale);
+public static PdfRect ToPixelRect(PdfRect pdfRect, double pageHeightPt, float scale);
+```
+
+`ToPixelRect` really did have a bug during implementation, once, from constructing a `PdfRect`
+positionally in the wrong order (Left,Top,Right,Bottom), swapping Top and Bottom — caught by a
+dedicated test. As noted in §1, this is exactly why `PdfRect` should always be constructed with named
+arguments: its field order matches the PDF spec, not the natural reading order.
+
+### 2.11 `PdfLinkAnnotationService`
+
+Owns both writing the links created in the link editor and reading links already present in the file.
+
+- `ApplyLinksAsync(filePath, links, ct)` — opens the file in `PdfDocumentOpenMode.Modify` (PDFsharp's
+  append-only open mode, which never rebuilds the page tree the way `AddPage` does) and appends `/Annots`
+  entries directly onto the existing `PdfPage` objects, then saves to the same path. **Never using
+  `AddPage`** is the key design decision here: rebuilding the page tree via `AddPage` could reintroduce
+  the same class of bug fixed in §2.5 — internal link destinations breaking after a merge — against the file's existing bookmarks and existing links this time. The link annotation
+  itself also isn't built via the high-level `PdfLinkAnnotation.CreateDocumentLink` (it can only build a
+  page-number-based, plain `/XYZ` destination); instead the code constructs `PdfDictionary`/`PdfArray`
+  directly at a low level to reproduce every `BookmarkDestinationType` variant. Note also that `/Border`
+  is written explicitly as `[0 0 0]` (zero width) — the PDF spec's default when it's omitted is `[0 0 1]`,
+  and many viewers would otherwise draw a visible rectangle around the hotspot.
+- `ReadExistingLinksAsync(filePath, ct)` — the reverse: reads every `/Subtype /Link` annotation already
+  in the file and returns them as `LinkAnnotationNode`s. Handles both the `/A` (`/S /GoTo /D [...]`)
+  form and a direct `/Dest`. The destination array's first element (an indirect reference to the target
+  page) is resolved to an actual page index via a dictionary keyed by `PdfReference.ObjectID`, built by
+  scanning every page once. Covered by round-trip tests (write then read back). See
+  [03-app-design.md §7.6](03-app-design.md#link-editor-existing-links) for how the App layer treats
+  these links (read-only — they can't be edited or deleted from the link editor screen).
 
 ## 3. The Core layer's processing pipeline, end to end
 

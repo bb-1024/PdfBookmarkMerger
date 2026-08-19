@@ -49,20 +49,33 @@
       <h2><span class="num">1</span><span class="mono">MainWindowViewModel</span></h2>
       <p>
         Orchestrates the main window as a whole: the <code class="inline">Step</code> transition
-        (<code class="inline">WorkflowStep.SelectFiles</code> &rarr; <code class="inline">EditBookmarks</code>)
-        and the four primary commands.
+        (<code class="inline">WorkflowStep.SelectFiles</code> &rarr; <code class="inline">EditBookmarks</code> &rarr;
+        optionally <code class="inline">EditLinks</code>) and the primary commands.
       </p>
       <div class="table-wrap">
         <table>
           <thead><tr><th class="mono">Command</th><th class="mono">CanExecute</th><th>What it does</th></tr></thead>
           <tbody>
             <tr><td class="mono">ConfirmFilesCommand</td><td class="mono">HasFiles &amp;&amp; !IsBusy</td><td>Reads every file's metadata in parallel &rarr; extracts bookmarks and computes post-merge page numbers &rarr; <code class="inline">BookmarkTree.Load</code> &rarr; <code class="inline">Step = EditBookmarks</code></td></tr>
-            <tr><td class="mono">MergeCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberEdits</td><td>Save dialog &rarr; (if configured) properties dialog &rarr; <code class="inline">PdfMergeService.MergeAsync</code></td></tr>
+            <tr><td class="mono">MergeCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberEdits</td><td><code class="inline">MergeCoreAsync(continueToLinkEditing: false)</code> &mdash; merges and ends the workflow here</td></tr>
+            <tr><td class="mono">MergeAndEditLinksCommand</td><td class="mono">Same</td><td><code class="inline">MergeCoreAsync(continueToLinkEditing: true)</code> &mdash; merges, then <code class="inline">LinkEditor.LoadAsync</code> &rarr; <code class="inline">Step = EditLinks</code></td></tr>
             <tr><td class="mono">SaveBookmarkSettingsCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberInconsistency</td><td>Save dialog &rarr; <code class="inline">BookmarkSettingsExportService.ExportAsync</code></td></tr>
             <tr><td class="mono">BackToFileListCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy</td><td>Returns to <code class="inline">Step = SelectFiles</code></td></tr>
+            <tr><td class="mono">BackToBookmarksCommand</td><td class="mono">(Step==EditLinks) &amp;&amp; !IsBusy</td><td>Returns to <code class="inline">Step = EditBookmarks</code> (the merged intermediate file is left as-is)</td></tr>
+            <tr><td class="mono">FinishLinkEditingCommand</td><td class="mono">(Step==EditLinks) &amp;&amp; !IsBusy</td><td><code class="inline">LinkEditor.FinishAsync()</code> &rarr; completion dialog</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        <code class="inline">MergeCommand</code> and <code class="inline">MergeAndEditLinksCommand</code> are two
+        entry points into a shared <code class="inline">MergeCoreAsync(bool continueToLinkEditing)</code> that
+        owns the actual merge (save-path dialog &rarr; properties dialog if configured &rarr;
+        <code class="inline">PdfMergeService.MergeAsync</code>). <code class="inline">MergeAndEditLinksCommand</code>
+        (the "Merge and Continue to Link Editing" button) only appears in the UI when the
+        <code class="inline">ShowMergeAndEditLinksButton</code> setting is on (default off, including when no
+        settings file has been loaded yet; <code class="inline">MainWindowViewModel.ShowMergeAndEditLinksButton</code>
+        reflects it immediately once the Settings dialog is confirmed).
+      </p>
       <p>
         <code class="inline">ConfirmFilesAsync</code> parallelizes each file's metadata read with a
         <code class="inline">SemaphoreSlim</code> (capped at
@@ -330,7 +343,132 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         comes from <code class="inline">Assembly.GetExecutingAssembly()</code>'s
         <code class="inline">AssemblyInformationalVersionAttribute</code>, which the build writes directly from
         <code class="inline">Directory.Build.props</code>'s <code class="inline">&lt;Version&gt;</code>.
+        <code class="inline">PdfPageSlotViewModel</code> (one placeholder per page in the continuous-scroll
+        preview) is covered in <a href="#link-editor-scroll">&sect;7.2</a>.
+        <code class="inline">ShowMergeAndEditLinksButton</code> (<code class="inline">ReactivePropertySlim&lt;bool&gt;</code>)
+        drives whether the "Merge and Continue to Link Editing" button is shown. Unlike
+        <code class="inline">ThemeMode</code>/<code class="inline">Language</code>, it never triggers a theme
+        reapply or a window rebuild &mdash; it's a plain binding target, so
+        <code class="inline">MainWindowViewModel.OpenSettingsAsync</code> just writes the new value right after
+        the dialog is confirmed, and the XAML binding picks it up immediately.
       </p>
+    </section>
+
+    <section id="link-editor">
+      <h2><span class="num">7</span><span class="mono">LinkEditorViewModel</span></h2>
+      <p>
+        Orchestrates step 5 (<code class="inline">WorkflowStep.EditLinks</code>). Targets a single,
+        already-merged-and-bookmarked PDF file: continuous-scroll page preview, zoom, jumping from the
+        bookmark list, creating links via text selection, and listing/verifying/deleting links. Registered
+        in DI the same way as <code class="inline">MainWindowViewModel</code> (constructor:
+        <code class="inline">IPdfPageRenderer</code>, <code class="inline">IPdfTextExtractor</code>,
+        <code class="inline">IPdfMetadataService</code>, <code class="inline">IPdfLinkAnnotationService</code>,
+        <code class="inline">ILogger&lt;LinkEditorViewModel&gt;</code>).
+      </p>
+
+      <h3>7.1 <code class="inline">LoadAsync</code> &mdash; initializing on screen entry</h3>
+      <p><code class="inline">LoadAsync(filePath, ct)</code>:</p>
+      <ol>
+        <li>Reads page count and the bookmark list via <code class="inline">IPdfMetadataService.ReadMetadataAsync</code> (the merged file can be treated as "a single PDF that has bookmarks," so the multi-file-specific <code class="inline">SourceFileEntryId</code>/<code class="inline">OriginalPageIndex</code> machinery isn't needed here).</li>
+        <li>Reads page 0's PDF-user-space size, used to size the continuous-scroll placeholders (see <a href="#link-editor-scroll">&sect;7.2</a>).</li>
+        <li>Creates <code class="inline">PageSlots</code> (below), one per page.</li>
+        <li>Only if the file actually exists on disk (unit tests sometimes pass a fictional path): copies it to a "pristine" backup in the temp folder (see <a href="#link-editor-finish">&sect;7.5</a>), then reads links already present via <code class="inline">IPdfLinkAnnotationService.ReadExistingLinksAsync</code> and adds them to <code class="inline">Links</code> (see <a href="#link-editor-existing-links">&sect;7.6</a>).</li>
+      </ol>
+
+      <h3 id="link-editor-scroll">7.2 Continuous-scroll preview &mdash; <code class="inline">PageSlots</code> and virtualization</h3>
+      <p>
+        The preview is designed as a virtualized list of lightweight placeholders, specifically so a
+        multi-thousand-page PDF never holds every page's bitmap in memory at once.
+      </p>
+      <ul>
+        <li><code class="inline">PageSlots</code> (<code class="inline">ObservableCollection&lt;PdfPageSlotViewModel&gt;</code>) &mdash; one lightweight placeholder per page, holding <code class="inline">PageIndex</code>, <code class="inline">Image</code> (<code class="inline">byte[]?</code>, null until rendered), and <code class="inline">IsCurrent</code> (bool &mdash; whether this page is the current target of selection/link-creation/hotspot display). <code class="inline">LoadAsync</code> creates one per page up front (no rendering involved).</li>
+        <li><code class="inline">LoadPageSlotAsync(pageIndex)</code> &mdash; called from the UI when a virtualized container is realized. If that slot hasn't been rendered yet, renders the page and assigns it to <code class="inline">Image</code>. A per-page-index <code class="inline">CancellationTokenSource</code> dictionary handles repeat/overtaking calls for the same page.</li>
+        <li><code class="inline">UnloadPageSlot(pageIndex)</code> &mdash; called when a container leaves the viewport (recycled by the virtualizing panel). Cancels an in-flight render if any, and resets <code class="inline">Image</code> to <code class="inline">null</code> to free the memory &mdash; this is the piece that keeps memory bounded on a multi-thousand-page document.</li>
+        <li><code class="inline">PlaceholderWidth</code>/<code class="inline">PlaceholderHeight</code> &mdash; the pixel width/height reserved for an unrendered slot at the current zoom. Page 0's PDF-user-space size stands in for every page (fetching every page's real size up front would be expensive on a large PDF), recomputed via <code class="inline">PdfCoordinateMapper.PixelsPerPoint(scale)</code> on every zoom change.</li>
+      </ul>
+      <p>
+        See <a href="04-ui-design.html#link-editor-scroll-ui">04-ui-design.html §6.2</a> for how the UI side
+        derives "whichever page occupies the largest area of the viewport" from scroll position and writes it
+        to <code class="inline">CurrentPageIndex</code>.
+      </p>
+
+      <h3>7.3 Keeping <code class="inline">CurrentPageIndex</code> and <code class="inline">PageNumberInput</code> in sync</h3>
+      <p>Whenever <code class="inline">CurrentPageIndex</code> (0-based) changes, <code class="inline">OnCurrentPageIndexChanged</code>:</p>
+      <ol>
+        <li>Clamps an out-of-range value to the nearest valid one (a self-reentrant set; <code class="inline">ReactivePropertySlim</code> never re-notifies on an unchanged value, so this converges).</li>
+        <li>Flips the old <code class="inline">_currentSlot</code>'s <code class="inline">IsCurrent</code> to false and the new slot's to true.</li>
+        <li>Syncs <code class="inline">PageNumberInput</code> (1-based, two-way bound to the page-turn toolbar's text box).</li>
+        <li>Fetches the current page's metadata (<code class="inline">PageHeight</code>, and <code class="inline">Letters</code> only if the page actually changed) fire-and-forget (<code class="inline">TriggerLoadCurrentPageMetadata</code>) &mdash; the page's bitmap itself is <code class="inline">PageSlots</code>' job, not handled here.</li>
+      </ol>
+      <p>
+        Changes from the other direction &mdash; the user typing directly into <code class="inline">PageNumberInput</code>
+        &mdash; also flow back into <code class="inline">CurrentPageIndex</code> with the same clamping
+        (<code class="inline">OnPageNumberInputChanged</code>), so the two stay synchronized both ways.
+      </p>
+
+      <h3>7.4 Creating links via text selection</h3>
+      <ul>
+        <li><code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code>/<code class="inline">EndTextSelection</code> &mdash; take the PDF-user-space coordinates of a drag's start/move/end, hit-testing them against the current page's <code class="inline">Letters</code> (the character rectangles <code class="inline">PdfTextExtractor</code> extracted) to find a selection range (a span of character indices). If no character's rectangle actually contains the point, the nearest one by center-to-point distance is used instead, so a drag that strays slightly outside a character's bounds doesn't break selection.</li>
+        <li>On commit, <code class="inline">GroupLettersIntoLineRects</code> groups the selected characters by line (a gap of 2pt or more between adjacent characters' Bottom coordinates counts as a line break) and computes each line's bounding rect, populating <code class="inline">PendingSelection</code> (<code class="inline">SourcePageIndex</code> + a list of per-line rects). A selection spanning multiple lines is kept as multiple rects (since a PDF Link annotation's <code class="inline">/Rect</code> can only be a single rectangle).</li>
+        <li><code class="inline">CreateLinkToBookmark(bookmark)</code> &mdash; for each line rect in <code class="inline">PendingSelection</code>, creates a <code class="inline">LinkAnnotationNode</code> that copies the chosen bookmark's <code class="inline">DestinationType</code>/coordinates verbatim and adds it to <code class="inline">Links</code> (multiple lines become multiple links sharing one <code class="inline">GroupId</code>).</li>
+        <li><code class="inline">PickArbitraryTargetAndCreateLink(targetPageIndex, pdfX, pdfY)</code> &mdash; while <code class="inline">IsPickingArbitraryTarget</code> is on, commits a link the same way using the clicked preview position as an XYZ destination.</li>
+        <li><code class="inline">LinkGroups</code> (<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;LinkGroupInfo&gt;&gt;</code>) &mdash; a summary of <code class="inline">Links</code> grouped by <code class="inline">GroupId</code>, for the list UI. Recomputed on every <code class="inline">Links.CollectionChanged</code>.</li>
+      </ul>
+
+      <h3>7.5 <code class="inline">DeleteLinkGroup</code> / <code class="inline">BeginEditLinkGroup</code></h3>
+      <p>
+        <code class="inline">DeleteLinkGroup(groupId)</code> removes every link with that <code class="inline">GroupId</code>
+        from <code class="inline">Links</code>. <code class="inline">BeginEditLinkGroup(groupId)</code> removes them
+        the same way, then restores the same hotspot (<code class="inline">SourceRect</code> set) into
+        <code class="inline">PendingSelection</code> &mdash; so <code class="inline">CreateLinkToBookmark</code>/<code class="inline">PickArbitraryTargetAndCreateLink</code>
+        can be reused as-is to pick a new destination (the links get a fresh <code class="inline">GroupId</code>
+        on commit; <code class="inline">GroupId</code> is purely an internal aggregation key with no requirement
+        to stay stable across an edit). Both are no-ops when any of the targeted links is a pre-existing one
+        (see <a href="#link-editor-existing-links">&sect;7.6</a>).
+      </p>
+
+      <h3 id="link-editor-finish">7.6 <code class="inline">FinishAsync</code> &mdash; completion (writing links) and idempotency</h3>
+      <p id="link-editor-existing-links">
+        <code class="inline">PdfLinkAnnotationService.ApplyLinksAsync</code> only ever <strong>appends</strong>
+        in <code class="inline">Modify</code> mode &mdash; it has no way to safely delete or replace an existing
+        annotation (see <a href="02-core-design.html#link-editor-services">02-core-design.html §2.11</a>). That
+        constraint drives two design decisions in <code class="inline">LinkEditorViewModel</code>.
+      </p>
+      <ol>
+        <li><strong>A "pristine" backup and an idempotent Finish</strong>: right after <code class="inline">LoadAsync</code> (before this session has applied any links at all), the file is copied to a temp-folder backup held as <code class="inline">_pristineBackupPath</code>. <code class="inline">FinishAsync</code> always restores that backup onto <code class="inline">FilePath</code> first, then calls <code class="inline">ApplyLinksAsync</code> &mdash; so pressing "Finish" more than once (even as <code class="inline">Links</code>' contents keep changing between presses) never duplicates an annotation.</li>
+        <li><strong>Excluding pre-existing links</strong>: links read via <code class="inline">ReadExistingLinksAsync</code> in <code class="inline">LoadAsync</code> get their Ids recorded in <code class="inline">_preExistingLinkIds</code> (a <code class="inline">HashSet&lt;Guid&gt;</code>) before being added to <code class="inline">Links</code> (so they show up in the list). Since restoring the pristine backup already brings them back, <code class="inline">FinishAsync</code> sends <code class="inline">ApplyLinksAsync</code> only the links in <code class="inline">Links</code> that <strong>aren't</strong> in <code class="inline">_preExistingLinkIds</code> &mdash; the newly created ones. Sending the pre-existing ones too would write them a second time. For the same reason, <code class="inline">DeleteLinkGroup</code>/<code class="inline">BeginEditLinkGroup</code> (§7.5) no-op on pre-existing links &mdash; there's no way to make a deletion or a re-targeted destination "stick" for them. The UI reads <code class="inline">LinkGroupInfo.IsPreExisting</code> (true when every link in a group is in <code class="inline">_preExistingLinkIds</code>) to hide the edit/delete buttons for those entries (see <a href="04-ui-design.html#link-editor-existing-links-ui">04-ui-design.html §6.4</a>).</li>
+      </ol>
+
+      <h3 id="link-editor-thread">7.7 Two bugs found during implementation</h3>
+      <div class="card">
+        <h4>Cross-thread crash (<code class="inline">ConfigureAwait(false)</code>)</h4>
+        <p>
+          Early on, <code class="inline">LoadAsync</code> and other async methods used
+          <code class="inline">.ConfigureAwait(false)</code>, so the continuation after the first
+          <code class="inline">await</code> ran on a thread-pool thread &mdash; and the moment it wrote to a
+          <code class="inline">ReactivePropertySlim</code> like <code class="inline">IsBusy</code>, WPF's
+          <code class="inline">CommandManager</code> (UI-thread-only) threw
+          <code class="inline">InvalidOperationException</code> (cross-thread access). No other App-layer
+          ViewModel (<code class="inline">BookmarkTreeViewModel</code> etc.) uses
+          <code class="inline">ConfigureAwait(false)</code> at all, so this simply broke from that existing
+          convention. Fixed by removing it everywhere in the file (see
+          <a href="01-architecture.html#cross-cutting">01-architecture.html §4.5</a>).
+        </p>
+      </div>
+      <div class="card">
+        <h4>Scroll-driven current-page detection failing</h4>
+        <p>
+          The first implementation used <code class="inline">VisualTreeHelper.HitTest</code> against the
+          element at the viewport's top edge to identify the page there. On the WPF build,
+          <code class="inline">Wpf.Ui</code>'s <code class="inline">FluentWindow</code> silently swaps the
+          internal <code class="inline">ScrollViewer</code> for its own
+          <code class="inline">PassiveScrollViewer</code>, and hit-testing against it never resolved past the
+          control itself into its actual content (found by adding temporary diagnostic logging and inspecting
+          what the hit actually was). Fixed by switching to deriving the page directly from the scroll offset
+          and the known per-page height, given every page shares the same placeholder size &mdash; see
+          <a href="04-ui-design.html#link-editor-scroll-ui">04-ui-design.html §6.2</a>.
+        </p>
+      </div>
     </section>
 
     <div class="next-prev">

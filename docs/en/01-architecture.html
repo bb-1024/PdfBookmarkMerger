@@ -72,12 +72,17 @@
         <table>
           <thead><tr><th>Layer</th><th>Registrations</th></tr></thead>
           <tbody>
-            <tr><td>Core</td><td class="mono">IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService, IBookmarkSettingsExportService</td></tr>
-            <tr><td>App</td><td class="mono">IUserSettingsService, FileListViewModel, BookmarkTreeViewModel, MainWindowViewModel</td></tr>
+            <tr><td>Core</td><td class="mono">IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService, IBookmarkSettingsExportService, IPdfPageRenderer, IPdfTextExtractor, IPdfLinkAnnotationService</td></tr>
+            <tr><td>App</td><td class="mono">IUserSettingsService, FileListViewModel, BookmarkTreeViewModel, LinkEditorViewModel, MainWindowViewModel</td></tr>
             <tr><td>UI-framework side</td><td class="mono">IDialogService, MainWindow</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        <code class="inline">IPdfPageRenderer</code>/<code class="inline">IPdfTextExtractor</code>/<code class="inline">IPdfLinkAnnotationService</code>
+        are the Core-layer services for the link editor screen (<code class="inline">WorkflowStep.EditLinks</code>). See
+        <a href="02-core-design.html#link-editor-services">02-core-design.html §2.8&ndash;§2.11</a>.
+      </p>
     </section>
 
     <section id="startup">
@@ -154,6 +159,34 @@
           goes through an atomic write-then-move (<code class="inline">UserSettingsService.SaveAsync</code>: write
           to a temp file in the same folder, then <code class="inline">File.Move(..., overwrite: true)</code>) so
           a process kill mid-write can't corrupt the JSON.
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>4.5 App-layer async methods never use <code class="inline">ConfigureAwait(false)</code></h4>
+        <p>
+          ViewModel async methods (<code class="inline">LoadAsync</code>, <code class="inline">RecomputeAllPageNumberDisplaysAsync</code>,
+          etc.) never suffix <code class="inline">await</code> with <code class="inline">ConfigureAwait(false)</code>.
+          The WPF build routes command <code class="inline">CanExecuteChanged</code> through
+          <code class="inline">CommandManager</code> (UI-thread-only), so <code class="inline">ConfigureAwait(false)</code>
+          would move the continuation after the first <code class="inline">await</code> onto a thread-pool thread &mdash;
+          and the moment that continuation writes to a <code class="inline">ReactivePropertySlim&lt;T&gt;.Value</code>,
+          it throws <code class="inline">InvalidOperationException</code> (cross-thread access). A case where this
+          convention was accidentally broken is documented as a real incident in
+          <a href="03-app-design.html#link-editor-thread">03-app-design.html §7.7</a>.
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>4.6 <code class="inline">[SupportedOSPlatform]</code> around PDFium calls</h4>
+        <p>
+          <code class="inline">IPdfPageRenderer</code>'s implementation calls into PDFium (a native library), which
+          the .NET analyzer flags as CA1416 (platform compatibility). Applying
+          <code class="inline">[SupportedOSPlatform]</code> at the class or assembly level cascades the platform
+          restriction onto every unrelated type in that assembly (e.g. <code class="inline">BookmarkNode</code>),
+          producing a flood of warnings, so instead only the 2&ndash;3 lines that actually call into PDFium are
+          wrapped in <code class="inline">#pragma warning disable/restore CA1416</code> (with a comment explaining
+          why). See <a href="02-core-design.html#link-editor-services">02-core-design.html §2.8</a>.
         </p>
       </div>
     </section>

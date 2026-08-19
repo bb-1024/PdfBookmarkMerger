@@ -49,20 +49,32 @@
       <h2><span class="num">1</span><span class="mono">MainWindowViewModel</span></h2>
       <p>
         メインウィンドウ全体を統括し、<code class="inline">Step</code>
-        (<code class="inline">WorkflowStep.SelectFiles</code> &rarr; <code class="inline">EditBookmarks</code>)
-        の遷移と4つの主要コマンドを管理する。
+        (<code class="inline">WorkflowStep.SelectFiles</code> &rarr; <code class="inline">EditBookmarks</code> &rarr;
+        (任意)<code class="inline">EditLinks</code>)の遷移と主要コマンドを管理する。
       </p>
       <div class="table-wrap">
         <table>
           <thead><tr><th class="mono">コマンド</th><th class="mono">CanExecute</th><th>処理</th></tr></thead>
           <tbody>
             <tr><td class="mono">ConfirmFilesCommand</td><td class="mono">HasFiles &amp;&amp; !IsBusy</td><td>全ファイルのメタデータを並列読込 &rarr; しおり抽出・結合後ページ番号計算 &rarr; <code class="inline">BookmarkTree.Load</code> &rarr; <code class="inline">Step = EditBookmarks</code></td></tr>
-            <tr><td class="mono">MergeCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberEdits</td><td>保存先ダイアログ&rarr;(設定により)プロパティ編集ダイアログ&rarr;<code class="inline">PdfMergeService.MergeAsync</code></td></tr>
+            <tr><td class="mono">MergeCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberEdits</td><td><code class="inline">MergeCoreAsync(continueToLinkEditing: false)</code>。結合してここで手順を終える</td></tr>
+            <tr><td class="mono">MergeAndEditLinksCommand</td><td class="mono">同上</td><td><code class="inline">MergeCoreAsync(continueToLinkEditing: true)</code>。結合後 <code class="inline">LinkEditor.LoadAsync</code> &rarr; <code class="inline">Step = EditLinks</code></td></tr>
             <tr><td class="mono">SaveBookmarkSettingsCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy &amp;&amp; !HasPageNumberInconsistency</td><td>保存先ダイアログ&rarr;<code class="inline">BookmarkSettingsExportService.ExportAsync</code></td></tr>
             <tr><td class="mono">BackToFileListCommand</td><td class="mono">(Step==EditBookmarks) &amp;&amp; !IsBusy</td><td><code class="inline">Step = SelectFiles</code> に戻る</td></tr>
+            <tr><td class="mono">BackToBookmarksCommand</td><td class="mono">(Step==EditLinks) &amp;&amp; !IsBusy</td><td><code class="inline">Step = EditBookmarks</code> に戻る(生成済みの中間ファイルはそのまま残る)</td></tr>
+            <tr><td class="mono">FinishLinkEditingCommand</td><td class="mono">(Step==EditLinks) &amp;&amp; !IsBusy</td><td><code class="inline">LinkEditor.FinishAsync()</code> &rarr; 完了ダイアログ</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        <code class="inline">MergeCommand</code>/<code class="inline">MergeAndEditLinksCommand</code>はいずれも
+        保存先ダイアログ&rarr;(設定により)プロパティ編集ダイアログ&rarr;<code class="inline">PdfMergeService.MergeAsync</code>
+        という結合処理自体を共有する<code class="inline">MergeCoreAsync(bool continueToLinkEditing)</code>の
+        2つの入口。<code class="inline">MergeAndEditLinksCommand</code>(=「結合してリンク編集へ進む」ボタン)は、
+        設定の<code class="inline">ShowMergeAndEditLinksButton</code>(既定false、設定ファイル未読み込み時も
+        既定false)が有効な場合のみUI上に表示される(<code class="inline">MainWindowViewModel.ShowMergeAndEditLinksButton</code>、
+        設定ダイアログでOKした時点で即座に反映)。
+      </p>
       <p>
         <code class="inline">ConfirmFilesAsync</code> は各ファイルのメタデータ読込を
         <code class="inline">SemaphoreSlim</code>(上限 <code class="inline">Math.Clamp(Environment.ProcessorCount, 1, 8)</code>)
@@ -316,7 +328,122 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         <code class="inline">AssemblyInformationalVersionAttribute</code> から取得した値で、
         <code class="inline">Directory.Build.props</code> の <code class="inline">&lt;Version&gt;</code>
         がビルド時にそのまま書き込まれたものを使う。
+        <code class="inline">PdfPageSlotViewModel</code>(連続スクロールプレビューの1ページ分のプレースホルダ)は
+        <a href="#link-editor-scroll">§7.2</a>を参照。
+        <code class="inline">ShowMergeAndEditLinksButton</code>(<code class="inline">ReactivePropertySlim&lt;bool&gt;</code>)は
+        「結合してリンク編集へ進む」ボタンの表示・非表示を切り替える設定。<code class="inline">ThemeMode</code>/<code class="inline">Language</code>と
+        異なり、テーマ再適用やウィンドウ再構築を一切伴わない単純なバインディング先の値なので、
+        <code class="inline">MainWindowViewModel.OpenSettingsAsync</code>がダイアログ確定直後にこの値を書き換えるだけで
+        XAML側のバインディングが即座に追従する。
       </p>
+    </section>
+
+    <section id="link-editor">
+      <h2><span class="num">7</span><span class="mono">LinkEditorViewModel</span></h2>
+      <p>
+        手順5(<code class="inline">WorkflowStep.EditLinks</code>)を統括するViewModel。結合・しおり設定済みの
+        単一PDFファイルを対象に、連続スクロールのページプレビュー・拡大縮小・しおり一覧からのジャンプ・
+        文字選択によるリンク作成・リンクの一覧/確認/削除を扱う。<code class="inline">MainWindowViewModel</code>と
+        同じ位置付けでDI登録される(コンストラクタ引数: <code class="inline">IPdfPageRenderer</code>,
+        <code class="inline">IPdfTextExtractor</code>, <code class="inline">IPdfMetadataService</code>,
+        <code class="inline">IPdfLinkAnnotationService</code>, <code class="inline">ILogger&lt;LinkEditorViewModel&gt;</code>)。
+      </p>
+
+      <h3>7.1 <code class="inline">LoadAsync</code> &mdash; 画面遷移時の初期化</h3>
+      <p><code class="inline">LoadAsync(filePath, ct)</code> は以下を行う。</p>
+      <ol>
+        <li><code class="inline">IPdfMetadataService.ReadMetadataAsync</code> でページ数・しおり一覧を取得する(結合済みファイルは「しおりを持つ1つのPDF」として扱えるため、複数ファイル対応特有の <code class="inline">SourceFileEntryId</code>/<code class="inline">OriginalPageIndex</code>は不要)。</li>
+        <li>先頭ページ(0ページ目)のPDFユーザー空間サイズを取得し、連続スクロール表示のプレースホルダサイズ計算に使う(<a href="#link-editor-scroll">§7.2</a>参照)。</li>
+        <li><code class="inline">PageSlots</code>(後述)をページ数分だけ生成する。</li>
+        <li>ファイルが実在する場合のみ(単体テストではフィクションのパスを渡すことがあるため)、一時フォルダへ「素の状態」のバックアップを作成し(<a href="#link-editor-finish">§7.5</a>参照)、<code class="inline">IPdfLinkAnnotationService.ReadExistingLinksAsync</code>で既存リンクを読み取って<code class="inline">Links</code>へ追加する(<a href="#link-editor-existing-links">§7.6</a>参照)。</li>
+      </ol>
+
+      <h3 id="link-editor-scroll">7.2 連続スクロールプレビュー &mdash; <code class="inline">PageSlots</code> と仮想化</h3>
+      <p>
+        数千ページ規模のPDFでも全ページのビットマップを同時に保持しないよう、プレビューは
+        「軽量なプレースホルダの仮想化リスト」として設計されている。
+      </p>
+      <ul>
+        <li><code class="inline">PageSlots</code>(<code class="inline">ObservableCollection&lt;PdfPageSlotViewModel&gt;</code>) &mdash; 1ページにつき1つ、<code class="inline">PageIndex</code>・<code class="inline">Image</code>(<code class="inline">byte[]?</code>、未描画はnull)・<code class="inline">IsCurrent</code>(bool、選択・リンク作成・ホットスポット表示の対象かどうか)を持つ軽量なプレースホルダ。<code class="inline">LoadAsync</code>でページ数分だけ生成する(レンダリングは伴わない)。</li>
+        <li><code class="inline">LoadPageSlotAsync(pageIndex)</code> &mdash; UI側(仮想化パネルのコンテナが実体化された時)から呼ばれる。該当スロットが未描画ならページを描画して<code class="inline">Image</code>へ反映する。ページ単位の<code class="inline">CancellationTokenSource</code>辞書で、同じページへの重複呼び出し・追い越しを処理する。</li>
+        <li><code class="inline">UnloadPageSlot(pageIndex)</code> &mdash; コンテナがビューポートから外れた(仮想化パネルによりリサイクルされた)時に呼ばれる。描画中なら打ち切り、<code class="inline">Image</code>を<code class="inline">null</code>に戻してメモリを解放する。これが数千ページ規模のPDFでもメモリを抑えられる要。</li>
+        <li><code class="inline">PlaceholderWidth</code>/<code class="inline">PlaceholderHeight</code> &mdash; 未描画スロットの領域確保に使う、現在のズーム倍率でのpx幅・高さ。先頭ページのPDFユーザー空間サイズを全ページで代用する(ページごとの実サイズ取得は大規模PDFで高コストなため)。ズーム変更のたびに<code class="inline">PdfCoordinateMapper.PixelsPerPoint(scale)</code>で再計算する。</li>
+      </ul>
+      <p>
+        UI側(WPF: 仮想化<code class="inline">ListBox</code>、Avalonia: 同様)がスクロール位置から「ビューポート内で
+        最も表示面積が大きいページ」を求め<code class="inline">CurrentPageIndex</code>へ反映する仕組みの詳細は
+        <a href="04-ui-design.html#link-editor-scroll-ui">04-ui-design.html §6.2</a> を参照。
+      </p>
+
+      <h3>7.3 <code class="inline">CurrentPageIndex</code> と <code class="inline">PageNumberInput</code> の同期</h3>
+      <p><code class="inline">CurrentPageIndex</code>(0始まり)が変わるたびに、<code class="inline">OnCurrentPageIndexChanged</code>が</p>
+      <ol>
+        <li>範囲外の値を最も近い有効な値へ丸める(自己再入。<code class="inline">ReactivePropertySlim</code>は値が変化しない限り再通知しないため収束する)。</li>
+        <li>旧<code class="inline">_currentSlot</code>の<code class="inline">IsCurrent</code>をfalseへ、新しいスロットのそれをtrueへ切り替える。</li>
+        <li><code class="inline">PageNumberInput</code>(1始まり、ページ送りツールバーのテキストボックスと双方向バインド)を同期する。</li>
+        <li>現在ページのメタデータ(<code class="inline">PageHeight</code>・<code class="inline">Letters</code>、ページが変わった場合のみ文字抽出)をfire-and-forgetで取得する(<code class="inline">TriggerLoadCurrentPageMetadata</code>。ページのビットマップ自体は<code class="inline">PageSlots</code>の担当のため、ここでは扱わない)。</li>
+      </ol>
+      <p>
+        <code class="inline">PageNumberInput</code>側の変更(テキストボックスへの直接入力)も、範囲を丸めつつ
+        <code class="inline">CurrentPageIndex</code>へ反映する双方向の同期になっている(<code class="inline">OnPageNumberInputChanged</code>)。
+      </p>
+
+      <h3>7.4 文字選択によるリンク作成</h3>
+      <ul>
+        <li><code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code>/<code class="inline">EndTextSelection</code> &mdash; ドラッグ開始・移動・終了のPDFユーザー空間座標を受け取り、現在ページの<code class="inline">Letters</code>(<code class="inline">PdfTextExtractor</code>が抽出した文字矩形の列)に対しヒットテストして選択範囲(文字インデックスの区間)を求める。矩形内に文字が無い場合は中心点までの距離が最も近い文字を採用し、ドラッグがわずかに文字の外側へ外れても選択が破綻しないようにしている。</li>
+        <li>選択確定時、<code class="inline">GroupLettersIntoLineRects</code>が行(隣接文字のBottom座標が2pt以上離れていれば改行とみなす)ごとに外接矩形を求め、<code class="inline">PendingSelection</code>(<code class="inline">SourcePageIndex</code>+行ごとの矩形群)へ反映する。複数行にまたがる選択は複数の矩形として保持される(PDFのLinkアノテーションの<code class="inline">/Rect</code>が単一矩形のみのため)。</li>
+        <li><code class="inline">CreateLinkToBookmark(bookmark)</code> &mdash; <code class="inline">PendingSelection</code>の各行矩形について、選択したしおりの<code class="inline">DestinationType</code>/座標をそのままコピーした<code class="inline">LinkAnnotationNode</code>を生成し<code class="inline">Links</code>へ追加する(複数行なら同一<code class="inline">GroupId</code>の複数リンクになる)。</li>
+        <li><code class="inline">PickArbitraryTargetAndCreateLink(targetPageIndex, pdfX, pdfY)</code> &mdash; <code class="inline">IsPickingArbitraryTarget</code>中にプレビュー上でクリックされた位置をXYZ形式のジャンプ先として、同様にリンクを確定する。</li>
+        <li><code class="inline">LinkGroups</code>(<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;LinkGroupInfo&gt;&gt;</code>) &mdash; <code class="inline">Links</code>を<code class="inline">GroupId</code>単位で集約した一覧UI向けの要約情報。<code class="inline">Links.CollectionChanged</code>のたびに再計算される。</li>
+      </ul>
+
+      <h3>7.5 <code class="inline">DeleteLinkGroup</code> / <code class="inline">BeginEditLinkGroup</code></h3>
+      <p>
+        <code class="inline">DeleteLinkGroup(groupId)</code>は該当<code class="inline">GroupId</code>の全リンクを<code class="inline">Links</code>から削除する。
+        <code class="inline">BeginEditLinkGroup(groupId)</code>は該当リンクをいったん<code class="inline">Links</code>から削除し、
+        同じホットスポット(<code class="inline">SourceRect</code>群)を<code class="inline">PendingSelection</code>へ復元する
+        &mdash; これにより<code class="inline">CreateLinkToBookmark</code>/<code class="inline">PickArbitraryTargetAndCreateLink</code>を
+        そのまま使って新しいジャンプ先を選び直せる(確定後は新しい<code class="inline">GroupId</code>が振られる。
+        <code class="inline">GroupId</code>自体は内部的な集約用の値でしかないため、編集の前後で同一である必要はない)。
+        いずれも、対象に既存リンク(後述)が1件でも含まれる場合は何もしない(<a href="#link-editor-existing-links">§7.6</a>参照)。
+      </p>
+
+      <h3 id="link-editor-finish">7.6 <code class="inline">FinishAsync</code> &mdash; 完了(リンクの書き込み)と冪等性</h3>
+      <p id="link-editor-existing-links">
+        <code class="inline">PdfLinkAnnotationService.ApplyLinksAsync</code>は<code class="inline">Modify</code>モードでの
+        <strong>追記のみ</strong>を行い、既存の注釈を安全に削除・置換する手段を持たない
+        (<a href="02-core-design.html#link-editor-services">02-core-design.html §2.11</a>参照)。この制約から、
+        <code class="inline">LinkEditorViewModel</code>は2つの設計判断をしている。
+      </p>
+      <ol>
+        <li><strong>「素の状態」バックアップと冪等な完了</strong>: <code class="inline">LoadAsync</code>直後(まだ本セッションでリンクを一切反映していない状態)のファイルを、一時フォルダへ複製して<code class="inline">_pristineBackupPath</code>に保持する。<code class="inline">FinishAsync</code>は毎回まずこのバックアップを<code class="inline">FilePath</code>へ復元してから<code class="inline">ApplyLinksAsync</code>を呼ぶため、「完了」を複数回実行しても(その都度<code class="inline">Links</code>の内容が変わっていても)注釈が重複することはない。</li>
+        <li><strong>既存リンクの除外</strong>: <code class="inline">LoadAsync</code>で<code class="inline">ReadExistingLinksAsync</code>により読み取った既存リンクは、<code class="inline">_preExistingLinkIds</code>(<code class="inline">HashSet&lt;Guid&gt;</code>)へIdを記録した上で<code class="inline">Links</code>へ追加する(一覧に表示するため)。バックアップから復元した時点でこれらは既にファイルへ含まれているため、<code class="inline">FinishAsync</code>は<code class="inline">Links</code>から<code class="inline">_preExistingLinkIds</code>に含まれる分を除いた<strong>新規作成リンクのみ</strong>を<code class="inline">ApplyLinksAsync</code>へ渡す(渡してしまうと二重に書き込まれる)。同じ理由で<code class="inline">DeleteLinkGroup</code>/<code class="inline">BeginEditLinkGroup</code>(§7.5)は既存リンクに対して何もしない(削除・ジャンプ先変更を「なかったこと」にする手段がないため)。<code class="inline">LinkGroupInfo.IsPreExisting</code>(全リンクが<code class="inline">_preExistingLinkIds</code>に含まれるグループはtrue)をUI側が参照し、既存リンクの編集・削除ボタンを非表示にする(<a href="04-ui-design.html#link-editor-existing-links-ui">04-ui-design.html §6.4</a>参照)。</li>
+      </ol>
+
+      <h3 id="link-editor-thread">7.7 実装中に発生した2つのバグ</h3>
+      <div class="card">
+        <h4>クロススレッドクラッシュ(<code class="inline">ConfigureAwait(false)</code>)</h4>
+        <p>
+          実装初期、<code class="inline">LoadAsync</code>等の非同期メソッドが<code class="inline">.ConfigureAwait(false)</code>を
+          使っていたため、最初の<code class="inline">await</code>以降の継続処理がスレッドプールスレッドで実行され、
+          その中で<code class="inline">IsBusy</code>等の<code class="inline">ReactivePropertySlim</code>を書き換えた瞬間に
+          WPFの<code class="inline">CommandManager</code>(UIスレッド専用)が<code class="inline">InvalidOperationException</code>
+          (クロススレッドアクセス)を投げていた。App層の他のViewModel(<code class="inline">BookmarkTreeViewModel</code>等)は
+          そもそも<code class="inline">ConfigureAwait(false)</code>を使っておらず、この既定から外れていたことが原因。
+          該当箇所を全て削除して解決した(<a href="01-architecture.html#cross-cutting">01-architecture.html §4.5</a>参照)。
+        </p>
+      </div>
+      <div class="card">
+        <h4>スクロール位置からの現在ページ検出の失敗</h4>
+        <p>
+          当初<code class="inline">VisualTreeHelper.HitTest</code>でビューポート上端の要素からページを特定していたが、
+          WPF版が使う<code class="inline">Wpf.Ui</code>の<code class="inline">FluentWindow</code>は内部の<code class="inline">ScrollViewer</code>を
+          独自の<code class="inline">PassiveScrollViewer</code>へ差し替えており、そのヒットテスト結果が内部コンテンツまで
+          到達せず常に<code class="inline">PassiveScrollViewer</code>自身で止まっていた(診断ログを一時的に仕込んで特定)。
+          全ページ同一のプレースホルダ高さを前提に、スクロールオフセットとページ高さから直接ページ番号を算出する
+          方式へ変更して解決した(詳細は<a href="04-ui-design.html#link-editor-scroll-ui">04-ui-design.html §6.2</a>)。
+        </p>
+      </div>
     </section>
 
     <div class="next-prev">

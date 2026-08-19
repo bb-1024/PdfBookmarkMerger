@@ -191,8 +191,11 @@
             <tr><td class="mono">PageCountToTextConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>ページ数(<code class="inline">int?</code>)&rArr;「12ページ」等の表示文字列</td></tr>
             <tr><td class="mono">ThemeModeToLabelConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td><code class="inline">ThemeMode</code> &rArr; 表示ラベル(i18n対応)</td></tr>
             <tr><td class="mono">AppLanguageToLabelConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td><code class="inline">AppLanguage</code> &rArr; 表示ラベル(i18n対応)</td></tr>
-            <tr><td class="mono">EnumToVisibilityConverter(WPF) / EnumEqualsConverter(Avalonia)</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>Enum値の一致判定(WPFは<code class="inline">Visibility</code>を返す、Avaloniaはboolを返し<code class="inline">IsVisible</code>にバインド)</td></tr>
+            <tr><td class="mono">EnumToVisibilityConverter(WPF) / EnumEqualsConverter(Avalonia)</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td>値とConverterParameterの一致判定(文字列比較、boolにも使える。WPFは<code class="inline">Visibility</code>を返す、Avaloniaはboolを返し<code class="inline">IsVisible</code>にバインド)</td></tr>
             <tr><td class="mono">InverseBooleanConverter</td><td class="center">&#9679;</td><td class="center">&mdash;</td><td>bool反転。WPFのみ存在(Avaloniaは<code class="inline">!Property</code>というバインディング構文を直接サポートするため不要)</td></tr>
+            <tr><td class="mono">ByteArrayToImageConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td><code class="inline">byte[]?</code>(PNG)&rArr; <code class="inline">BitmapImage</code>(WPF)/<code class="inline">Bitmap</code>(Avalonia)。リンク編集画面のページプレビュー用</td></tr>
+            <tr><td class="mono">LinkGroupDisplayConverter</td><td class="center">&#9679;</td><td class="center">&#9679;</td><td><code class="inline">LinkGroupInfo</code> &rArr;「{ソースページ}ページ目 &rarr; {ジャンプ先ページ}ページ目」(1始まり表示)</td></tr>
+            <tr><td class="mono">NotNullToVisibilityConverter(WPF)</td><td class="center">&#9679;</td><td class="center">&mdash;</td><td>値がnullでなければ表示。Avaloniaは<code class="inline">ObjectConverters.IsNotNull</code>(Avalonia標準)を直接使うため専用実装は無い</td></tr>
           </tbody>
         </table>
       </div>
@@ -236,6 +239,120 @@
         さらに <code class="inline">Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(oldWindow)</code> を
         明示的に呼ぶ必要がある(監視対象から外れないと、閉じたはずの旧ウィンドウがプロセス生存中ずっと
         参照され続ける)。
+      </p>
+    </section>
+
+    <section id="link-editor-ui">
+      <h2><span class="num">6</span>リンク編集画面(手順5)</h2>
+      <p class="lede">
+        <code class="inline">LinkEditorViewModel</code>(App層、<a href="03-app-design.html#link-editor">03-app-design.html §7</a>参照)を
+        バインドする画面。ページ送りツールバー([前のページ][ページ番号入力欄][/ 総ページ数][次のページ]
+        [縮小][拡大])・連続スクロールのプレビュー・しおり一覧(ジャンプ用、<code class="inline">TreeView</code>で全階層を
+        常に展開表示)・設定済みリンク一覧を持つ。
+      </p>
+
+      <h3 id="link-editor-scroll-ui">6.1 連続スクロールプレビューの実体化</h3>
+      <p>
+        プレビューは、仮想化された <code class="inline">ListBox</code>(WPF:
+        <code class="inline">VirtualizingPanel.IsVirtualizing="True"</code> +
+        <code class="inline">VirtualizationMode="Recycling"</code> +
+        <code class="inline">ScrollUnit="Pixel"</code>、Avalonia: 既定で仮想化された
+        <code class="inline">VirtualizingStackPanel</code>)を
+        <code class="inline">LinkEditorViewModel.PageSlots</code> にバインドしたもの。各アイテムの
+        <code class="inline">DataTemplate</code>ルート要素へ<code class="inline">Loaded</code>/<code class="inline">Unloaded</code>
+        イベントハンドラ(<code class="inline">OnPageSlotLoaded</code>/<code class="inline">OnPageSlotUnloaded</code>)を付け、
+        コンテナが実体化・リサイクルされるたびに
+        <code class="inline">LinkEditorViewModel.LoadPageSlotAsync</code>/<code class="inline">UnloadPageSlot</code>を呼ぶ
+        (詳細は<a href="03-app-design.html#link-editor-scroll">03-app-design.html §7.2</a>参照)。選択・リンク作成の
+        ヒットレイヤー(透明な<code class="inline">Rectangle</code>)とホットスポットのオーバーレイ
+        (<code class="inline">Canvas</code>)は、各アイテムの<code class="inline">DataTemplate</code>内に常に存在するが、
+        <code class="inline">IsCurrent</code>がtrueのアイテムでのみ<code class="inline">Visibility</code>/<code class="inline">IsVisible</code>が
+        trueになる(=現在ページ以外は非表示・非ヒットテスト)。
+      </p>
+
+      <h3 id="link-editor-scroll-fix">6.2 スクロール連動のページ検出とページ送りの位置合わせ</h3>
+      <p>
+        <code class="inline">ScrollViewer.ScrollChanged</code>(WPF: <code class="inline">ListBox</code>要素へ添付イベントとして購読、
+        Avalonia: 同様)のたびに、「ビューポート内で最も表示面積が大きいページ」を<code class="inline">CurrentPageIndex</code>へ
+        反映する(<code class="inline">OnPdfPreviewScrollChanged</code>)。全ページが
+        <code class="inline">PlaceholderWidth</code>/<code class="inline">PlaceholderHeight</code>(先頭ページのサイズを流用)で
+        統一されている前提を使い、候補ページの範囲を<code class="inline">(int)(viewportTop / itemHeight)</code>前後に絞った上で、
+        各候補の可視高さ(<code class="inline">Math.Min(viewportBottom, itemTop+itemHeight) - Math.Max(viewportTop, itemTop)</code>)を
+        比較して最大のものを採用する。
+      </p>
+      <p>この方式に落ち着くまでに2つの実装を試して破棄している。</p>
+      <div class="card">
+        <h4>1. <code class="inline">VisualTreeHelper.HitTest</code>/<code class="inline">InputHitTest</code>でビューポート上端をヒットテストする方式</h4>
+        <p>
+          WPF/Avalonia双方で試した。Avalonia版は問題なく動いたが、WPF版はこのアプリが使う
+          <code class="inline">Wpf.Ui</code>の<code class="inline">FluentWindow</code>が内部の
+          <code class="inline">ScrollViewer</code>を独自の<code class="inline">PassiveScrollViewer</code>へ自動的に
+          差し替えており、そのヒットテスト結果が常に<code class="inline">PassiveScrollViewer</code>自身で止まり
+          内部のページコンテンツまで到達しなかった(一時的な診断ログで<code class="inline">hit</code>の実際の型を
+          出力して特定)。
+        </p>
+      </div>
+      <div class="card">
+        <h4>2. ビューポート上端のページだけをCurrentPageIndexとする方式(面積比較を使わない単純版)</h4>
+        <p>
+          機能はしたが、ユーザーからのフィードバックで「プレビュー領域を占める割合が一番大きい
+          ページを指すようにしてほしい」との要望があり、面積比較方式へ変更した。
+        </p>
+      </div>
+      <p>
+        ページ送りボタン・しおりジャンプ・ページ番号入力によるページ移動
+        (<code class="inline">ScrollToPage</code>)は、<code class="inline">ListBox.ScrollIntoView</code>を
+        <strong>使わない</strong>。<code class="inline">ScrollIntoView</code>は「対象が見えるようになる最小限の
+        スクロール」しか行わないため、下方向へ移動する場合は対象ページの<strong>末尾</strong>がビューポート
+        下端に揃ってしまい先頭に揃わない(WPFの既知の挙動)。代わりに、対象ページの先頭が正確に
+        ビューポート上端へ来るオフセット(<code class="inline">pageIndex * (PlaceholderHeight + itemMargin)</code>)を
+        直接計算して<code class="inline">ScrollViewer.ScrollToVerticalOffset</code>(WPF)/
+        <code class="inline">ScrollViewer.Offset</code>(Avalonia)へ設定する。
+      </p>
+      <p>
+        ページ送りボタン等プログラム的な移動によるスクロールと、ユーザーの手動スクロールに追従して
+        <code class="inline">CurrentPageIndex</code>を更新する経路が同じ<code class="inline">ScrollChanged</code>イベントを
+        共有するため、<code class="inline">_isSyncingCurrentPageFromScroll</code>(bool)で「今まさにスクロール操作から
+        CurrentPageIndexを追従させている最中」を示し、この間は<code class="inline">CurrentPageIndex</code>の変更を
+        受けてもスクロール位置を動かし直さない(動かすと、追従した瞬間に別の位置へジャンプし直して
+        スクロールが成立しなくなる)。
+      </p>
+
+      <h3 id="link-editor-selection-ui">6.3 リンクのホットスポット表示・テキスト選択</h3>
+      <p>
+        <code class="inline">RedrawLinkOverlay</code>は、
+        <code class="inline">PdfPageListBox.ItemContainerGenerator.ContainerFromIndex</code>(WPF)/
+        <code class="inline">ContainerFromIndex</code>(Avalonia)で現在ページのコンテナを取得し
+        (仮想化により未実体化なら何もしない &mdash; コンテナが実体化した時に
+        <code class="inline">OnPageSlotLoaded</code>から改めて呼ばれる)、その中の<code class="inline">Canvas</code>
+        (<code class="inline">LinkOverlayCanvas</code>)へ確定済みリンクを半透明の矩形として描画し直す。マウス/
+        ポインタイベント(<code class="inline">OnPdfPreviewMouseLeftButtonDown</code>等)はヒットレイヤー自身
+        (<code class="inline">sender</code>)を基準に座標を取り、兄弟要素の<code class="inline">Canvas</code>を
+        <code class="inline">VisualTreeHelper</code>(WPF)/<code class="inline">GetVisualDescendants</code>(Avalonia)で
+        探して描画対象にする &mdash; 連続スクロール表示では同名の<code class="inline">Canvas</code>が複数の
+        コンテナに存在しうるため、常に「今操作しているコンテナ自身」のものを使う必要がある。
+      </p>
+
+      <h3 id="link-editor-existing-links-ui">6.4 設定済みリンク一覧と既存リンクの扱い</h3>
+      <p>
+        リンク一覧(<code class="inline">LinkEditor.LinkGroups.Value</code>)の各項目は「表示」(ジャンプして確認)・
+        「編集」・「削除」の3ボタンを持つが、<code class="inline">LinkGroupInfo.IsPreExisting</code>
+        (ファイルに元から含まれていたリンク、
+        <a href="03-app-design.html#link-editor-existing-links">03-app-design.html §7.6</a>参照)がtrueの項目は
+        「編集」「削除」ボタンを非表示にし、代わりに<span class="badge warn">(既存)</span>バッジを表示する
+        (<code class="inline">PdfLinkAnnotationService</code>が既存の注釈を安全に削除・置換できないため、
+        この画面からは操作できない)。
+      </p>
+
+      <h3 id="link-editor-settings-checkbox">6.5 設定ダイアログ: リンク編集ボタンの表示切り替え</h3>
+      <p>
+        設定ダイアログに「PDF結合時にリンク編集ボタンを表示する」チェックボックス
+        (<code class="inline">SettingsViewModel.ShowMergeAndEditLinksButton</code>)を追加している。既定はオフ
+        (設定ファイル未読み込み時を含む)。ダイアログでOKを押した時点で
+        <code class="inline">MainWindowViewModel.ShowMergeAndEditLinksButton</code>へ反映され、しおり編集画面の
+        「結合してリンク編集へ進む」ボタンの<code class="inline">Visibility</code>/<code class="inline">IsVisible</code>
+        バインディングが即座に追従する(<code class="inline">ThemeMode</code>/<code class="inline">Language</code>と異なり、
+        ウィンドウの再構築は不要)。
       </p>
     </section>
 

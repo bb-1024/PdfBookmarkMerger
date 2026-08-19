@@ -63,6 +63,7 @@
         <li>A bookmark-tree editor (title, destination type, coordinates, open/closed state, hierarchy level, ordering) with Undo support</li>
         <li>Direct editing of pre-merge page numbers, cascading to the affected page and every following file</li>
         <li>Merging/saving the PDF, and exporting the bookmark settings alone as an XML file</li>
+        <li><strong>Link editing</strong> (when enabled in settings) &mdash; a screen that previews the merged, bookmarked PDF and lets you select text in the body to create, verify, and delete links, either to a bookmark's destination or to an arbitrary coordinate. The preview scrolls continuously (virtualized, so it never renders every page at once even for a multi-thousand-page document), and links already present in the file are also listed. See <a href="03-app-design.html#link-editor">03-app-design.html §7</a> and <a href="04-ui-design.html#link-editor-ui">04-ui-design.html §6</a></li>
         <li>Japanese/English UI switching, light/dark/system theme</li>
       </ul>
     </section>
@@ -80,7 +81,7 @@
             <tr><td>DI / hosting</td><td><code class="inline">Microsoft.Extensions.Hosting</code> Generic Host + <code class="inline">Microsoft.Extensions.DependencyInjection</code></td></tr>
             <tr><td>Configuration</td><td><code class="inline">Microsoft.Extensions.Configuration</code> (two-tier: <code class="inline">appsettings.json</code> + a user settings file)</td></tr>
             <tr><td>Logging</td><td>Serilog (daily rolling files; console sink added only in Debug builds)</td></tr>
-            <tr><td>PDF processing</td><td><a href="https://github.com/empira/PDFsharp">PDFsharp</a> 6.2.4</td></tr>
+            <tr><td>PDF processing</td><td><a href="https://github.com/empira/PDFsharp">PDFsharp</a> 6.2.4 (structural read/write) + <a href="https://github.com/sungaila/PDFtoImage">PDFtoImage</a> 5.4.0 (page rendering via PDFium) + <a href="https://github.com/UglyToad/PdfPig">UglyToad.PdfPig</a> 1.7.0-custom-5 (character-level text extraction)</td></tr>
             <tr><td>Testing</td><td>xUnit + <a href="https://github.com/shouldly/shouldly">Shouldly</a></td></tr>
           </tbody>
         </table>
@@ -88,16 +89,16 @@
     </section>
 
     <section id="layout">
-      <h2><span class="num">3</span>Project layout (as of v1.2.3)</h2>
+      <h2><span class="num">3</span>Project layout</h2>
       <pre class="code">src/
   PdfBookmarkMerger.Core/       <span class="c"># Domain layer (models, PDF I/O, merge logic; UI-independent)</span>
   PdfBookmarkMerger.App/        <span class="c"># ViewModel layer and shared app services (UI-independent, wires up DI)</span>
   PdfBookmarkMerger.Wpf/        <span class="c"># WPF-UI frontend (net10.0-windows)</span>
   PdfBookmarkMerger.Avalonia/   <span class="c"># Avalonia frontend (net10.0)</span>
 tests/
-  PdfBookmarkMerger.Core.Tests/         <span class="c"># Core-layer tests (26)</span>
-  PdfBookmarkMerger.App.Tests/          <span class="c"># App-layer ViewModel tests (91)</span>
-  PdfBookmarkMerger.UiConverters.Tests/ <span class="c"># Golden tests exercising both WPF and Avalonia converters (33)</span>
+  PdfBookmarkMerger.Core.Tests/         <span class="c"># Core-layer tests (46)</span>
+  PdfBookmarkMerger.App.Tests/          <span class="c"># App-layer ViewModel tests (120)</span>
+  PdfBookmarkMerger.UiConverters.Tests/ <span class="c"># Golden tests exercising both WPF and Avalonia converters (36)</span>
   sample/                                <span class="c"># Real sample PDFs for manual/regression testing</span>
 tools/
   PdfBookmarkMerger.SampleGenerator/    <span class="c"># Helper tool that generates the PDFs under tests/sample</span>
@@ -112,13 +113,14 @@ scripts/
     </section>
 
     <section id="workflow">
-      <h2><span class="num">4</span>The app's basic flow (4 steps)</h2>
+      <h2><span class="num">4</span>The app's basic flow</h2>
       <p><code class="inline">MainWindowViewModel.Step</code> (a <code class="inline">WorkflowStep</code> enum) drives screen transitions.</p>
       <ol>
         <li><strong>Select files</strong> (<code class="inline">WorkflowStep.SelectFiles</code>) &mdash; add PDFs via drag &amp; drop or dialogs and settle their order; this order becomes the merge order.</li>
         <li><strong>Extract bookmarks</strong> (right before entering <code class="inline">WorkflowStep.EditBookmarks</code>) &mdash; <code class="inline">ConfirmFilesCommand</code> reads every file's metadata in parallel, then extracts bookmarks and computes post-merge page numbers.</li>
         <li><strong>Edit bookmarks</strong> (<code class="inline">WorkflowStep.EditBookmarks</code>) &mdash; edit the extraction result as a tree.</li>
-        <li><strong>Merge &amp; save</strong> &mdash; <code class="inline">MergeCommand</code> merges and saves the PDF (or <code class="inline">SaveBookmarkSettingsCommand</code> exports only the bookmark settings file).</li>
+        <li><strong>Merge &amp; save</strong> &mdash; there are two buttons here. "Merge and Save PDF" (<code class="inline">MergeCommand</code>) ends the workflow. "Merge and Continue to Link Editing" (<code class="inline">MergeAndEditLinksCommand</code>, shown only when enabled in settings &mdash; hidden by default) carries the merged file straight into step 5. Both share the same underlying merge (save-path dialog &rarr; properties dialog if enabled &rarr; <code class="inline">PdfMergeService.MergeAsync</code>).</li>
+        <li><strong>Edit links</strong> (<code class="inline">WorkflowStep.EditLinks</code>, optional) &mdash; add, verify, and delete links on the file merged in step 4. See <a href="03-app-design.html#link-editor">03-app-design.html §7</a> for details.</li>
       </ol>
     </section>
 

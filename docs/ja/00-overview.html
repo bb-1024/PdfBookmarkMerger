@@ -63,6 +63,11 @@
         <li>しおりツリーの編集(タイトル・表示方法・座標・開閉状態・階層・並び順)、Undo対応</li>
         <li>結合前ページ数の直接編集(該当ページ以降・後続ファイルへの連鎖反映)</li>
         <li>PDF結合・保存、しおり設定ファイル(XML)単体でのエクスポート</li>
+        <li><strong>リンク編集</strong>(設定で有効化した場合) — 結合・しおり設定済みのPDFをプレビューしながら、
+        本文中のテキストを選択してしおり位置または任意の座標へのリンクを作成・確認・削除する画面。
+        連続スクロールのプレビュー(数千ページ規模でも全ページを同時描画しない仮想化表示)、PDFに元から
+        含まれるリンクの一覧表示にも対応する。詳細は <a href="03-app-design.html#link-editor">03-app-design.html §7</a>・
+        <a href="04-ui-design.html#link-editor-ui">04-ui-design.html §6</a> を参照</li>
         <li>日本語/英語UI切り替え、ライト/ダーク/システム追従テーマ</li>
       </ul>
     </section>
@@ -80,7 +85,7 @@
             <tr><td>DI / ホスティング</td><td><code class="inline">Microsoft.Extensions.Hosting</code> の Generic Host + <code class="inline">Microsoft.Extensions.DependencyInjection</code></td></tr>
             <tr><td>設定</td><td><code class="inline">Microsoft.Extensions.Configuration</code>(<code class="inline">appsettings.json</code> + ユーザー設定ファイルの2階層)</td></tr>
             <tr><td>ログ</td><td>Serilog(日次ローリングファイル、Debug構成のみコンソール追加)</td></tr>
-            <tr><td>PDF処理</td><td><a href="https://github.com/empira/PDFsharp">PDFsharp</a> 6.2.4</td></tr>
+            <tr><td>PDF処理</td><td><a href="https://github.com/empira/PDFsharp">PDFsharp</a> 6.2.4(構造の読み書き) + <a href="https://github.com/sungaila/PDFtoImage">PDFtoImage</a> 5.4.0(PDFium経由のページ描画) + <a href="https://github.com/UglyToad/PdfPig">UglyToad.PdfPig</a> 1.7.0-custom-5(文字単位のテキスト抽出)</td></tr>
             <tr><td>テスト</td><td>xUnit + <a href="https://github.com/shouldly/shouldly">Shouldly</a></td></tr>
           </tbody>
         </table>
@@ -88,16 +93,16 @@
     </section>
 
     <section id="layout">
-      <h2><span class="num">3</span>プロジェクト構成(v1.2.3時点)</h2>
+      <h2><span class="num">3</span>プロジェクト構成</h2>
       <pre class="code">src/
   PdfBookmarkMerger.Core/       <span class="c"># ドメイン層(モデル・PDF入出力・結合ロジック、UI非依存)</span>
   PdfBookmarkMerger.App/        <span class="c"># ViewModel層・アプリ共通サービス(UI非依存、DI組み立ての中心)</span>
   PdfBookmarkMerger.Wpf/        <span class="c"># WPF-UIフロントエンド(net10.0-windows)</span>
   PdfBookmarkMerger.Avalonia/   <span class="c"># Avaloniaフロントエンド(net10.0)</span>
 tests/
-  PdfBookmarkMerger.Core.Tests/         <span class="c"># Core層のテスト(26件)</span>
-  PdfBookmarkMerger.App.Tests/          <span class="c"># App層ViewModelのテスト(91件)</span>
-  PdfBookmarkMerger.UiConverters.Tests/ <span class="c"># WPF/Avalonia双方のConverterを実行するゴールデンテスト(33件)</span>
+  PdfBookmarkMerger.Core.Tests/         <span class="c"># Core層のテスト(46件)</span>
+  PdfBookmarkMerger.App.Tests/          <span class="c"># App層ViewModelのテスト(120件)</span>
+  PdfBookmarkMerger.UiConverters.Tests/ <span class="c"># WPF/Avalonia双方のConverterを実行するゴールデンテスト(36件)</span>
   sample/                                <span class="c"># 手動確認・回帰テスト用の実サンプルPDF</span>
 tools/
   PdfBookmarkMerger.SampleGenerator/    <span class="c"># tests/sample配下のサンプルPDFを生成する補助ツール</span>
@@ -112,7 +117,7 @@ scripts/
     </section>
 
     <section id="workflow">
-      <h2><span class="num">4</span>アプリの基本フロー(4ステップ)</h2>
+      <h2><span class="num">4</span>アプリの基本フロー</h2>
       <p>
         <code class="inline">MainWindowViewModel.Step</code>(<code class="inline">WorkflowStep</code>列挙型)が
         画面遷移を管理します。
@@ -121,7 +126,8 @@ scripts/
         <li><strong>ファイル指定</strong>(<code class="inline">WorkflowStep.SelectFiles</code>) — D&amp;D/ダイアログでPDFを追加し、並び順を確定する。この並び順がそのまま結合順になる。</li>
         <li><strong>しおり抽出</strong>(<code class="inline">WorkflowStep.EditBookmarks</code> に入る直前) — <code class="inline">ConfirmFilesCommand</code> が全ファイルのメタデータを並列読み込みし、しおり抽出・結合後ページ番号の計算までを行う。</li>
         <li><strong>しおり編集</strong>(<code class="inline">WorkflowStep.EditBookmarks</code>) — 抽出結果をツリーとして編集する。</li>
-        <li><strong>結合・保存</strong> — <code class="inline">MergeCommand</code> でPDFを結合・保存する(または <code class="inline">SaveBookmarkSettingsCommand</code> でしおり設定ファイルのみを書き出す)。</li>
+        <li><strong>結合・保存</strong> — 2種類のボタンがある。「結合してPDFを保存」(<code class="inline">MergeCommand</code>)はここで手順を終える。「結合してリンク編集へ進む」(<code class="inline">MergeAndEditLinksCommand</code>、設定でONにした場合のみ表示。既定は非表示)は、結合したファイルをそのまま次の手順5へ引き継ぐ。いずれも保存先ダイアログ→(設定により)プロパティ編集ダイアログ→<code class="inline">PdfMergeService.MergeAsync</code>という結合処理自体は共通。</li>
+        <li><strong>リンク編集</strong>(<code class="inline">WorkflowStep.EditLinks</code>、任意) — 手順4で結合したファイルへリンクを追加・確認・削除する。詳細は <a href="03-app-design.html#link-editor">03-app-design.html §7</a> を参照。</li>
       </ol>
     </section>
 

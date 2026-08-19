@@ -52,6 +52,9 @@
             <tr><td class="mono">PdfMergeRequest</td><td>Input to <code class="inline">PdfMergeService.MergeAsync</code> (file order, the edited bookmark tree, output properties, output path).</td></tr>
             <tr><td class="mono">MergeProgress</td><td><code class="inline">record(int CompletedFileCount, int TotalFileCount, string CurrentFileName)</code> &mdash; progress notification for the merge process.</td></tr>
             <tr><td class="mono">BookmarkDestinationType</td><td>Only 4 values: <code class="inline">XYZ</code> / <code class="inline">Fit</code> / <code class="inline">FitH</code> / <code class="inline">FitV</code> (the bounding-box variants <code class="inline">FitB*</code> and the rectangle variant <code class="inline">FitR</code> aren't exposed in the UI and get simplified on read).</td></tr>
+            <tr><td class="mono">PdfRect</td><td><code class="inline">record struct(double Left, double Bottom, double Right, double Top)</code>. A rectangle in PDF user space (points, bottom-left origin). <strong>The field order matches the PDF spec's <code class="inline">/Rect</code> array order, which is not the same as the natural reading order</strong> (Left,Top,Right,Bottom). Constructing one positionally is a silent-failure trap, so always use named arguments (a real Top/Bottom-swap bug from positional construction is documented in <a href="#link-editor-services">§2.10</a>, caught by a dedicated test).</td></tr>
+            <tr><td class="mono">LinkAnnotationNode</td><td>A single link created or read in the link editor. Holds <code class="inline">GroupId</code> (the aggregation key shared by a run of links generated from one multi-line selection, so the UI can treat them as one unit; <code class="inline">GroupId == Id</code> for a single-line selection), <code class="inline">SourcePageIndex</code>/<code class="inline">SourceRect</code> (the hotspot), and <code class="inline">TargetPageIndex</code> + <code class="inline">DestinationType</code> + coordinates (the jump target, shaped the same way as <code class="inline">BookmarkNode</code>'s). Deliberately not factored into a shared base type with <code class="inline">BookmarkNode</code> (a few lines of duplication beats a premature abstraction here).</td></tr>
+            <tr><td class="mono">PdfTextLetter</td><td><code class="inline">record struct(string Value, PdfRect Rect)</code> &mdash; a single character (glyph) and its rectangle in PDF user space. Used for hit-testing character-level range selection.</td></tr>
           </tbody>
         </table>
       </div>
@@ -164,6 +167,94 @@
         <code class="inline">PdfPageDestinationType</code>. The conversion logic lives in the Services layer
         specifically to keep Models free of any library dependency.
       </p>
+
+      <h3 id="link-editor-services"><code class="inline">PdfPageRenderer</code></h3>
+      <p>
+        Renders a single PDF page to PNG bytes for the link editor's preview, using
+        <code class="inline">PDFtoImage</code> (a wrapper around PDFium &mdash; the same rendering engine Chrome's
+        native, non-JS PDF viewer uses).
+      </p>
+      <ul>
+        <li><code class="inline">RenderPageAsync(filePath, pageIndex, scale, ct)</code> &mdash; calls <code class="inline">Conversion.ToImage(...)</code> and returns PNG bytes.</li>
+        <li><code class="inline">GetPageSizeAsync(filePath, pageIndex, ct)</code> &mdash; returns the page's size in PDF user space (points).</li>
+      </ul>
+      <p>
+        <code class="inline">PDFtoImage</code>'s public API is entirely stateless &mdash; only one-shot APIs that
+        take a file path/byte array each call exist; there is no public API for holding a document handle open
+        and reusing it. The original design assumed a reusable handle would be available; once that turned out
+        not to be the case, a quick benchmark against a ~2000-page sample PDF (generated with an in-house
+        PDFsharp-based tool) was run to check whether statelessness would be a real performance problem. The
+        result was a steady <strong>16&ndash;26&nbsp;ms per page regardless of page position</strong>, so the
+        stateless API was accepted as fine. PDFium itself is not thread-safe, so calls are serialized behind a
+        <code class="inline">SemaphoreSlim</code> (capacity 1). The PDFium call sites themselves are wrapped in
+        <code class="inline">#pragma warning disable/restore CA1416</code> around just those 2&ndash;3 lines
+        rather than at the class level &mdash; see <a href="01-architecture.html#cross-cutting">01-architecture.html §4.6</a>.
+      </p>
+
+      <h3><code class="inline">PdfTextExtractor</code></h3>
+      <p>
+        <code class="inline">ExtractLettersAsync(filePath, pageIndex, ct)</code> &mdash; extracts per-character
+        (glyph) rectangles and text for the given page using <code class="inline">UglyToad.PdfPig</code> (pure
+        managed code, no native dependency), returning a list of <code class="inline">PdfTextLetter</code>.
+        PdfPig's <code class="inline">Letter.GlyphRectangle</code> is in PDF user space (points, bottom-left
+        origin) &mdash; the same coordinate system PDFsharp's <code class="inline">/Rect</code> uses &mdash; so no
+        extra conversion is needed between PdfPig and PdfSharp (only between PDF space and the rendered bitmap's
+        pixel space, which <code class="inline">PdfCoordinateMapper</code> handles). The whole document is never
+        extracted at once; only the currently displayed page is.
+      </p>
+
+      <h3><code class="inline">PdfCoordinateMapper</code> <span class="tag">static</span></h3>
+      <p>
+        Converts between PDF user space (points, bottom-left origin) and the pixel coordinates of the bitmap
+        <code class="inline">PdfPageRenderer</code> produced (top-left origin, <code class="inline">96 * scale / 72</code> px/pt).
+      </p>
+      <pre class="code">public static double PixelsPerPoint(float scale) =&gt; 96.0 * scale / 72.0;
+public static (double X, double Y) ToPixel(double pdfX, double pdfY, double pageHeightPt, float scale);
+public static (double X, double Y) ToPdf(double pixelX, double pixelY, double pageHeightPt, float scale);
+public static PdfRect ToPixelRect(PdfRect pdfRect, double pageHeightPt, float scale);</pre>
+      <p>
+        <code class="inline">ToPixelRect</code> really did have a bug during implementation, once, from
+        constructing a <code class="inline">PdfRect</code> positionally in the wrong order (Left,Top,Right,Bottom),
+        swapping Top and Bottom &mdash; caught by a dedicated test. As noted in <a href="#models">§1</a>, this is
+        exactly why <code class="inline">PdfRect</code> should always be constructed with named arguments: its
+        field order matches the PDF spec, not the natural reading order.
+      </p>
+
+      <h3><code class="inline">PdfLinkAnnotationService</code></h3>
+      <p>Owns both writing the links created in the link editor and reading links already present in the file.</p>
+      <div class="card">
+        <h4><code class="inline">ApplyLinksAsync(filePath, links, ct)</code></h4>
+        <p>
+          Opens the file in <code class="inline">PdfDocumentOpenMode.Modify</code> (PDFsharp's append-only open
+          mode, which never rebuilds the page tree the way <code class="inline">AddPage</code> does) and appends
+          <code class="inline">/Annots</code> entries directly onto the existing <code class="inline">PdfPage</code>
+          objects, then saves to the same path. <strong>Never using <code class="inline">AddPage</code></strong> is
+          the key design decision here: rebuilding the page tree via <code class="inline">AddPage</code> could
+          reintroduce the same class of bug fixed in <a href="#link-remap">§2.5</a> &mdash; internal link
+          destinations breaking after a merge &mdash; against the file's existing bookmarks and existing links
+          this time. The link annotation itself also isn't built via the high-level
+          <code class="inline">PdfLinkAnnotation.CreateDocumentLink</code> (it can only build a page-number-based,
+          plain <code class="inline">/XYZ</code> destination); instead the code constructs
+          <code class="inline">PdfDictionary</code>/<code class="inline">PdfArray</code> directly at a low level
+          to reproduce every <code class="inline">BookmarkDestinationType</code> variant. Note also that
+          <code class="inline">/Border</code> is written explicitly as <code class="inline">[0 0 0]</code> (zero
+          width) &mdash; the PDF spec's default when it's omitted is <code class="inline">[0 0 1]</code>, and many
+          viewers would otherwise draw a visible rectangle around the hotspot.
+        </p>
+      </div>
+      <div class="card">
+        <h4><code class="inline">ReadExistingLinksAsync(filePath, ct)</code></h4>
+        <p>
+          The reverse: reads every <code class="inline">/Subtype /Link</code> annotation already in the file and
+          returns them as <code class="inline">LinkAnnotationNode</code>s. Handles both the <code class="inline">/A</code>
+          (<code class="inline">/S /GoTo /D [...]</code>) form and a direct <code class="inline">/Dest</code>. The
+          destination array's first element (an indirect reference to the target page) is resolved to an actual
+          page index via a dictionary keyed by <code class="inline">PdfReference.ObjectID</code>, built by scanning
+          every page once. Covered by round-trip tests (write then read back). See
+          <a href="03-app-design.html#link-editor-existing-links">03-app-design.html §7.6</a> for how the App layer
+          treats these links (read-only &mdash; they can't be edited or deleted from the link editor screen).
+        </p>
+      </div>
     </section>
 
     <section id="pipeline">

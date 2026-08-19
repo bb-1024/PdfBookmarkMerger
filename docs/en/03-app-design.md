@@ -12,14 +12,25 @@ Every ViewModel derives from `ViewModelBase` (a thin base class that only owns a
 ## 1. `MainWindowViewModel`
 
 Orchestrates the main window as a whole: the `Step` transition
-(`WorkflowStep.SelectFiles` → `EditBookmarks`) and the four primary commands.
+(`WorkflowStep.SelectFiles` → `EditBookmarks` → optionally `EditLinks`) and the primary commands.
 
 | Command | CanExecute | What it does |
 |---|---|---|
 | `ConfirmFilesCommand` | `HasFiles && !IsBusy` | Reads every file's metadata in parallel → extracts bookmarks and computes post-merge page numbers → `BookmarkTree.Load` → `Step = EditBookmarks` |
-| `MergeCommand` | `(Step==EditBookmarks) && !IsBusy && !HasPageNumberEdits` | Save dialog → (if configured) properties dialog → `PdfMergeService.MergeAsync` |
+| `MergeCommand` | `(Step==EditBookmarks) && !IsBusy && !HasPageNumberEdits` | `MergeCoreAsync(continueToLinkEditing: false)` — merges and ends the workflow here |
+| `MergeAndEditLinksCommand` | Same | `MergeCoreAsync(continueToLinkEditing: true)` — merges, then `LinkEditor.LoadAsync` → `Step = EditLinks` |
 | `SaveBookmarkSettingsCommand` | `(Step==EditBookmarks) && !IsBusy && !HasPageNumberInconsistency` | Save dialog → `BookmarkSettingsExportService.ExportAsync` |
 | `BackToFileListCommand` | `(Step==EditBookmarks) && !IsBusy` | Returns to `Step = SelectFiles` |
+| `BackToBookmarksCommand` | `(Step==EditLinks) && !IsBusy` | Returns to `Step = EditBookmarks` (the merged intermediate file is left as-is) |
+| `FinishLinkEditingCommand` | `(Step==EditLinks) && !IsBusy` | `LinkEditor.FinishAsync()` → completion dialog |
+
+`MergeCommand` and `MergeAndEditLinksCommand` are two entry points into a shared
+`MergeCoreAsync(bool continueToLinkEditing)` that owns the actual merge (save-path dialog → properties
+dialog if configured → `PdfMergeService.MergeAsync`). `MergeAndEditLinksCommand` (the "Merge and
+Continue to Link Editing" button) only appears in the UI when the `ShowMergeAndEditLinksButton`
+setting is on (default off, including when no settings file has been loaded yet;
+`MainWindowViewModel.ShowMergeAndEditLinksButton` reflects it immediately once the Settings dialog is
+confirmed).
 
 `ConfirmFilesAsync` parallelizes each file's metadata read with a `SemaphoreSlim`
 (capped at `Math.Clamp(Environment.ProcessorCount, 1, 8)`) and applies results in completion order
@@ -244,4 +255,148 @@ a ViewModel, shared between WPF and Avalonia and constructed/disposed by the `ID
 implementation). **Since v1.2.2**, `SettingsViewModel` also exposes `AppVersion` (string), shown in
 the Settings dialog. Its value comes from `Assembly.GetExecutingAssembly()`'s
 `AssemblyInformationalVersionAttribute`, which the build writes directly from
-`Directory.Build.props`'s `<Version>`.
+`Directory.Build.props`'s `<Version>`. `PdfPageSlotViewModel` (one placeholder per page in the
+continuous-scroll preview) is covered in [§7.2](#link-editor-scroll).
+`ShowMergeAndEditLinksButton` (`ReactivePropertySlim<bool>`) drives whether the "Merge and Continue
+to Link Editing" button is shown. Unlike `ThemeMode`/`Language`, it never triggers a theme reapply or
+a window rebuild — it's a plain binding target, so `MainWindowViewModel.OpenSettingsAsync` just writes
+the new value right after the dialog is confirmed, and the XAML binding picks it up immediately.
+
+<a id="link-editor"></a>
+## 7. `LinkEditorViewModel`
+
+Orchestrates step 5 (`WorkflowStep.EditLinks`). Targets a single, already-merged-and-bookmarked PDF
+file: continuous-scroll page preview, zoom, jumping from the bookmark list, creating links via text
+selection, and listing/verifying/deleting links. Registered in DI the same way as
+`MainWindowViewModel` (constructor: `IPdfPageRenderer`, `IPdfTextExtractor`, `IPdfMetadataService`,
+`IPdfLinkAnnotationService`, `ILogger<LinkEditorViewModel>`).
+
+### 7.1 `LoadAsync` — initializing on screen entry
+
+`LoadAsync(filePath, ct)`:
+
+1. Reads page count and the bookmark list via `IPdfMetadataService.ReadMetadataAsync` (the merged
+   file can be treated as "a single PDF that has bookmarks," so the multi-file-specific
+   `SourceFileEntryId`/`OriginalPageIndex` machinery isn't needed here).
+2. Reads page 0's PDF-user-space size, used to size the continuous-scroll placeholders
+   (see [§7.2](#link-editor-scroll)).
+3. Creates `PageSlots` (below), one per page.
+4. Only if the file actually exists on disk (unit tests sometimes pass a fictional path): copies it
+   to a "pristine" backup in the temp folder (see [§7.5](#link-editor-finish)), then reads links
+   already present via `IPdfLinkAnnotationService.ReadExistingLinksAsync` and adds them to `Links`
+   (see [§7.6](#link-editor-existing-links)).
+
+<a id="link-editor-scroll"></a>
+### 7.2 Continuous-scroll preview — `PageSlots` and virtualization
+
+The preview is designed as a virtualized list of lightweight placeholders, specifically so a
+multi-thousand-page PDF never holds every page's bitmap in memory at once.
+
+- `PageSlots` (`ObservableCollection<PdfPageSlotViewModel>`) — one lightweight placeholder per page,
+  holding `PageIndex`, `Image` (`byte[]?`, null until rendered), and `IsCurrent` (bool — whether this
+  page is the current target of selection/link-creation/hotspot display). `LoadAsync` creates one per
+  page up front (no rendering involved).
+- `LoadPageSlotAsync(pageIndex)` — called from the UI when a virtualized container is realized. If
+  that slot hasn't been rendered yet, renders the page and assigns it to `Image`. A per-page-index
+  `CancellationTokenSource` dictionary handles repeat/overtaking calls for the same page.
+- `UnloadPageSlot(pageIndex)` — called when a container leaves the viewport (recycled by the
+  virtualizing panel). Cancels an in-flight render if any, and resets `Image` to `null` to free the
+  memory — this is the piece that keeps memory bounded on a multi-thousand-page document.
+- `PlaceholderWidth`/`PlaceholderHeight` — the pixel width/height reserved for an unrendered slot at
+  the current zoom. Page 0's PDF-user-space size stands in for every page (fetching every page's real
+  size up front would be expensive on a large PDF), recomputed via
+  `PdfCoordinateMapper.PixelsPerPoint(scale)` on every zoom change.
+
+See [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-ui) for how the UI side derives
+"whichever page occupies the largest area of the viewport" from scroll position and writes it to
+`CurrentPageIndex`.
+
+### 7.3 Keeping `CurrentPageIndex` and `PageNumberInput` in sync
+
+Whenever `CurrentPageIndex` (0-based) changes, `OnCurrentPageIndexChanged`:
+
+1. Clamps an out-of-range value to the nearest valid one (a self-reentrant set;
+   `ReactivePropertySlim` never re-notifies on an unchanged value, so this converges).
+2. Flips the old `_currentSlot`'s `IsCurrent` to false and the new slot's to true.
+3. Syncs `PageNumberInput` (1-based, two-way bound to the page-turn toolbar's text box).
+4. Fetches the current page's metadata (`PageHeight`, and `Letters` only if the page actually
+   changed) fire-and-forget (`TriggerLoadCurrentPageMetadata`) — the page's bitmap itself is
+   `PageSlots`' job, not handled here.
+
+Changes from the other direction — the user typing directly into `PageNumberInput` — also flow back
+into `CurrentPageIndex` with the same clamping (`OnPageNumberInputChanged`), so the two stay
+synchronized both ways.
+
+### 7.4 Creating links via text selection
+
+- `BeginTextSelection`/`UpdateTextSelection`/`EndTextSelection` — take the PDF-user-space coordinates
+  of a drag's start/move/end, hit-testing them against the current page's `Letters` (the character
+  rectangles `PdfTextExtractor` extracted) to find a selection range (a span of character indices). If
+  no character's rectangle actually contains the point, the nearest one by center-to-point distance is
+  used instead, so a drag that strays slightly outside a character's bounds doesn't break selection.
+- On commit, `GroupLettersIntoLineRects` groups the selected characters by line (a gap of 2pt or more
+  between adjacent characters' Bottom coordinates counts as a line break) and computes each line's
+  bounding rect, populating `PendingSelection` (`SourcePageIndex` + a list of per-line rects). A
+  selection spanning multiple lines is kept as multiple rects (since a PDF Link annotation's `/Rect`
+  can only be a single rectangle).
+- `CreateLinkToBookmark(bookmark)` — for each line rect in `PendingSelection`, creates a
+  `LinkAnnotationNode` that copies the chosen bookmark's `DestinationType`/coordinates verbatim and
+  adds it to `Links` (multiple lines become multiple links sharing one `GroupId`).
+- `PickArbitraryTargetAndCreateLink(targetPageIndex, pdfX, pdfY)` — while
+  `IsPickingArbitraryTarget` is on, commits a link the same way using the clicked preview position as
+  an XYZ destination.
+- `LinkGroups` (`ReactivePropertySlim<IReadOnlyList<LinkGroupInfo>>`) — a summary of `Links` grouped
+  by `GroupId`, for the list UI. Recomputed on every `Links.CollectionChanged`.
+
+### 7.5 `DeleteLinkGroup` / `BeginEditLinkGroup`
+
+`DeleteLinkGroup(groupId)` removes every link with that `GroupId` from `Links`.
+`BeginEditLinkGroup(groupId)` removes them the same way, then restores the same hotspot (`SourceRect`
+set) into `PendingSelection` — so `CreateLinkToBookmark`/`PickArbitraryTargetAndCreateLink` can be
+reused as-is to pick a new destination (the links get a fresh `GroupId` on commit; `GroupId` is purely
+an internal aggregation key with no requirement to stay stable across an edit). Both are no-ops when
+any of the targeted links is a pre-existing one (see [§7.6](#link-editor-existing-links)).
+
+<a id="link-editor-finish"></a>
+### 7.6 `FinishAsync` — completion (writing links) and idempotency
+
+<a id="link-editor-existing-links"></a>
+`PdfLinkAnnotationService.ApplyLinksAsync` only ever **appends** in `Modify` mode — it has no way to
+safely delete or replace an existing annotation (see
+[02-core-design.md §2.11](02-core-design.md#link-editor-services)). That constraint drives two design
+decisions in `LinkEditorViewModel`:
+
+1. **A "pristine" backup and an idempotent Finish**: right after `LoadAsync` (before this session has
+   applied any links at all), the file is copied to a temp-folder backup held as
+   `_pristineBackupPath`. `FinishAsync` always restores that backup onto `FilePath` first, then calls
+   `ApplyLinksAsync` — so pressing "Finish" more than once (even as `Links`' contents keep changing
+   between presses) never duplicates an annotation.
+2. **Excluding pre-existing links**: links read via `ReadExistingLinksAsync` in `LoadAsync` get their
+   Ids recorded in `_preExistingLinkIds` (a `HashSet<Guid>`) before being added to `Links` (so they
+   show up in the list). Since restoring the pristine backup already brings them back, `FinishAsync`
+   sends `ApplyLinksAsync` only the links in `Links` that **aren't** in `_preExistingLinkIds` — the
+   newly created ones. Sending the pre-existing ones too would write them a second time. For the same
+   reason, `DeleteLinkGroup`/`BeginEditLinkGroup` (§7.5) no-op on pre-existing links — there's no way
+   to make a deletion or a re-targeted destination "stick" for them. The UI reads
+   `LinkGroupInfo.IsPreExisting` (true when every link in a group is in `_preExistingLinkIds`) to hide
+   the edit/delete buttons for those entries
+   (see [04-ui-design.md §6.4](04-ui-design.md#link-editor-existing-links-ui)).
+
+<a id="link-editor-thread"></a>
+### 7.7 Two bugs found during implementation
+
+- **Cross-thread crash (`ConfigureAwait(false)`)**: early on, `LoadAsync` and other async methods
+  used `.ConfigureAwait(false)`, so the continuation after the first `await` ran on a thread-pool
+  thread — and the moment it wrote to a `ReactivePropertySlim` like `IsBusy`, WPF's `CommandManager`
+  (UI-thread-only) threw `InvalidOperationException` (cross-thread access). No other App-layer
+  ViewModel (`BookmarkTreeViewModel` etc.) uses `ConfigureAwait(false)` at all, so this simply broke
+  from that existing convention. Fixed by removing it everywhere in the file
+  (see [01-architecture.md §4.5](01-architecture.md)).
+- **Scroll-driven current-page detection failing**: the first implementation used
+  `VisualTreeHelper.HitTest` against the element at the viewport's top edge to identify the page
+  there. On the WPF build, `Wpf.Ui`'s `FluentWindow` silently swaps the internal `ScrollViewer` for
+  its own `PassiveScrollViewer`, and hit-testing against it never resolved past the control itself
+  into its actual content (found by adding temporary diagnostic logging and inspecting what the hit
+  actually was). Fixed by switching to deriving the page directly from the scroll offset and the
+  known per-page height, given every page shares the same placeholder size — see
+  [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-ui).

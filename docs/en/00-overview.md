@@ -23,6 +23,13 @@ Key features:
   ordering) with Undo support
 - Direct editing of pre-merge page numbers, cascading to the affected page and every following file
 - Merging/saving the PDF, and exporting the bookmark settings alone as an XML file
+- **Link editing** (when enabled in settings): a screen that previews the merged,
+  bookmarked PDF and lets you select text in the body to create, verify, and delete links —
+  either to a bookmark's destination or to an arbitrary coordinate. The preview scrolls
+  continuously (virtualized, so it never renders every page at once even for a
+  multi-thousand-page document), and links already present in the file are also listed.
+  See [03-app-design.md §7](03-app-design.md#link-editor) and
+  [04-ui-design.md §6](04-ui-design.md#link-editor-ui) for details
 - Japanese/English UI switching, light/dark/system theme
 
 ## 2. Tech stack
@@ -36,7 +43,7 @@ Key features:
 | DI / hosting | `Microsoft.Extensions.Hosting` Generic Host + `Microsoft.Extensions.DependencyInjection` |
 | Configuration | `Microsoft.Extensions.Configuration` (two-tier: `appsettings.json` + a user settings file) |
 | Logging | Serilog (daily rolling files; console sink added only in Debug builds) |
-| PDF processing | [PDFsharp](https://github.com/empira/PDFsharp) 6.2.4 |
+| PDF processing | [PDFsharp](https://github.com/empira/PDFsharp) 6.2.4 (structural read/write) + [PDFtoImage](https://github.com/sungaila/PDFtoImage) 5.4.0 (page rendering via PDFium) + [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) 1.7.0-custom-5 (character-level text extraction) |
 | Testing | xUnit + [Shouldly](https://github.com/shouldly/shouldly) |
 
 ## 3. Project layout (as of v1.2.3)
@@ -48,9 +55,9 @@ src/
   PdfBookmarkMerger.Wpf/        WPF-UI frontend (net10.0-windows)
   PdfBookmarkMerger.Avalonia/   Avalonia frontend (net10.0)
 tests/
-  PdfBookmarkMerger.Core.Tests/         Core-layer tests (26)
-  PdfBookmarkMerger.App.Tests/          App-layer ViewModel tests (91)
-  PdfBookmarkMerger.UiConverters.Tests/ Golden tests exercising both WPF and Avalonia converters (33)
+  PdfBookmarkMerger.Core.Tests/         Core-layer tests (46)
+  PdfBookmarkMerger.App.Tests/          App-layer ViewModel tests (120)
+  PdfBookmarkMerger.UiConverters.Tests/ Golden tests exercising both WPF and Avalonia converters (36)
   sample/                                Real sample PDFs for manual/regression testing
 tools/
   PdfBookmarkMerger.SampleGenerator/    Helper tool that generates the PDFs under tests/sample
@@ -61,7 +68,7 @@ scripts/
 Dependencies flow in one direction (`Wpf`/`Avalonia` → `App` → `Core`); neither `Core` nor `App`
 depends on any UI framework. See [01-architecture.md](01-architecture.md) for details.
 
-## 4. The app's basic flow (4 steps)
+## 4. The app's basic flow
 
 `MainWindowViewModel.Step` (a `WorkflowStep` enum) drives screen transitions.
 
@@ -71,8 +78,13 @@ depends on any UI framework. See [01-architecture.md](01-architecture.md) for de
    reads every file's metadata in parallel, then extracts bookmarks and computes post-merge page
    numbers.
 3. **Edit bookmarks** (`WorkflowStep.EditBookmarks`) — edit the extraction result as a tree.
-4. **Merge & save** — `MergeCommand` merges and saves the PDF (or `SaveBookmarkSettingsCommand`
-   exports only the bookmark settings file).
+4. **Merge & save** — there are two buttons here. "Merge and Save PDF" (`MergeCommand`) ends the
+   workflow. "Merge and Continue to Link Editing" (`MergeAndEditLinksCommand`, shown only when
+   enabled in settings — hidden by default) carries the merged file straight into step 5. Both
+   share the same underlying merge (save-path dialog → properties dialog if enabled →
+   `PdfMergeService.MergeAsync`).
+5. **Edit links** (`WorkflowStep.EditLinks`, optional) — add, verify, and delete links on the file
+   merged in step 4. See [03-app-design.md §7](03-app-design.md#link-editor) for details.
 
 ## 5. Document structure
 

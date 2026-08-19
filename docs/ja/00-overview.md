@@ -21,6 +21,11 @@ Windows/macOS向けの **Avalonia版** の2フロントエンドを、共通の�
 - しおりツリーの編集(タイトル・表示方法・座標・開閉状態・階層・並び順)、Undo対応
 - 結合前ページ数の直接編集(該当ページ以降・後続ファイルへの連鎖反映)
 - PDF結合・保存、しおり設定ファイル(XML)単体でのエクスポート
+- **リンク編集**(設定で有効化した場合): 結合・しおり設定済みのPDFをプレビューしながら、
+  本文中のテキストを選択してしおり位置または任意の座標へのリンクを作成・確認・削除する
+  画面。連続スクロールのプレビュー(数千ページ規模でも全ページを同時描画しない仮想化表示)、
+  PDFに元から含まれるリンクの一覧表示にも対応する。詳細は
+  [03-app-design.md §7](03-app-design.md#link-editor)・[04-ui-design.md §6](04-ui-design.md#link-editor-ui) を参照
 - 日本語/英語UI切り替え、ライト/ダーク/システム追従テーマ
 
 ## 2. 技術スタック
@@ -34,7 +39,7 @@ Windows/macOS向けの **Avalonia版** の2フロントエンドを、共通の�
 | DI / ホスティング | `Microsoft.Extensions.Hosting` の Generic Host + `Microsoft.Extensions.DependencyInjection` |
 | 設定 | `Microsoft.Extensions.Configuration`(`appsettings.json` + ユーザー設定ファイルの2階層) |
 | ログ | Serilog(日次ローリングファイル、Debug構成のみコンソール追加) |
-| PDF処理 | [PDFsharp](https://github.com/empira/PDFsharp) 6.2.4 |
+| PDF処理 | [PDFsharp](https://github.com/empira/PDFsharp) 6.2.4(構造の読み書き) + [PDFtoImage](https://github.com/sungaila/PDFtoImage) 5.4.0(PDFium経由のページ描画) + [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) 1.7.0-custom-5(文字単位のテキスト抽出) |
 | テスト | xUnit + [Shouldly](https://github.com/shouldly/shouldly) |
 
 ## 3. プロジェクト構成(v1.2.3時点)
@@ -46,9 +51,9 @@ src/
   PdfBookmarkMerger.Wpf/        WPF-UIフロントエンド(net10.0-windows)
   PdfBookmarkMerger.Avalonia/   Avaloniaフロントエンド(net10.0)
 tests/
-  PdfBookmarkMerger.Core.Tests/         Core層のテスト(26件)
-  PdfBookmarkMerger.App.Tests/          App層ViewModelのテスト(91件)
-  PdfBookmarkMerger.UiConverters.Tests/ WPF/Avalonia双方のConverterを実行するゴールデンテスト(33件)
+  PdfBookmarkMerger.Core.Tests/         Core層のテスト(46件)
+  PdfBookmarkMerger.App.Tests/          App層ViewModelのテスト(120件)
+  PdfBookmarkMerger.UiConverters.Tests/ WPF/Avalonia双方のConverterを実行するゴールデンテスト(36件)
   sample/                                手動確認・回帰テスト用の実サンプルPDF
 tools/
   PdfBookmarkMerger.SampleGenerator/    tests/sample配下のサンプルPDFを生成する補助ツール
@@ -59,7 +64,7 @@ scripts/
 依存方向は一方向(`Wpf`/`Avalonia` → `App` → `Core`)で、`Core`・`App` はいずれもUIフレームワークに
 依存しません。詳細は [01-architecture.md](01-architecture.md) を参照してください。
 
-## 4. アプリの基本フロー(4ステップ)
+## 4. アプリの基本フロー
 
 `MainWindowViewModel.Step`(`WorkflowStep`列挙型)が画面遷移を管理します。
 
@@ -68,8 +73,12 @@ scripts/
 2. **しおり抽出**(`WorkflowStep.EditBookmarks` に入る直前) — `ConfirmFilesCommand` が全ファイルの
    メタデータを並列読み込みし、しおり抽出・結合後ページ番号の計算までを行う。
 3. **しおり編集**(`WorkflowStep.EditBookmarks`) — 抽出結果をツリーとして編集する。
-4. **結合・保存** — `MergeCommand` でPDFを結合・保存する(または `SaveBookmarkSettingsCommand` で
-   しおり設定ファイルのみを書き出す)。
+4. **結合・保存** — 2種類のボタンがある。「結合してPDFを保存」(`MergeCommand`)はここで手順を
+   終える。「結合してリンク編集へ進む」(`MergeAndEditLinksCommand`、設定でONにした場合のみ表示。
+   既定は非表示)は、結合したファイルをそのまま次の手順5へ引き継ぐ。いずれも保存先ダイアログ→
+   (設定により)プロパティ編集ダイアログ→`PdfMergeService.MergeAsync` という結合処理自体は共通。
+5. **リンク編集**(`WorkflowStep.EditLinks`、任意) — 手順4で結合したファイルへリンクを追加・確認・
+   削除する。詳細は [03-app-design.md §7](03-app-design.md#link-editor) を参照。
 
 ## 5. ドキュメント構成
 

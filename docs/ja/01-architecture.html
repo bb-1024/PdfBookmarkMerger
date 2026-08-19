@@ -71,12 +71,17 @@
         <table>
           <thead><tr><th>層</th><th>登録内容</th></tr></thead>
           <tbody>
-            <tr><td>Core</td><td class="mono">IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService, IBookmarkSettingsExportService</td></tr>
-            <tr><td>App</td><td class="mono">IUserSettingsService, FileListViewModel, BookmarkTreeViewModel, MainWindowViewModel</td></tr>
+            <tr><td>Core</td><td class="mono">IPdfFileCollectorService, IPdfMetadataService, IPdfMergeService, IBookmarkSettingsExportService, IPdfPageRenderer, IPdfTextExtractor, IPdfLinkAnnotationService</td></tr>
+            <tr><td>App</td><td class="mono">IUserSettingsService, FileListViewModel, BookmarkTreeViewModel, LinkEditorViewModel, MainWindowViewModel</td></tr>
             <tr><td>UIフレームワーク側</td><td class="mono">IDialogService, MainWindow</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        <code class="inline">IPdfPageRenderer</code>/<code class="inline">IPdfTextExtractor</code>/<code class="inline">IPdfLinkAnnotationService</code>
+        はリンク編集画面(<code class="inline">WorkflowStep.EditLinks</code>)向けのCore層サービス。詳細は
+        <a href="02-core-design.html#link-editor-services">02-core-design.html §2.8&#12316;§2.11</a> を参照。
+      </p>
     </section>
 
     <section id="startup">
@@ -151,6 +156,31 @@
           書いてから <code class="inline">File.Move(..., overwrite: true)</code> で原子的に置き換える方式
           (<code class="inline">UserSettingsService.SaveAsync</code>)で、書き込み中のプロセス強制終了による
           JSON破損を避けている。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>4.5 App層の非同期メソッドは <code class="inline">ConfigureAwait(false)</code> を使わない</h4>
+        <p>
+          ViewModelの非同期メソッド(<code class="inline">LoadAsync</code>・<code class="inline">RecomputeAllPageNumberDisplaysAsync</code> 等)は、
+          <code class="inline">await</code> に <code class="inline">ConfigureAwait(false)</code> を付けない。WPF版はコマンドの
+          <code class="inline">CanExecuteChanged</code> を <code class="inline">CommandManager</code>(UIスレッド専用)経由で処理するため、
+          <code class="inline">ConfigureAwait(false)</code> を付けると最初の <code class="inline">await</code> 以降の継続処理がスレッドプールスレッドで
+          実行され、その中で <code class="inline">ReactivePropertySlim&lt;T&gt;.Value</code> を書き換えた瞬間に
+          <code class="inline">InvalidOperationException</code>(クロススレッドアクセス)が発生する。この既定を意図的に破った箇所が
+          <a href="03-app-design.html#link-editor-thread">03-app-design.html §7.7</a> に事例として残っている。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>4.6 PDFium呼び出し箇所への <code class="inline">[SupportedOSPlatform]</code> の付け方</h4>
+        <p>
+          <code class="inline">IPdfPageRenderer</code> の実装はPDFium(ネイティブライブラリ)を呼ぶため .NETアナライザーが
+          CA1416(プラットフォーム互換性)を警告する。クラス単位・アセンブリ単位で <code class="inline">[SupportedOSPlatform]</code> を
+          付けると、そのアセンブリ内の無関係な型(<code class="inline">BookmarkNode</code> 等)までプラットフォーム制限が波及し
+          大量の警告を誘発するため、実際にPDFiumを呼ぶ2&#12316;3行だけを
+          <code class="inline">#pragma warning disable/restore CA1416</code> で囲む(理由をコメントで残す)。詳細は
+          <a href="02-core-design.html#link-editor-services">02-core-design.html §2.8</a> を参照。
         </p>
       </div>
     </section>

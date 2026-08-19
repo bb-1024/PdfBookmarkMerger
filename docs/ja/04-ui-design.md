@@ -119,8 +119,11 @@ Avalonia: `Dispatcher.UIThread.Post(..., DispatcherPriority.ContextIdle)`)に元
 | `PageCountToTextConverter` | ○ | ○ | ページ数(`int?`)⇒「12ページ」等の表示文字列 |
 | `ThemeModeToLabelConverter` | ○ | ○ | `ThemeMode` ⇒ 表示ラベル(i18n対応) |
 | `AppLanguageToLabelConverter` | ○ | ○ | `AppLanguage` ⇒ 表示ラベル(i18n対応) |
-| `EnumToVisibilityConverter`(WPF) / `EnumEqualsConverter`(Avalonia) | ○ | ○ | Enum値の一致判定(WPFは`Visibility`を返す、Avaloniaはboolを返し`IsVisible`にバインド) |
+| `EnumToVisibilityConverter`(WPF) / `EnumEqualsConverter`(Avalonia) | ○ | ○ | 値とConverterParameterの一致判定(文字列比較、boolにも使える。WPFは`Visibility`を返す、Avaloniaはboolを返し`IsVisible`にバインド) |
 | `InverseBooleanConverter` | ○ | — | bool反転。WPFのみ存在(Avaloniaは`!Property`というバインディング構文を直接サポートするため不要) |
+| `ByteArrayToImageConverter` | ○ | ○ | `byte[]?`(PNG)⇒ `BitmapImage`(WPF)/`Bitmap`(Avalonia)。リンク編集画面のページプレビュー用 |
+| `LinkGroupDisplayConverter` | ○ | ○ | `LinkGroupInfo` ⇒「{ソースページ}ページ目 → {ジャンプ先ページ}ページ目」(1始まり表示) |
+| `NotNullToVisibilityConverter`(WPF) | ○ | — | 値がnullでなければ表示。Avaloniaは`ObjectConverters.IsNotNull`(Avalonia標準)を直接使うため専用実装は無い |
 
 すべて `PdfBookmarkMerger.UiConverters.Tests` の `ConverterParityTests` で、WPF/Avalonia
 双方の実装を直接インスタンス化してゴールデンテストする(意図的に「両実装の計算結果が一致する」
@@ -146,3 +149,89 @@ WPF版は `Wpf.Ui.Controls.MessageBox`、Avalonia版は自前の `AlertWindow` �
 古いウィンドウのコールバックがViewModelの変化のたびに実行され続けることを防ぐ。WPF版は
 さらに `Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(oldWindow)` を明示的に呼ぶ必要がある
 (監視対象から外れないと、閉じたはずの旧ウィンドウがプロセス生存中ずっと参照され続ける)。
+
+<a id="link-editor-ui"></a>
+## 6. リンク編集画面(手順5)
+
+`LinkEditorViewModel`(App層、[03-app-design.md §7](03-app-design.md#link-editor)参照)を
+バインドする画面。ページ送りツールバー([前のページ][ページ番号入力欄][/ 総ページ数][次のページ]
+[縮小][拡大])・連続スクロールのプレビュー・しおり一覧(ジャンプ用、`TreeView`で全階層を
+常に展開表示)・設定済みリンク一覧を持つ。
+
+<a id="link-editor-scroll-ui"></a>
+### 6.1 連続スクロールプレビューの実体化
+
+プレビューは、仮想化された `ListBox`(WPF: `VirtualizingPanel.IsVirtualizing="True"` +
+`VirtualizationMode="Recycling"` + `ScrollUnit="Pixel"`、Avalonia: 既定で仮想化された
+`VirtualizingStackPanel`)を `LinkEditorViewModel.PageSlots` にバインドしたもの。各アイテムの
+`DataTemplate`ルート要素へ`Loaded`/`Unloaded`イベントハンドラ(`OnPageSlotLoaded`/
+`OnPageSlotUnloaded`)を付け、コンテナが実体化・リサイクルされるたびに
+`LinkEditorViewModel.LoadPageSlotAsync`/`UnloadPageSlot`を呼ぶ(詳細は
+[03-app-design.md §7.2](03-app-design.md#link-editor-scroll)参照)。選択・リンク作成の
+ヒットレイヤー(透明な`Rectangle`)とホットスポットのオーバーレイ(`Canvas`)は、各アイテムの
+`DataTemplate`内に常に存在するが、`IsCurrent`がtrueのアイテムでのみ`Visibility`/`IsVisible`が
+trueになる(=現在ページ以外は非表示・非ヒットテスト)。
+
+<a id="link-editor-scroll-fix"></a>
+### 6.2 スクロール連動のページ検出とページ送りの位置合わせ
+
+`ScrollViewer.ScrollChanged`(WPF: `ListBox`要素へ添付イベントとして購読、Avalonia:
+同様)のたびに、「ビューポート内で最も表示面積が大きいページ」を`CurrentPageIndex`へ
+反映する(`OnPdfPreviewScrollChanged`)。全ページが`PlaceholderWidth`/`PlaceholderHeight`
+(先頭ページのサイズを流用)で統一されている前提を使い、候補ページの範囲を
+`(int)(viewportTop / itemHeight)`前後に絞った上で、各候補の可視高さ
+(`Math.Min(viewportBottom, itemTop+itemHeight) - Math.Max(viewportTop, itemTop)`)を
+比較して最大のものを採用する。
+
+この方式に落ち着くまでに2つの実装を試して破棄している。
+
+1. **`VisualTreeHelper.HitTest`/`InputHitTest`でビューポート上端をヒットテストする方式**
+   (WPF/Avalonia双方で試した) — Avalonia版は問題なく動いたが、WPF版はこのアプリが使う
+   `Wpf.Ui`の`FluentWindow`が内部の`ScrollViewer`を独自の`PassiveScrollViewer`へ自動的に
+   差し替えており、そのヒットテスト結果が常に`PassiveScrollViewer`自身で止まり内部の
+   ページコンテンツまで到達しなかった(一時的な診断ログで`hit`の実際の型を出力して特定)。
+2. **ビューポート上端のページだけをCurrentPageIndexとする方式**(面積比較を使わない単純版) —
+   機能はしたが、ユーザーからのフィードバックで「プレビュー領域を占める割合が一番大きい
+   ページを指すようにしてほしい」との要望があり、面積比較方式へ変更した。
+
+ページ送りボタン・しおりジャンプ・ページ番号入力によるページ移動(`ScrollToPage`)は、
+`ListBox.ScrollIntoView`を**使わない**。`ScrollIntoView`は「対象が見えるようになる最小限の
+スクロール」しか行わないため、下方向へ移動する場合は対象ページの**末尾**がビューポート下端に
+揃ってしまい先頭に揃わない(WPFの既知の挙動)。代わりに、対象ページの先頭が正確にビューポート
+上端へ来るオフセット(`pageIndex * (PlaceholderHeight + itemMargin)`)を直接計算して
+`ScrollViewer.ScrollToVerticalOffset`(WPF)/`ScrollViewer.Offset`(Avalonia)へ設定する。
+
+ページ送りボタン等プログラム的な移動によるスクロールと、ユーザーの手動スクロールに追従して
+`CurrentPageIndex`を更新する経路が同じ`ScrollChanged`イベントを共有するため、
+`_isSyncingCurrentPageFromScroll`(bool)で「今まさにスクロール操作からCurrentPageIndexを
+追従させている最中」を示し、この間は`CurrentPageIndex`の変更を受けてもスクロール位置を
+動かし直さない(動かすと、追従した瞬間に別の位置へジャンプし直してスクロールが成立しなくなる)。
+
+### 6.3 リンクのホットスポット表示・テキスト選択
+
+`RedrawLinkOverlay`は、`PdfPageListBox.ItemContainerGenerator.ContainerFromIndex`(WPF)/
+`ContainerFromIndex`(Avalonia)で現在ページのコンテナを取得し(仮想化により未実体化なら
+何もしない — コンテナが実体化した時に`OnPageSlotLoaded`から改めて呼ばれる)、その中の
+`Canvas`(`LinkOverlayCanvas`)へ確定済みリンクを半透明の矩形として描画し直す。マウス/
+ポインタイベント(`OnPdfPreviewMouseLeftButtonDown`等)はヒットレイヤー自身(`sender`)を
+基準に座標を取り、兄弟要素の`Canvas`を`VisualTreeHelper`(WPF)/`GetVisualDescendants`
+(Avalonia)で探して描画対象にする — 連続スクロール表示では同名の`Canvas`が複数の
+コンテナに存在しうるため、常に「今操作しているコンテナ自身」のものを使う必要がある。
+
+<a id="link-editor-existing-links-ui"></a>
+### 6.4 設定済みリンク一覧と既存リンクの扱い
+
+リンク一覧(`LinkEditor.LinkGroups.Value`)の各項目は「表示」(ジャンプして確認)・「編集」・
+「削除」の3ボタンを持つが、`LinkGroupInfo.IsPreExisting`(ファイルに元から含まれていたリンク、
+[03-app-design.md §7.6](03-app-design.md#link-editor-existing-links)参照)がtrueの項目は
+「編集」「削除」ボタンを非表示にし、代わりに「(既存)」バッジを表示する(`PdfLinkAnnotationService`
+が既存の注釈を安全に削除・置換できないため、この画面からは操作できない)。
+
+### 6.5 設定ダイアログ: リンク編集ボタンの表示切り替え
+
+設定ダイアログに「PDF結合時にリンク編集ボタンを表示する」チェックボックス
+(`SettingsViewModel.ShowMergeAndEditLinksButton`)を追加している。既定はオフ
+(設定ファイル未読み込み時を含む)。ダイアログでOKを押した時点で
+`MainWindowViewModel.ShowMergeAndEditLinksButton`へ反映され、しおり編集画面の
+「結合してリンク編集へ進む」ボタンの`Visibility`/`IsVisible`バインディングが即座に追従する
+(`ThemeMode`/`Language`と異なり、ウィンドウの再構築は不要)。

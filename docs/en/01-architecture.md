@@ -41,9 +41,13 @@ Services/ViewModels registered (excerpt):
 
 | Layer | Registrations |
 |---|---|
-| Core | `IPdfFileCollectorService`, `IPdfMetadataService`, `IPdfMergeService`, `IBookmarkSettingsExportService` |
-| App | `IUserSettingsService`, `FileListViewModel`, `BookmarkTreeViewModel`, `MainWindowViewModel` |
+| Core | `IPdfFileCollectorService`, `IPdfMetadataService`, `IPdfMergeService`, `IBookmarkSettingsExportService`, `IPdfPageRenderer`, `IPdfTextExtractor`, `IPdfLinkAnnotationService` |
+| App | `IUserSettingsService`, `FileListViewModel`, `BookmarkTreeViewModel`, `LinkEditorViewModel`, `MainWindowViewModel` |
 | UI-framework side | `IDialogService`, `MainWindow` |
+
+`IPdfPageRenderer`/`IPdfTextExtractor`/`IPdfLinkAnnotationService` are the Core-layer services for
+the link editor screen (`WorkflowStep.EditLinks`). See
+[02-core-design.md §2.8–§2.11](02-core-design.md#link-editor-services).
 
 <a id="startup"></a>
 ## 3. Startup sequence
@@ -108,3 +112,22 @@ never depends on the executable's own folder (which could be read-only). Writing
 goes through an atomic write-then-move (`UserSettingsService.SaveAsync`: write to a temp file in the
 same folder, then `File.Move(..., overwrite: true)`) so a process kill mid-write can't corrupt the
 JSON.
+
+### 4.5 App-layer async methods never use `ConfigureAwait(false)`
+
+ViewModel async methods (`LoadAsync`, `RecomputeAllPageNumberDisplaysAsync`, etc.) never suffix
+`await` with `ConfigureAwait(false)`. The WPF build routes command `CanExecuteChanged` through
+`CommandManager` (UI-thread-only), so `ConfigureAwait(false)` would move the continuation after the
+first `await` onto a thread-pool thread — and the moment that continuation writes to a
+`ReactivePropertySlim<T>.Value`, it throws `InvalidOperationException` (cross-thread access). A case
+where this convention was accidentally broken is documented as a real incident in
+[03-app-design.md §7.7](03-app-design.md#link-editor-thread).
+
+### 4.6 `[SupportedOSPlatform]` around PDFium calls
+
+`IPdfPageRenderer`'s implementation calls into PDFium (a native library), which the .NET analyzer
+flags as CA1416 (platform compatibility). Applying `[SupportedOSPlatform]` at the class or assembly
+level cascades the platform restriction onto every unrelated type in that assembly (e.g.
+`BookmarkNode`), producing a flood of warnings, so instead only the 2–3 lines that actually call into
+PDFium are wrapped in `#pragma warning disable/restore CA1416` (with a comment explaining why). See
+[02-core-design.md §2.8](02-core-design.md#link-editor-services).
