@@ -69,6 +69,15 @@ internal sealed class FakePdfPageRenderer : IPdfPageRenderer
         Task.FromResult((595.0, 842.0));
 }
 
+/// <summary>実際には抽出せず、事前に登録した文字一覧を返すだけのフェイク。既定は空。</summary>
+internal sealed class FakePdfTextExtractor : IPdfTextExtractor
+{
+    public IReadOnlyList<PdfTextLetter> Letters { get; set; } = [];
+
+    public Task<IReadOnlyList<PdfTextLetter>> ExtractLettersAsync(string filePath, int pageIndex, CancellationToken ct = default) =>
+        Task.FromResult(Letters);
+}
+
 /// <summary>実際にはPDFを結合せず、最後に受け取ったリクエストを記録するだけのフェイク。</summary>
 internal sealed class FakeMergeService : IPdfMergeService
 {

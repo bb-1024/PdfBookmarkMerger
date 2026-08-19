@@ -27,7 +27,7 @@ public sealed class MainWindowViewModelTests
 
         var fileList = new FileListViewModel(collector, metadata, NullLogger<FileListViewModel>.Instance);
         var bookmarkTree = new BookmarkTreeViewModel(dialog);
-        var linkEditor = new LinkEditorViewModel(new FakePdfPageRenderer(), metadata, NullLogger<LinkEditorViewModel>.Instance);
+        var linkEditor = new LinkEditorViewModel(new FakePdfPageRenderer(), new FakePdfTextExtractor(), metadata, NullLogger<LinkEditorViewModel>.Instance);
 
         // 結合(MergeAsync)は成功後に、出力ファイルをLinkEditorViewModel.LoadAsyncで読み直す。
         // FakeDialogService.SaveDialogResultの既定値をここでも登録しておく。
