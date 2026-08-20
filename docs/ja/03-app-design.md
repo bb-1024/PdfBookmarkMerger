@@ -124,8 +124,10 @@ BookmarkTree.BusyProgress.Subscribe(p => BusyProgress.Value = p);
 - `PushUndoSnapshot(coalesceKey)` — プロパティ編集用。同一キーへの連続呼び出しが800ms
   (`SnapshotCoalesceWindow`)以内なら1回の編集とみなし、履歴を積み増さない
   (テキスト入力中の1文字ごとの履歴増殖を防ぐ)。
-- `Undo()` — 最新スナップショットをJSONデシリアライズし `RebuildTree` へ渡す(履歴自体は
-  Popされ消費される。LIFO順)。
+- `UndoAsync()`(**v1.3.1〜**。旧称 `Undo`、同期メソッド) — 最新スナップショットをJSON
+  デシリアライズし `RebuildTreeAsync`([§2.6.1](#rebuild-tree-async)参照)へ渡す(履歴自体はPopされ消費
+  される。LIFO順)。`UndoCommand` からは `TriggerUndo`(`TriggerRecompute`と同型の
+  fire-and-forgetラッパー)経由で呼ばれる。
 
 `BookmarkNodeViewModel` の各プロパティ(`Title`/`IsOpen`/`DestinationType`/座標)は、構築時の
 初回リプレイ値を `Skip(1)` で除外した上で変更ごとに `RequestUndoSnapshot` を呼ぶ。「一律で
@@ -174,6 +176,30 @@ private async void TriggerRecompute() => await RecomputeAllPageNumberDisplaysAsy
 処理中オーバーレイがしおり編集画面全体を覆いマウス操作を受け付けなくなるため、実行中に
 本メソッドの別呼び出しが(ユーザー操作起点で)重ねて発生することは想定していない。
 
+<a id="rebuild-tree-async"></a>
+### 2.6.1 `RebuildTreeAsync` — ツリー構築自体のチャンク処理(v1.3.1〜)
+
+上記のチャンク処理は「既存の`BookmarkNodeViewModel`ツリーのプロパティを再計算する」経路であり、
+読込・Undo時に**ツリーそのものを新規構築する**経路は当初これに含まれていなかった。
+`BookmarkNodeViewModel`のコンストラクタが`model.Children`から子孫全ノード分の
+`BookmarkNodeViewModel`を再帰的に構築しており(1ノードあたりRxの購読が約12本 — `Skip(1).Subscribe`
+のペア8本+`CombineLatest`由来の算出プロパティ4本)、約2000ノードのツリーではこれが1分近く
+無停止で走り、処理中オーバーレイの初回描画すら間に合わないほどのフリーズを起こしていた。
+
+これを解消するため、`BookmarkNodeViewModel`のコンストラクタから子孫の再帰構築を削除し
+(`Children`は空で始まる)、ツリー構築を`BookmarkTreeViewModel.RebuildTreeAsync`(旧称
+`RebuildTree`、同期メソッド)内のローカル関数`BuildChildrenAsync`が深さ優先で行うようにした。
+`RecomputeChunkSize`(200件)ノードごとに`await Task.Yield()`で制御を返し、`IsBusy`/
+`BusyProgress`を更新する — [§2.6](#recompute)の書き戻しループと同じ枠組みの再利用。ツリー構築後の
+`RecomputeAllPageNumberDisplaysAsync()`は、`TriggerRecompute()`(fire-and-forget)を経由せず同じ
+`try`ブロック内で直接`await`する。これは、経由した場合に`IsBusy`が一瞬`false`に戻ってから
+再度`true`になる隙間ができ(2フェーズの切れ目でUIスレッドへ一度制御が返るため)、その隙間を
+ポーリングで検出してしまうテストがまれに失敗する(flaky)不具合が実際に発生したため。
+
+`Load`/`Undo`は、この変更に伴い`LoadAsync`/`UndoAsync`へ改名された(`LoadAsync`の唯一の
+呼び出し元`MainWindowViewModel.ConfirmFilesAsync`は`await`で直接呼ぶ。`UndoAsync`は
+[§2.4](#undo)の`TriggerUndo`経由のまま)。
+
 <a id="expand-level"></a>
 ### 2.7 ツリー開閉レベルの一括指定(v1.2.2〜)
 
@@ -201,7 +227,12 @@ private async void TriggerRecompute() => await RecomputeAllPageNumberDisplaysAsy
 
 しおりツリーの1ノード分のViewModel。`Title`/`IsOpen`/`DestinationType`/`Left`/`Top`/`Right`/`Bottom`/`Zoom`
 の各 `ReactivePropertySlim<T>` は、値が変わるたびに対応する `Model`(`BookmarkNode`)へ直接
-反映しつつ、`BookmarkTreeViewModel` へUndoスナップショット要求を送る。構築時の初回リプレイ
+反映しつつ、`BookmarkTreeViewModel` へUndoスナップショット要求を送る。**v1.3.1〜**、`Children`
+(`ObservableCollection<BookmarkNodeViewModel>`)はコンストラクタでは空のまま初期化されるだけで、
+子孫ノード分の`BookmarkNodeViewModel`を再帰的に構築する処理は持たない(`model.Children`から
+実際にツリーを組み立てるのは呼び出し側の`BookmarkTreeViewModel.RebuildTreeAsync`
+([§2.6.1](#rebuild-tree-async)参照) — 大規模ツリーで構築処理自体をチャンク分割できるようにするため、
+1ノードのコンストラクタが子孫全体の構築を巻き込まないよう責務を外に出した)。構築時の初回リプレイ
 (`ReactivePropertySlim.Subscribe` は購読直後に現在値を1回リプレイする)を `Skip(1)` で除外しないと、
 ノード生成のたびに実際の変更なしでUndo履歴が積まれてしまう(Undo自体がツリーを再構築するため、
 無限増殖するバグになる)。
@@ -304,22 +335,43 @@ UI側(WPF: 仮想化`ListBox`、Avalonia: 同様)がスクロール位置から�
 3. `PageNumberInput`(1始まり、ページ送りツールバーのテキストボックスと双方向バインド)を同期する。
 4. 現在ページのメタデータ(`PageHeight`・`Letters`、ページが変わった場合のみ文字抽出)を
    fire-and-forgetで取得する(`TriggerLoadCurrentPageMetadata`。ページのビットマップ自体は
-   `PageSlots`の担当のため、ここでは扱わない)。
+   `PageSlots`の担当のため、ここでは扱わない)。**v1.3.1〜**、`Letters`が実際に再読込された場合、
+   ドラッグ中の一時状態(`_selectionAnchorLetterIndex`/`_selectionFocusLetterIndex`/
+   `LiveSelectionLineRects`、[§7.4](#link-editor-selection)参照)のみをリセットする
+   (以前は`CancelPendingSelection()`を呼んでおり、`PendingSelection`/`IsPickingArbitraryTarget`
+   も巻き込んで消去していた。しかし「任意の位置」へのジャンプ先指定は、本文を選択した後に
+   ジャンプ先を探して別ページへスクロールするという、本質的にページをまたぐ操作であるため、
+   ページ遷移のたびに選択が消えると事実上使えない機能になっていた)。
+5. `LoadGeneration`(`ReactivePropertySlim<int>`、**v1.3.1〜**)は`OnCurrentPageIndexChanged`とは
+   独立に、`LoadAsync`が完了するたびに1つ増える。UI側の一部の状態(後述のプレビューのスクロール
+   可能範囲、[04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-fix)参照)は
+   `CurrentPageIndex`の変更だけでは再初期化できない(2回目の`LoadAsync`開始時点で
+   `CurrentPageIndex`がたまたま前回終了時と同じ0のままだと変更通知が飛ばないため)ので、
+   常に変化するこのカウンタを別途用意している。
 
 `PageNumberInput`側の変更(テキストボックスへの直接入力)も、範囲を丸めつつ
 `CurrentPageIndex`へ反映する双方向の同期になっている(`OnPageNumberInputChanged`)。
 
+<a id="link-editor-selection"></a>
 ### 7.4 文字選択によるリンク作成
 
 - `BeginTextSelection`/`UpdateTextSelection`/`EndTextSelection` — ドラッグ開始・移動・終了の
   PDFユーザー空間座標を受け取り、現在ページの`Letters`(`PdfTextExtractor`が抽出した文字矩形の列)
   に対しヒットテストして選択範囲(文字インデックスの区間)を求める。矩形内に文字が無い場合は
   中心点までの距離が最も近い文字を採用し、ドラッグがわずかに文字の外側へ外れても選択が
-  破綻しないようにしている。
-- 選択確定時、`GroupLettersIntoLineRects`が行(隣接文字のBottom座標が2pt以上離れていれば
-  改行とみなす)ごとに外接矩形を求め、`PendingSelection`(`SourcePageIndex`+行ごとの矩形群)へ
-  反映する。複数行にまたがる選択は複数の矩形として保持される(PDFのLinkアノテーションの
-  `/Rect`が単一矩形のみのため)。
+  破綻しないようにしている。`BeginTextSelection`/`UpdateTextSelection`はドラッグ中、
+  `LiveSelectionLineRects`(`ReactivePropertySlim<IReadOnlyList<PdfRect>>`、**v1.3.1〜**)を
+  現在の選択範囲から`GroupLettersIntoLineRects`(後述)で都度再計算し、ドラッグ中も行単位の
+  正確な矩形でプレビュー上の可視化ができるようにする(以前はドラッグ開始点〜現在点を結ぶ単純な
+  対角線矩形のみで、複数行選択の実際の形状と一致しなかった)。
+- 選択確定時(`EndTextSelection`)、`LiveSelectionLineRects`をクリアしたうえで
+  `GroupLettersIntoLineRects`が行(隣接文字のBottom座標が2pt以上離れていれば改行とみなす)
+  ごとに外接矩形を求め、`PendingSelection`(`SourcePageIndex`+行ごとの矩形群)へ反映する。
+  複数行にまたがる選択は複数の矩形として保持される(PDFのLinkアノテーションの`/Rect`が
+  単一矩形のみのため)。**v1.3.1〜**、`PendingSelection`はリンクを確定または
+  `CancelPendingSelectionCommand`で明示的にキャンセルするまで保持され続ける
+  (ドラッグ終了直後に可視化が消えてしまうという不具合の修正。UI側の描画は
+  [04-ui-design.md §6.3](04-ui-design.md#link-editor-overlay)参照)。
 - `CreateLinkToBookmark(bookmark)` — `PendingSelection`の各行矩形について、選択したしおりの
   `DestinationType`/座標をそのままコピーした`LinkAnnotationNode`を生成し`Links`へ追加する
   (複数行なら同一`GroupId`の複数リンクになる)。
@@ -327,7 +379,12 @@ UI側(WPF: 仮想化`ListBox`、Avalonia: 同様)がスクロール位置から�
   `IsPickingArbitraryTarget`中にプレビュー上でクリックされた位置をXYZ形式のジャンプ先として、
   同様にリンクを確定する。
 - `LinkGroups`(`ReactivePropertySlim<IReadOnlyList<LinkGroupInfo>>`) — `Links`を`GroupId`単位で
-  集約した一覧UI向けの要約情報。`Links.CollectionChanged`のたびに再計算される。
+  集約した一覧UI向けの要約情報。`Links.CollectionChanged`に加え、**v1.3.1〜**
+  `OnCurrentPageIndexChanged`のたびにも再計算される。集約対象は
+  `!info.IsPreExisting || info.SourcePageIndex == CurrentPageIndex.Value`
+  でフィルタする — 元々ファイルに含まれていた既存リンク(`IsPreExisting`)は現在プレビュー中の
+  ページ分のみを一覧に出す(既存リンクを多く含む文書で一覧が埋め尽くされるのを防ぐ)一方、
+  本セッションで新規作成したリンクはページに関わらず常に表示する。
 
 ### 7.5 `DeleteLinkGroup` / `BeginEditLinkGroup`
 
@@ -362,7 +419,7 @@ UI側(WPF: 仮想化`ListBox`、Avalonia: 同様)がスクロール位置から�
    UI側が参照し、既存リンクの編集・削除ボタンを非表示にする([04-ui-design.md §6.4](04-ui-design.md#link-editor-existing-links-ui)参照)。
 
 <a id="link-editor-thread"></a>
-### 7.7 実装中に発生した2つのバグ
+### 7.7 実装中に発生したバグ
 
 - **クロススレッドクラッシュ(`ConfigureAwait(false)`)**: 実装初期、`LoadAsync`等の非同期
   メソッドが`.ConfigureAwait(false)`を使っていたため、最初の`await`以降の継続処理が
@@ -378,3 +435,22 @@ UI側(WPF: 仮想化`ListBox`、Avalonia: 同様)がスクロール位置から�
   (診断ログを一時的に仕込んで特定)。全ページ同一のプレースホルダ高さを前提に、スクロール
   オフセットとページ高さから直接ページ番号を算出する方式へ変更して解決した(詳細は
   [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-ui))。
+- **プレビューのスクロール可能範囲が前回ファイルのページ数のまま固定される(v1.3.1〜で修正)**:
+  一度リンク編集・保存を行った後、しおり編集画面へ戻って別ファイル構成で再結合し、再度
+  リンク編集画面へ入ると、`PageSlots`はページ数分正しく再構築されている(しおり一覧・目次構造も
+  正しい)にもかかわらず、プレビューのスクロールバーが**前回の(通常はより小さい)ページ数**の
+  時点で物理的に止まってしまう症状が報告された。WPFの`VirtualizingStackPanel`
+  (`ScrollUnit="Pixel"`)が内部に持つ「均一アイテムサイズ/推定スクロール範囲」のキャッシュ状態が、
+  同一`ObservableCollection`インスタンスへの単純な`Clear()`+`Add()`だけでは確実には無効化
+  されないことが原因(参考: [dotnet/wpf#7017](https://github.com/dotnet/wpf/issues/7017)、
+  `VirtualizingStackPanel.SyncUniformSizeFlags()`)。`LoadGeneration`([§7.3](#link-editor)参照)の
+  変更を契機に、`VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false)`を呼んでから
+  再度`true`に戻すことで、パネルに内部状態を完全に破棄・再構築させて解決した(Avaloniaには
+  同等の内部キャッシュ問題が確認されず、対応するアタッチドプロパティも無いためAvalonia側は
+  変更していない)。詳細は[04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-fix)を参照。
+- **ポインタキャプチャの喪失(Alt+Tab等)**: ドラッグによる文字選択の途中でウィンドウが
+  フォーカスを失うと(WPF: `LostMouseCapture`、Avalonia: `PointerCaptureLost`)、
+  `_isSelectingLinkText`がtrueのまま残り、次のクリックが「ドラッグ継続」と誤認識される不具合が
+  あった。**v1.3.1〜**、両イベントのハンドラ(`OnPdfPreviewLostMouseCapture`/
+  `OnPdfPreviewPointerCaptureLost`)で`_isSelectingLinkText`をリセットし
+  `CancelPendingSelection()`を呼ぶようにして解決した。

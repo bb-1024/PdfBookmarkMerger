@@ -1,4 +1,4 @@
-# 05. Design-Level Diffs Across Versions (v1.0.0 → v1.3.0)
+# 05. Design-Level Diffs Across Versions (v1.0.0 → v1.3.1)
 
 This document was assembled by enumerating changed files with
 `git diff --name-status <previous version> <target version> -- src tests`, then individually
@@ -16,6 +16,7 @@ the end gives the exact commands so anyone can reproduce the same process.
 | `v1.2.2` | 2026-08-17 | `0bc7147` |
 | `v1.2.3` | 2026-08-18 | `2bd2b45` |
 | `v1.3.0` | 2026-08-20 | `3056af1` |
+| `v1.3.1` | 2026-08-20 | `db31720` |
 
 ---
 
@@ -327,6 +328,62 @@ feature.
 
 ---
 
+<a id="v131"></a>
+## v1.3.1 (2026-08-20)
+
+3 commits. Fixes across three areas that surfaced from the code-review follow-up after the v1.3.0
+release: settings cloning, a long freeze on large bookmark trees, and the link editor's selection
+handling.
+
+### `c7b14e1` Fix settings cloning fragility
+
+`MainWindowViewModel.MergeCoreAsync` and `SettingsViewModel.ToOptions` each independently
+hand-enumerated every `PdfBookmarkMergerOptions` property to build a copy — and this had already
+caused a real bug once, where a new property (`ShowMergeAndEditLinksButton`) was missed at one of the
+two call sites and silently reverted to its default on every merge. Added
+`PdfBookmarkMergerOptions.Clone()` and routed both call sites through it. Added a reflection-based
+regression test verifying every public property survives `Clone()`, plus tests covering both call
+sites' actual behavior.
+
+### `1baa944` Fix long UI freeze when loading/undoing large bookmark trees
+
+`BookmarkTreeViewModel.RebuildTree` (the shared path behind load and Undo) had
+`BookmarkNodeViewModel`'s constructor recursively build every descendant's ViewModel inline (roughly
+12 Rx subscriptions per node), so on a ~2000-node tree this ran uninterrupted for close to a minute —
+long enough that even the busy overlay never got a chance to render. Removed the constructor's
+recursive child construction and moved tree construction into
+`BookmarkTreeViewModel.RebuildTreeAsync` (formerly `RebuildTree`), which builds depth-first and
+yields via `await Task.Yield()` every `RecomputeChunkSize` (200) nodes, reusing the
+`IsBusy`/`BusyProgress` chunked-processing framework introduced in [v1.2.1](#v121). `Load`/`Undo`
+were renamed to `LoadAsync`/`UndoAsync` accordingly. See
+[03-app-design.md §2.6.1](03-app-design.md#rebuild-tree-async) for the detailed design.
+
+### `d11f72f` Fix link editor selection handling and preview navigation issues
+
+Four related fixes driven by manual-testing feedback on WPF and Avalonia.
+
+1. Picking an arbitrary jump-target position lost the pending selection the moment the user scrolled
+   to a different page — even though that's an inherently cross-page workflow — making the feature
+   nearly unusable. Fixed by narrowing `LoadCurrentPageMetadataAsync`'s reset to only the
+   drag-in-progress state.
+2. The selected range's highlight disappeared the instant a drag ended. Fixed by unifying the
+   drag-in-progress display (`LiveSelectionLineRects`) and the post-drag persisted display
+   (`PendingSelection`) into one overlay, drawn in a color (blue) distinct from confirmed links
+   (green).
+3. Finishing one link-editing session, going back to re-merge a different set of files, and
+   re-entering the link editor left the preview's scrollable range stuck at the previous file's page
+   count. Fixed a WPF `VirtualizingStackPanel` internal-caching issue by toggling
+   `VirtualizingPanel.IsVirtualizing` off and back on when `LinkEditorViewModel.LoadGeneration`
+   changes, forcing the panel to rebuild its internal state.
+4. The pre-existing-link list now only shows entries for the page currently being previewed, and
+   non-active pages are dimmed with a translucent gray overlay so it's visually clear which page is
+   active.
+
+See [03-app-design.md §7.3–7.4, §7.7](03-app-design.md#link-editor) and
+[04-ui-design.md §6.1–6.4](04-ui-design.md#link-editor-ui) for the detailed design.
+
+---
+
 ## How to verify this yourself
 
 ```bash
@@ -341,6 +398,7 @@ git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
 git diff --name-status v1.2.3 v1.3.0 -- src tests
+git diff --name-status v1.3.0 v1.3.1 -- src tests
 
 # every commit within each version window
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -349,6 +407,7 @@ git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
 git log --oneline v1.2.3..v1.3.0 -- src tests
+git log --oneline v1.3.0..v1.3.1 -- src tests
 
 # a specific commit's full diff
 git show <commit-hash>

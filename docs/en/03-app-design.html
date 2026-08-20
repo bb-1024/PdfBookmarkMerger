@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.3.0<br />
+      as of v1.3.1<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/03-app-design.html">日本語</a>
     </div>
@@ -201,7 +201,7 @@ BookmarkTree.BusyProgress.Subscribe(p =&gt; BusyProgress.Value = p);</pre>
       <ul>
         <li><code class="inline">PushUndoSnapshot()</code> (no argument) &mdash; called right before a structural edit; always pushes exactly one entry, no coalescing.</li>
         <li><code class="inline">PushUndoSnapshot(coalesceKey)</code> &mdash; used for property edits. Repeated calls with the same key within 800ms (<code class="inline">SnapshotCoalesceWindow</code>) are treated as a single edit and don't push a new entry (this keeps the Undo history from ballooning by one entry per keystroke while typing).</li>
-        <li><code class="inline">Undo()</code> &mdash; JSON-deserializes the most recent snapshot and hands it to <code class="inline">RebuildTree</code> (the entry is popped and consumed; LIFO order).</li>
+        <li><code class="inline">UndoAsync()</code> <span class="badge ok">since v1.3.1</span> (formerly <code class="inline">Undo</code>, a synchronous method) &mdash; JSON-deserializes the most recent snapshot and hands it to <code class="inline">RebuildTreeAsync</code> (<a href="#rebuild-tree-async">&sect;2.6.1</a>) (the entry is popped and consumed; LIFO order). Called from <code class="inline">UndoCommand</code> via <code class="inline">TriggerUndo</code>, a fire-and-forget wrapper of the same shape as <code class="inline">TriggerRecompute</code>.</li>
       </ul>
       <p>
         Each <code class="inline">BookmarkNodeViewModel</code> property
@@ -266,6 +266,44 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         not expected to happen while one is already in flight.
       </p>
 
+      <h3 id="rebuild-tree-async">2.6.1 <code class="inline">RebuildTreeAsync</code> &mdash; chunking the tree construction itself <span class="badge ok">since v1.3.1</span></h3>
+      <p>
+        The chunking above covers "recomputing properties on an already-existing
+        <code class="inline">BookmarkNodeViewModel</code> tree" &mdash; it originally didn't cover the path
+        that <strong>constructs the tree from scratch</strong> on load and Undo.
+        <code class="inline">BookmarkNodeViewModel</code>'s constructor used to recursively build a
+        <code class="inline">BookmarkNodeViewModel</code> for every descendant from
+        <code class="inline">model.Children</code> inline (roughly 12 Rx subscriptions per node &mdash; 8
+        <code class="inline">Skip(1).Subscribe</code> pairs plus 4 <code class="inline">CombineLatest</code>-derived
+        computed properties), so on a ~2000-node tree this ran uninterrupted for close to a minute &mdash; long
+        enough that even the busy overlay never got a chance to render.
+      </p>
+      <p>
+        To fix this, the constructor's recursive child construction was removed
+        (<code class="inline">Children</code> now starts empty), and tree construction moved into a local
+        function, <code class="inline">BuildChildrenAsync</code>, inside
+        <code class="inline">BookmarkTreeViewModel.RebuildTreeAsync</code> (formerly
+        <code class="inline">RebuildTree</code>, synchronous), which builds depth-first and yields via
+        <code class="inline">await Task.Yield()</code> every <code class="inline">RecomputeChunkSize</code>
+        (200) nodes, updating <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code> &mdash;
+        reusing the exact same framework as the write-back loop in <a href="#recompute">&sect;2.6</a>. The
+        subsequent <code class="inline">RecomputeAllPageNumberDisplaysAsync()</code> call is now awaited
+        directly inside the same <code class="inline">try</code> block instead of going through the
+        fire-and-forget <code class="inline">TriggerRecompute()</code> wrapper &mdash; going through it left a
+        brief window where <code class="inline">IsBusy</code> flipped back to <code class="inline">false</code>
+        and then <code class="inline">true</code> again between the two phases (control returns to the UI
+        thread at that seam), and a test polling for busy-state was occasionally flaky enough to catch that
+        window.
+      </p>
+      <p>
+        <code class="inline">Load</code>/<code class="inline">Undo</code> were renamed to
+        <code class="inline">LoadAsync</code>/<code class="inline">UndoAsync</code> as part of this change
+        (<code class="inline">LoadAsync</code>'s only caller,
+        <code class="inline">MainWindowViewModel.ConfirmFilesAsync</code>, awaits it directly;
+        <code class="inline">UndoAsync</code> is still invoked via the <code class="inline">TriggerUndo</code>
+        wrapper described in <a href="#undo">&sect;2.4</a>).
+      </p>
+
       <h3 id="expand-level">2.7 Bulk expand/collapse-by-level <span class="badge ok">since v1.2.2</span></h3>
       <p>The logic behind the "-" button, level-number text box, and "+" button above the bookmark tree.</p>
       <ul>
@@ -283,9 +321,18 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         <code class="inline">Title</code>/<code class="inline">IsOpen</code>/<code class="inline">DestinationType</code>/<code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>
         <code class="inline">ReactivePropertySlim&lt;T&gt;</code>s each write straight through to the underlying
         <code class="inline">Model</code> (<code class="inline">BookmarkNode</code>) on every change, while also
-        asking <code class="inline">BookmarkTreeViewModel</code> to push an Undo snapshot. Skipping the
-        constructor-time initial replay (<code class="inline">Skip(1)</code>) matters here too, for the same
-        reason as <a href="#undo">&sect;2.4</a> above.
+        asking <code class="inline">BookmarkTreeViewModel</code> to push an Undo snapshot.
+        <span class="badge ok">since v1.3.1</span>, <code class="inline">Children</code>
+        (<code class="inline">ObservableCollection&lt;BookmarkNodeViewModel&gt;</code>) is only initialized
+        empty in the constructor &mdash; it no longer recursively builds a
+        <code class="inline">BookmarkNodeViewModel</code> for every descendant. Actually assembling the tree
+        from <code class="inline">model.Children</code> is now the caller's job,
+        <code class="inline">BookmarkTreeViewModel.RebuildTreeAsync</code>
+        (<a href="#rebuild-tree-async">&sect;2.6.1</a>) &mdash; pulled out so a single node's constructor can
+        never drag in constructing its entire subtree, which is what let a large tree's construction be
+        chunked in the first place. Skipping the constructor-time initial replay
+        (<code class="inline">Skip(1)</code>) matters here too, for the same reason as <a href="#undo">&sect;2.4</a>
+        above.
       </p>
       <p>
         <code class="inline">PreOffsetPageNumber</code> is the one exception: it does <strong>not</strong>
@@ -398,7 +445,8 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         <li>Clamps an out-of-range value to the nearest valid one (a self-reentrant set; <code class="inline">ReactivePropertySlim</code> never re-notifies on an unchanged value, so this converges).</li>
         <li>Flips the old <code class="inline">_currentSlot</code>'s <code class="inline">IsCurrent</code> to false and the new slot's to true.</li>
         <li>Syncs <code class="inline">PageNumberInput</code> (1-based, two-way bound to the page-turn toolbar's text box).</li>
-        <li>Fetches the current page's metadata (<code class="inline">PageHeight</code>, and <code class="inline">Letters</code> only if the page actually changed) fire-and-forget (<code class="inline">TriggerLoadCurrentPageMetadata</code>) &mdash; the page's bitmap itself is <code class="inline">PageSlots</code>' job, not handled here.</li>
+        <li>Fetches the current page's metadata (<code class="inline">PageHeight</code>, and <code class="inline">Letters</code> only if the page actually changed) fire-and-forget (<code class="inline">TriggerLoadCurrentPageMetadata</code>) &mdash; the page's bitmap itself is <code class="inline">PageSlots</code>' job, not handled here. <span class="badge ok">since v1.3.1</span>, when <code class="inline">Letters</code> is actually reloaded, only the drag-in-progress state (<code class="inline">_selectionAnchorLetterIndex</code>/<code class="inline">_selectionFocusLetterIndex</code>/<code class="inline">LiveSelectionLineRects</code>, see <a href="#link-editor-selection">&sect;7.4</a>) is reset. (It used to call <code class="inline">CancelPendingSelection()</code>, which also wiped <code class="inline">PendingSelection</code>/<code class="inline">IsPickingArbitraryTarget</code> &mdash; but picking an arbitrary jump target is inherently a cross-page workflow (select text, then scroll elsewhere to click the target), so clearing it on every page change made the feature nearly unusable.)</li>
+        <li><code class="inline">LoadGeneration</code> (<code class="inline">ReactivePropertySlim&lt;int&gt;</code>, <span class="badge ok">since v1.3.1</span>), incremented independently of <code class="inline">OnCurrentPageIndexChanged</code> at the end of every <code class="inline">LoadAsync</code>. Some UI-side state (the preview's scrollable extent, see <a href="04-ui-design.html#link-editor-scroll-fix">04-ui-design.html §6.2</a>) can't be reliably reset from a <code class="inline">CurrentPageIndex</code> change alone &mdash; it may not fire at all if <code class="inline">CurrentPageIndex</code> happens to already be 0 both before and after a second <code class="inline">LoadAsync</code> &mdash; so this always-incrementing counter exists specifically to give that state a reliable trigger.</li>
       </ol>
       <p>
         Changes from the other direction &mdash; the user typing directly into <code class="inline">PageNumberInput</code>
@@ -406,13 +454,13 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         (<code class="inline">OnPageNumberInputChanged</code>), so the two stay synchronized both ways.
       </p>
 
-      <h3>7.4 Creating links via text selection</h3>
+      <h3 id="link-editor-selection">7.4 Creating links via text selection</h3>
       <ul>
-        <li><code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code>/<code class="inline">EndTextSelection</code> &mdash; take the PDF-user-space coordinates of a drag's start/move/end, hit-testing them against the current page's <code class="inline">Letters</code> (the character rectangles <code class="inline">PdfTextExtractor</code> extracted) to find a selection range (a span of character indices). If no character's rectangle actually contains the point, the nearest one by center-to-point distance is used instead, so a drag that strays slightly outside a character's bounds doesn't break selection.</li>
-        <li>On commit, <code class="inline">GroupLettersIntoLineRects</code> groups the selected characters by line (a gap of 2pt or more between adjacent characters' Bottom coordinates counts as a line break) and computes each line's bounding rect, populating <code class="inline">PendingSelection</code> (<code class="inline">SourcePageIndex</code> + a list of per-line rects). A selection spanning multiple lines is kept as multiple rects (since a PDF Link annotation's <code class="inline">/Rect</code> can only be a single rectangle).</li>
+        <li><code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code>/<code class="inline">EndTextSelection</code> &mdash; take the PDF-user-space coordinates of a drag's start/move/end, hit-testing them against the current page's <code class="inline">Letters</code> (the character rectangles <code class="inline">PdfTextExtractor</code> extracted) to find a selection range (a span of character indices). If no character's rectangle actually contains the point, the nearest one by center-to-point distance is used instead, so a drag that strays slightly outside a character's bounds doesn't break selection. While dragging, <code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code> recompute <code class="inline">LiveSelectionLineRects</code> (<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;PdfRect&gt;&gt;</code>, <span class="badge ok">since v1.3.1</span>) from the current selection via <code class="inline">GroupLettersIntoLineRects</code> (below) on every update, so the in-progress preview uses the actual per-line rects rather than a crude diagonal box that didn't match a multi-line selection's real shape.</li>
+        <li>On commit (<code class="inline">EndTextSelection</code>), <code class="inline">LiveSelectionLineRects</code> is cleared, and <code class="inline">GroupLettersIntoLineRects</code> groups the selected characters by line (a gap of 2pt or more between adjacent characters' Bottom coordinates counts as a line break) and computes each line's bounding rect, populating <code class="inline">PendingSelection</code> (<code class="inline">SourcePageIndex</code> + a list of per-line rects). A selection spanning multiple lines is kept as multiple rects (since a PDF Link annotation's <code class="inline">/Rect</code> can only be a single rectangle). <span class="badge ok">since v1.3.1</span>, <code class="inline">PendingSelection</code> is kept around until the link is created or explicitly cancelled via <code class="inline">CancelPendingSelectionCommand</code> (fixes the highlight disappearing the instant a drag ended; see <a href="04-ui-design.html#link-editor-overlay">04-ui-design.html §6.3</a> for how the UI draws it).</li>
         <li><code class="inline">CreateLinkToBookmark(bookmark)</code> &mdash; for each line rect in <code class="inline">PendingSelection</code>, creates a <code class="inline">LinkAnnotationNode</code> that copies the chosen bookmark's <code class="inline">DestinationType</code>/coordinates verbatim and adds it to <code class="inline">Links</code> (multiple lines become multiple links sharing one <code class="inline">GroupId</code>).</li>
         <li><code class="inline">PickArbitraryTargetAndCreateLink(targetPageIndex, pdfX, pdfY)</code> &mdash; while <code class="inline">IsPickingArbitraryTarget</code> is on, commits a link the same way using the clicked preview position as an XYZ destination.</li>
-        <li><code class="inline">LinkGroups</code> (<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;LinkGroupInfo&gt;&gt;</code>) &mdash; a summary of <code class="inline">Links</code> grouped by <code class="inline">GroupId</code>, for the list UI. Recomputed on every <code class="inline">Links.CollectionChanged</code>.</li>
+        <li><code class="inline">LinkGroups</code> (<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;LinkGroupInfo&gt;&gt;</code>) &mdash; a summary of <code class="inline">Links</code> grouped by <code class="inline">GroupId</code>, for the list UI. Recomputed on every <code class="inline">Links.CollectionChanged</code>, and, <span class="badge ok">since v1.3.1</span>, on every <code class="inline">OnCurrentPageIndexChanged</code> too. The aggregation filters by <code class="inline">!info.IsPreExisting || info.SourcePageIndex == CurrentPageIndex.Value</code> &mdash; pre-existing links (<code class="inline">IsPreExisting</code>, ones already in the file before this session) only show up for the page currently being previewed, so a document with many pre-existing links doesn't flood the list, while links created in this session keep showing regardless of page.</li>
       </ul>
 
       <h3>7.5 <code class="inline">DeleteLinkGroup</code> / <code class="inline">BeginEditLinkGroup</code></h3>
@@ -439,7 +487,7 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         <li><strong>Excluding pre-existing links</strong>: links read via <code class="inline">ReadExistingLinksAsync</code> in <code class="inline">LoadAsync</code> get their Ids recorded in <code class="inline">_preExistingLinkIds</code> (a <code class="inline">HashSet&lt;Guid&gt;</code>) before being added to <code class="inline">Links</code> (so they show up in the list). Since restoring the pristine backup already brings them back, <code class="inline">FinishAsync</code> sends <code class="inline">ApplyLinksAsync</code> only the links in <code class="inline">Links</code> that <strong>aren't</strong> in <code class="inline">_preExistingLinkIds</code> &mdash; the newly created ones. Sending the pre-existing ones too would write them a second time. For the same reason, <code class="inline">DeleteLinkGroup</code>/<code class="inline">BeginEditLinkGroup</code> (§7.5) no-op on pre-existing links &mdash; there's no way to make a deletion or a re-targeted destination "stick" for them. The UI reads <code class="inline">LinkGroupInfo.IsPreExisting</code> (true when every link in a group is in <code class="inline">_preExistingLinkIds</code>) to hide the edit/delete buttons for those entries (see <a href="04-ui-design.html#link-editor-existing-links-ui">04-ui-design.html §6.4</a>).</li>
       </ol>
 
-      <h3 id="link-editor-thread">7.7 Two bugs found during implementation</h3>
+      <h3 id="link-editor-thread">7.7 Bugs found during implementation</h3>
       <div class="card">
         <h4>Cross-thread crash (<code class="inline">ConfigureAwait(false)</code>)</h4>
         <p>
@@ -467,6 +515,39 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
           what the hit actually was). Fixed by switching to deriving the page directly from the scroll offset
           and the known per-page height, given every page shares the same placeholder size &mdash; see
           <a href="04-ui-design.html#link-editor-scroll-ui">04-ui-design.html §6.2</a>.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Preview's scrollable extent stuck at the previous file's page count <span class="badge ok">fixed in v1.3.1</span></h4>
+        <p>
+          After finishing one link-editing session, going back to file selection, re-merging with a
+          different set of files, and re-entering the link editor, <code class="inline">PageSlots</code>
+          rebuilt correctly (right page count, right bookmark tree), but the preview's scrollbar physically
+          capped out at the <strong>previous</strong> (usually smaller) file's page count. WPF's
+          <code class="inline">VirtualizingStackPanel</code> (<code class="inline">ScrollUnit="Pixel"</code>)
+          caches internal uniform-item-size/estimated-extent state that a plain
+          <code class="inline">Clear()</code>+<code class="inline">Add()</code> cycle on the same
+          <code class="inline">ObservableCollection</code> instance doesn't reliably invalidate (see
+          <a href="https://github.com/dotnet/wpf/issues/7017">dotnet/wpf#7017</a>,
+          <code class="inline">VirtualizingStackPanel.SyncUniformSizeFlags()</code>). Fixed by toggling
+          <code class="inline">VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false)</code> then back to
+          <code class="inline">true</code> when <code class="inline">LoadGeneration</code>
+          (<a href="#link-editor">&sect;7.3</a>) changes, forcing the panel to fully discard and rebuild that
+          internal state (WPF only &mdash; Avalonia showed no equivalent caching issue and has no matching
+          attached property). See <a href="04-ui-design.html#link-editor-scroll-fix">04-ui-design.html §6.2</a>.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Lost pointer capture (Alt+Tab, etc.) <span class="badge ok">since v1.3.1</span></h4>
+        <p>
+          Losing window focus mid-drag during a text selection swallows the mouse-up event, leaving
+          <code class="inline">_isSelectingLinkText</code> stuck <code class="inline">true</code>.
+          <code class="inline">OnPdfPreviewLostMouseCapture</code> (WPF, the
+          <code class="inline">LostMouseCapture</code> event) /
+          <code class="inline">OnPdfPreviewPointerCaptureLost</code> (Avalonia, the
+          <code class="inline">PointerCaptureLost</code> event) reset <code class="inline">_isSelectingLinkText</code>
+          to <code class="inline">false</code> and call <code class="inline">CancelPendingSelection()</code>, so
+          the next click isn't misread as "drag continuing."
         </p>
       </div>
     </section>

@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html" class="current">Version History</a></li>
     </ol>
     <div class="toc-foot">
-      as of v1.3.0<br />
+      as of v1.3.1<br />
       <a href="../index.html">&larr; Index</a><br />
       <a href="../ja/05-version-history.html">日本語</a>
     </div>
@@ -31,7 +31,7 @@
   <main>
     <header class="doc-head" id="top">
       <div class="eyebrow">Design Documentation — 05 / 06</div>
-      <h1>Design-Level Diffs Across Versions (v1.0.0 &rarr; v1.3.0)</h1>
+      <h1>Design-Level Diffs Across Versions (v1.0.0 &rarr; v1.3.1)</h1>
       <p class="sub">
         This document was assembled by enumerating changed files with
         <code class="inline">git diff --name-status &lt;previous version&gt; &lt;target version&gt; -- src tests</code>,
@@ -54,6 +54,7 @@
             <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
             <tr><td class="mono">v1.2.3</td><td>2026-08-18</td><td class="mono">2bd2b45</td></tr>
             <tr><td class="mono">v1.3.0</td><td>2026-08-20</td><td class="mono">3056af1</td></tr>
+            <tr><td class="mono">v1.3.1</td><td>2026-08-20</td><td class="mono">db31720</td></tr>
           </tbody>
         </table>
       </div>
@@ -443,6 +444,84 @@
 
     <hr class="rule" />
 
+    <section id="v131">
+      <h2><span class="num">v1.3.1</span>2026-08-20</h2>
+      <p>
+        3 commits. Fixes across three areas that surfaced from the code-review follow-up after the
+        v1.3.0 release: settings cloning, a long freeze on large bookmark trees, and the link editor's
+        selection handling.
+      </p>
+
+      <h3><code class="inline">c7b14e1</code> Fix settings cloning fragility</h3>
+      <p>
+        <code class="inline">MainWindowViewModel.MergeCoreAsync</code> and
+        <code class="inline">SettingsViewModel.ToOptions</code> each independently hand-enumerated
+        every <code class="inline">PdfBookmarkMergerOptions</code> property to build a copy &mdash;
+        and this had already caused a real bug once, where a new property
+        (<code class="inline">ShowMergeAndEditLinksButton</code>) was missed at one of the two call
+        sites and silently reverted to its default on every merge. Added
+        <code class="inline">PdfBookmarkMergerOptions.Clone()</code> and routed both call sites through
+        it. Added a reflection-based regression test verifying every public property survives
+        <code class="inline">Clone()</code>, plus tests covering both call sites' actual behavior.
+      </p>
+
+      <h3><code class="inline">1baa944</code> Fix long UI freeze when loading/undoing large bookmark trees</h3>
+      <p>
+        <code class="inline">BookmarkTreeViewModel.RebuildTree</code> (the shared path behind load and
+        Undo) had <code class="inline">BookmarkNodeViewModel</code>'s constructor recursively build
+        every descendant's ViewModel inline (roughly 12 Rx subscriptions per node), so on a ~2000-node
+        tree this ran uninterrupted for close to a minute &mdash; long enough that even the busy
+        overlay never got a chance to render. Removed the constructor's recursive child construction
+        and moved tree construction into <code class="inline">BookmarkTreeViewModel.RebuildTreeAsync</code>
+        (formerly <code class="inline">RebuildTree</code>), which builds depth-first and yields via
+        <code class="inline">await Task.Yield()</code> every <code class="inline">RecomputeChunkSize</code>
+        (200) nodes, reusing the <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>
+        chunked-processing framework introduced in <a href="#v121">v1.2.1</a>.
+        <code class="inline">Load</code>/<code class="inline">Undo</code> were renamed to
+        <code class="inline">LoadAsync</code>/<code class="inline">UndoAsync</code> accordingly. See
+        <a href="03-app-design.html#rebuild-tree-async">03-app-design.html &sect;2.6.1</a> for the
+        detailed design.
+      </p>
+
+      <h3><code class="inline">d11f72f</code> Fix link editor selection handling and preview navigation issues</h3>
+      <p>Four related fixes driven by manual-testing feedback on WPF and Avalonia.</p>
+      <ol>
+        <li>
+          Picking an arbitrary jump-target position lost the pending selection the moment the user
+          scrolled to a different page &mdash; even though that's an inherently cross-page workflow
+          &mdash; making the feature nearly unusable. Fixed by narrowing
+          <code class="inline">LoadCurrentPageMetadataAsync</code>'s reset to only the
+          drag-in-progress state.
+        </li>
+        <li>
+          The selected range's highlight disappeared the instant a drag ended. Fixed by unifying the
+          drag-in-progress display (<code class="inline">LiveSelectionLineRects</code>) and the
+          post-drag persisted display (<code class="inline">PendingSelection</code>) into one overlay,
+          drawn in a color (blue) distinct from confirmed links (green).
+        </li>
+        <li>
+          Finishing one link-editing session, going back to re-merge a different set of files, and
+          re-entering the link editor left the preview's scrollable range stuck at the previous file's
+          page count. Fixed a WPF <code class="inline">VirtualizingStackPanel</code> internal-caching
+          issue by toggling <code class="inline">VirtualizingPanel.IsVirtualizing</code> off and back
+          on when <code class="inline">LinkEditorViewModel.LoadGeneration</code> changes, forcing the
+          panel to rebuild its internal state.
+        </li>
+        <li>
+          The pre-existing-link list now only shows entries for the page currently being previewed, and
+          non-active pages are dimmed with a translucent gray overlay so it's visually clear which page
+          is active.
+        </li>
+      </ol>
+      <p>
+        See <a href="03-app-design.html#link-editor">03-app-design.html &sect;7.3&ndash;7.4, &sect;7.7</a>
+        and <a href="04-ui-design.html#link-editor-ui">04-ui-design.html &sect;6.1&ndash;6.4</a> for the
+        detailed design.
+      </p>
+    </section>
+
+    <hr class="rule" />
+
     <section id="verify">
       <h2><span class="num">&mdash;</span>How to verify this yourself</h2>
       <pre class="code"><span class="c"># tags and their commit dates</span>
@@ -456,6 +535,7 @@ git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
 git diff --name-status v1.2.3 v1.3.0 -- src tests
+git diff --name-status v1.3.0 v1.3.1 -- src tests
 
 <span class="c"># every commit within each version window</span>
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -464,6 +544,7 @@ git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
 git log --oneline v1.2.3..v1.3.0 -- src tests
+git log --oneline v1.3.0..v1.3.1 -- src tests
 
 <span class="c"># a specific commit's full diff</span>
 git show &lt;commit-hash&gt;

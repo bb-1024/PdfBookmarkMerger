@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.3.0時点<br />
+      v1.3.1時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/04-ui-design.html">English</a>
     </div>
@@ -269,6 +269,17 @@
         <code class="inline">IsCurrent</code>がtrueのアイテムでのみ<code class="inline">Visibility</code>/<code class="inline">IsVisible</code>が
         trueになる(=現在ページ以外は非表示・非ヒットテスト)。
       </p>
+      <p>
+        <span class="badge ok">v1.3.1&#12316;</span>、各アイテムの<code class="inline">DataTemplate</code>には
+        上記に加えて半透明グレーの<code class="inline">Rectangle</code>(<code class="inline">Fill="#59808080"</code>、
+        <code class="inline">IsHitTestVisible="False"</code>)を重ねており、<code class="inline">IsCurrent</code>が
+        <strong>false</strong>のアイテムでのみ表示する(WPF: <code class="inline">IsCurrent.Value</code>を
+        <code class="inline">EnumToVisibilityConverter</code>に<code class="inline">ConverterParameter=False</code>で渡す、
+        Avalonia: <code class="inline">IsVisible="{Binding !IsCurrent.Value}"</code>)。連続スクロール化以前は
+        非アクティブなページをそもそも描画していなかったが、連続スクロール化以降は全ページが同時に
+        プレビュー領域に表示されうるため、選択操作・ホットスポット表示の対象がどのページかを常に
+        目視できるようにする狙い。
+      </p>
 
       <h3 id="link-editor-scroll-fix">6.2 スクロール連動のページ検出とページ送りの位置合わせ</h3>
       <p>
@@ -317,20 +328,81 @@
         受けてもスクロール位置を動かし直さない(動かすと、追従した瞬間に別の位置へジャンプし直して
         スクロールが成立しなくなる)。
       </p>
+      <p>
+        <strong>プレビューのスクロール可能範囲が前回ファイルのページ数のまま固定される不具合
+        <span class="badge ok">v1.3.1&#12316;で修正</span></strong>:
+        一度リンク編集を終えてしおり編集画面へ戻り、別ファイル構成で再結合してからリンク編集画面へ
+        再入すると、<code class="inline">PageSlots</code>の件数・しおり一覧・目次構造は正しく再構築される
+        にもかかわらず、プレビューのスクロールバーが物理的に<strong>前回ファイルのページ数</strong>の
+        位置で頭打ちになる症状が発生した。WPFの<code class="inline">VirtualizingStackPanel</code>
+        (<code class="inline">ScrollUnit="Pixel"</code>)は「均一アイテムサイズ/推定スクロール範囲」を
+        内部にキャッシュしており、同一の<code class="inline">PageSlots</code>
+        (<code class="inline">ObservableCollection</code>)インスタンスへの<code class="inline">Clear()</code>+
+        <code class="inline">Add()</code>だけではこのキャッシュが確実には無効化されない(参考:
+        <a href="https://github.com/dotnet/wpf/issues/7017">dotnet/wpf#7017</a>、
+        <code class="inline">VirtualizingStackPanel.SyncUniformSizeFlags()</code>)。原因調査は、
+        <code class="inline">ScrollToVerticalOffset(0)</code>+<code class="inline">InvalidateMeasure()</code>/
+        <code class="inline">UpdateLayout()</code>という一般的なレイアウト再計算の指示だけでは症状が
+        再現し続けたことから始まり、ユーザーからの「スクロールバー自体が前回ページ数の位置で止まる」
+        という切り分けにより、キャッシュされた推定スクロール範囲そのものが古いことが確定した。最終的に、
+        <code class="inline">LinkEditorViewModel.LoadGeneration</code>
+        (<a href="03-app-design.html#link-editor">03-app-design.html §7.3</a>参照。<code class="inline">LoadAsync</code>完了ごとに
+        増えるカウンタ)の変更を契機に、WPF側でのみ
+        <code class="inline">VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false)</code>を呼んでから
+        直後に<code class="inline">true</code>へ戻す処理を追加し、パネルへ内部状態を完全に破棄・再構築させる
+        ことで解決した(<code class="inline">OnMainWindowLoaded</code>内の<code class="inline">LoadGeneration.Subscribe</code>
+        ハンドラ)。Avaloniaの<code class="inline">VirtualizingStackPanel</code>は同種のキャッシュ問題を
+        確認できず、対応するアタッチドプロパティも存在しないため、Avalonia側は
+        <code class="inline">ScrollToVerticalOffset</code>相当のリセットのみで対応している。
+      </p>
 
-      <h3 id="link-editor-selection-ui">6.3 リンクのホットスポット表示・テキスト選択</h3>
+      <h3 id="link-editor-overlay">6.3 リンクのホットスポット表示・テキスト選択 <span class="badge ok">v1.3.1&#12316;再設計</span></h3>
       <p>
         <code class="inline">RedrawLinkOverlay</code>は、
         <code class="inline">PdfPageListBox.ItemContainerGenerator.ContainerFromIndex</code>(WPF)/
         <code class="inline">ContainerFromIndex</code>(Avalonia)で現在ページのコンテナを取得し
         (仮想化により未実体化なら何もしない &mdash; コンテナが実体化した時に
         <code class="inline">OnPageSlotLoaded</code>から改めて呼ばれる)、その中の<code class="inline">Canvas</code>
-        (<code class="inline">LinkOverlayCanvas</code>)へ確定済みリンクを半透明の矩形として描画し直す。マウス/
+        (<code class="inline">LinkOverlayCanvas</code>)へ矩形を描画し直す。マウス/
         ポインタイベント(<code class="inline">OnPdfPreviewMouseLeftButtonDown</code>等)はヒットレイヤー自身
         (<code class="inline">sender</code>)を基準に座標を取り、兄弟要素の<code class="inline">Canvas</code>を
         <code class="inline">VisualTreeHelper</code>(WPF)/<code class="inline">GetVisualDescendants</code>(Avalonia)で
         探して描画対象にする &mdash; 連続スクロール表示では同名の<code class="inline">Canvas</code>が複数の
         コンテナに存在しうるため、常に「今操作しているコンテナ自身」のものを使う必要がある。
+      </p>
+      <p>
+        <span class="badge ok">v1.3.1&#12316;</span>、描画内容を共通ヘルパー
+        <code class="inline">CreateOverlayRect(PdfRect, Brush fill, Brush stroke)</code>を介して
+        2段階で描き分ける。
+      </p>
+      <ol>
+        <li>確定済みリンク(<code class="inline">LinkEditor.Links</code>のうち現在ページの<code class="inline">SourceRect</code>群)を
+          緑(<code class="inline">ExistingLinkFill</code>/<code class="inline">Brushes.Green</code>)で描画する。</li>
+        <li>選択中・確定待ちの範囲を青(<code class="inline">LiveSelectionFill</code>/<code class="inline">Brushes.DodgerBlue</code>)で
+          描画する。対象は<code class="inline">LinkEditor.LiveSelectionLineRects.Value</code>が空でなければそれ
+          (ドラッグ中の行単位の矩形、<a href="03-app-design.html#link-editor-selection">03-app-design.html §7.4</a>参照)、
+          空なら<code class="inline">LinkEditor.PendingSelection.Value</code>の<code class="inline">SourcePageIndex</code>が
+          現在ページと一致する場合に限りその<code class="inline">LineRects</code>を使う
+          (ドラッグ終了後〜リンク確定/キャンセルまでの保持分)。</li>
+      </ol>
+      <p>
+        以前の実装は、確定待ち範囲の可視化を<code class="inline">DrawLiveSelectionRect</code>(ドラッグ開始点〜
+        現在点を結ぶ単純な対角線矩形)という別関数・別描画パスで行っており、ドラッグ終了とともに呼ばれなく
+        なるため可視化が消えてしまっていた(ユーザーからの不具合報告により発覚)。<code class="inline">PendingSelection</code>が
+        <code class="inline">RedrawLinkOverlay</code>の入力に統合されたことで解消し、<code class="inline">OnMainWindowLoaded</code>に
+        新設した<code class="inline">PendingSelection.Subscribe(_ =&gt; RedrawLinkOverlay())</code>により、
+        <code class="inline">CancelPendingSelectionCommand</code>経由でのキャンセル時にも即座に青い可視化が
+        消えるようになった(以前は<code class="inline">FindSiblingOverlayCanvas</code>経由の描画しかトリガーが
+        なく、キャンセル操作自体に再描画契機が無かった)。
+      </p>
+      <p>
+        <strong>ポインタキャプチャの喪失(Alt+Tab等)への対応</strong>: ドラッグによる文字選択の途中で
+        ウィンドウがフォーカスを失うと、マウスボタンを離すイベント自体を取りこぼし<code class="inline">_isSelectingLinkText</code>が
+        trueのまま残ってしまう。<code class="inline">OnPdfPreviewLostMouseCapture</code>(WPF、
+        <code class="inline">LostMouseCapture</code>イベント)/<code class="inline">OnPdfPreviewPointerCaptureLost</code>
+        (Avalonia、<code class="inline">PointerCaptureLost</code>イベント)を新設し、
+        <code class="inline">_isSelectingLinkText</code>をfalseへ戻し<code class="inline">CancelPendingSelection()</code>を
+        呼ぶことで、次のクリックが「ドラッグ継続」と誤認識されないようにしている。
       </p>
 
       <h3 id="link-editor-existing-links-ui">6.4 設定済みリンク一覧と既存リンクの扱い</h3>
@@ -342,6 +414,14 @@
         「編集」「削除」ボタンを非表示にし、代わりに<span class="badge warn">(既存)</span>バッジを表示する
         (<code class="inline">PdfLinkAnnotationService</code>が既存の注釈を安全に削除・置換できないため、
         この画面からは操作できない)。
+      </p>
+      <p>
+        <span class="badge ok">v1.3.1&#12316;</span>、<code class="inline">LinkGroups</code>自体が既存リンクを
+        現在プレビュー中のページ分のみに絞り込むため
+        (<a href="03-app-design.html#link-editor-selection">03-app-design.html §7.4</a>参照)、この一覧に既存
+        リンクのバッジ付き項目が並ぶのは常に「今見ているページの既存リンク」のみになる(本セッションで新規に
+        作成したリンクはページによらず常に一覧に残る)。多数の既存リンクを含む文書を開いた際に一覧がその
+        全件で埋め尽くされる問題への対応。
       </p>
 
       <h3 id="link-editor-settings-checkbox">6.5 設定ダイアログ: リンク編集ボタンの表示切り替え</h3>

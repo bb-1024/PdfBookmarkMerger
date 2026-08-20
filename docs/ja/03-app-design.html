@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.3.0時点<br />
+      v1.3.1時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/03-app-design.html">English</a>
     </div>
@@ -197,7 +197,7 @@ BookmarkTree.BusyProgress.Subscribe(p =&gt; BusyProgress.Value = p);</pre>
       <ul>
         <li><code class="inline">PushUndoSnapshot()</code>(引数なし) &mdash; 構造操作の直前に呼ぶ、常に1件積むコアレスなし版。</li>
         <li><code class="inline">PushUndoSnapshot(coalesceKey)</code> &mdash; プロパティ編集用。同一キーへの連続呼び出しが800ms(<code class="inline">SnapshotCoalesceWindow</code>)以内なら1回の編集とみなし、履歴を積み増さない(テキスト入力中の1文字ごとの履歴増殖を防ぐ)。</li>
-        <li><code class="inline">Undo()</code> &mdash; 最新スナップショットをJSONデシリアライズし <code class="inline">RebuildTree</code> へ渡す(履歴自体はPopされ消費される。LIFO順)。</li>
+        <li><code class="inline">UndoAsync()</code> <span class="badge ok">v1.3.1&#12316;</span>(旧称 <code class="inline">Undo</code>、同期メソッド) &mdash; 最新スナップショットをJSONデシリアライズし <code class="inline">RebuildTreeAsync</code>(<a href="#rebuild-tree-async">&sect;2.6.1</a>参照)へ渡す(履歴自体はPopされ消費される。LIFO順)。<code class="inline">UndoCommand</code> からは <code class="inline">TriggerUndo</code>(<code class="inline">TriggerRecompute</code>と同型のfire-and-forgetラッパー)経由で呼ばれる。</li>
       </ul>
       <p>
         <code class="inline">BookmarkNodeViewModel</code> の各プロパティ(<code class="inline">Title</code>/<code class="inline">IsOpen</code>/<code class="inline">DestinationType</code>/座標)は、
@@ -255,6 +255,40 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         出しが(ユーザー操作起点で)重ねて発生することは想定していない。
       </p>
 
+      <h3 id="rebuild-tree-async">2.6.1 <code class="inline">RebuildTreeAsync</code> &mdash; ツリー構築自体のチャンク処理 <span class="badge ok">v1.3.1&#12316;</span></h3>
+      <p>
+        上記のチャンク処理は「既存の<code class="inline">BookmarkNodeViewModel</code>ツリーのプロパティを
+        再計算する」経路であり、読込・Undo時に<strong>ツリーそのものを新規構築する</strong>経路は当初これに
+        含まれていなかった。<code class="inline">BookmarkNodeViewModel</code>のコンストラクタが
+        <code class="inline">model.Children</code>から子孫全ノード分の<code class="inline">BookmarkNodeViewModel</code>
+        を再帰的に構築しており(1ノードあたりRxの購読が約12本 &mdash; <code class="inline">Skip(1).Subscribe</code>
+        のペア8本+<code class="inline">CombineLatest</code>由来の算出プロパティ4本)、約2000ノードのツリーでは
+        これが1分近く無停止で走り、処理中オーバーレイの初回描画すら間に合わないほどのフリーズを起こしていた。
+      </p>
+      <p>
+        これを解消するため、<code class="inline">BookmarkNodeViewModel</code>のコンストラクタから子孫の
+        再帰構築を削除し(<code class="inline">Children</code>は空で始まる)、ツリー構築を
+        <code class="inline">BookmarkTreeViewModel.RebuildTreeAsync</code>(旧称
+        <code class="inline">RebuildTree</code>、同期メソッド)内のローカル関数
+        <code class="inline">BuildChildrenAsync</code>が深さ優先で行うようにした。
+        <code class="inline">RecomputeChunkSize</code>(200件)ノードごとに<code class="inline">await Task.Yield()</code>
+        で制御を返し、<code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>を更新する &mdash;
+        <a href="#recompute">&sect;2.6</a>の書き戻しループと同じ枠組みの再利用。ツリー構築後の
+        <code class="inline">RecomputeAllPageNumberDisplaysAsync()</code>は、<code class="inline">TriggerRecompute()</code>
+        (fire-and-forget)を経由せず同じ<code class="inline">try</code>ブロック内で直接
+        <code class="inline">await</code>する。これは、経由した場合に<code class="inline">IsBusy</code>が
+        一瞬<code class="inline">false</code>に戻ってから再度<code class="inline">true</code>になる隙間ができ
+        (2フェーズの切れ目でUIスレッドへ一度制御が返るため)、その隙間をポーリングで検出してしまうテストが
+        まれに失敗する(flaky)不具合が実際に発生したため。
+      </p>
+      <p>
+        <code class="inline">Load</code>/<code class="inline">Undo</code>は、この変更に伴い
+        <code class="inline">LoadAsync</code>/<code class="inline">UndoAsync</code>へ改名された
+        (<code class="inline">LoadAsync</code>の唯一の呼び出し元<code class="inline">MainWindowViewModel.ConfirmFilesAsync</code>
+        は<code class="inline">await</code>で直接呼ぶ。<code class="inline">UndoAsync</code>は
+        <a href="#undo">&sect;2.4</a>の<code class="inline">TriggerUndo</code>経由のまま)。
+      </p>
+
       <h3 id="expand-level">2.7 ツリー開閉レベルの一括指定 <span class="badge ok">v1.2.2&#12316;</span></h3>
       <p>しおり編集ツリー直上の「-」ボタン・レベル指定テキストボックス・「+」ボタンを支えるロジック。</p>
       <ul>
@@ -271,8 +305,15 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         しおりツリーの1ノード分のViewModel。<code class="inline">Title</code>/<code class="inline">IsOpen</code>/<code class="inline">DestinationType</code>/<code class="inline">Left</code>/<code class="inline">Top</code>/<code class="inline">Right</code>/<code class="inline">Bottom</code>/<code class="inline">Zoom</code>
         の各 <code class="inline">ReactivePropertySlim&lt;T&gt;</code> は、値が変わるたびに対応する
         <code class="inline">Model</code>(<code class="inline">BookmarkNode</code>)へ直接反映しつつ、
-        <code class="inline">BookmarkTreeViewModel</code> へUndoスナップショット要求を送る。構築時の初回
-        リプレイ(<code class="inline">ReactivePropertySlim.Subscribe</code> は購読直後に現在値を1回
+        <code class="inline">BookmarkTreeViewModel</code> へUndoスナップショット要求を送る。
+        <span class="badge ok">v1.3.1&#12316;</span>、<code class="inline">Children</code>
+        (<code class="inline">ObservableCollection&lt;BookmarkNodeViewModel&gt;</code>)はコンストラクタでは
+        空のまま初期化されるだけで、子孫ノード分の<code class="inline">BookmarkNodeViewModel</code>を再帰的に
+        構築する処理は持たない(<code class="inline">model.Children</code>から実際にツリーを組み立てるのは
+        呼び出し側の<code class="inline">BookmarkTreeViewModel.RebuildTreeAsync</code>
+        (<a href="#rebuild-tree-async">&sect;2.6.1</a>参照) &mdash; 大規模ツリーで構築処理自体をチャンク分割
+        できるようにするため、1ノードのコンストラクタが子孫全体の構築を巻き込まないよう責務を外に出した)。
+        構築時の初回リプレイ(<code class="inline">ReactivePropertySlim.Subscribe</code> は購読直後に現在値を1回
         リプレイする)を <code class="inline">Skip(1)</code> で除外しないと、ノード生成のたびに実際の変更なし
         でUndo履歴が積まれてしまう(Undo自体がツリーを再構築するため、無限増殖するバグになる)。
       </p>
@@ -381,20 +422,21 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         <li>範囲外の値を最も近い有効な値へ丸める(自己再入。<code class="inline">ReactivePropertySlim</code>は値が変化しない限り再通知しないため収束する)。</li>
         <li>旧<code class="inline">_currentSlot</code>の<code class="inline">IsCurrent</code>をfalseへ、新しいスロットのそれをtrueへ切り替える。</li>
         <li><code class="inline">PageNumberInput</code>(1始まり、ページ送りツールバーのテキストボックスと双方向バインド)を同期する。</li>
-        <li>現在ページのメタデータ(<code class="inline">PageHeight</code>・<code class="inline">Letters</code>、ページが変わった場合のみ文字抽出)をfire-and-forgetで取得する(<code class="inline">TriggerLoadCurrentPageMetadata</code>。ページのビットマップ自体は<code class="inline">PageSlots</code>の担当のため、ここでは扱わない)。</li>
+        <li>現在ページのメタデータ(<code class="inline">PageHeight</code>・<code class="inline">Letters</code>、ページが変わった場合のみ文字抽出)をfire-and-forgetで取得する(<code class="inline">TriggerLoadCurrentPageMetadata</code>。ページのビットマップ自体は<code class="inline">PageSlots</code>の担当のため、ここでは扱わない)。<span class="badge ok">v1.3.1&#12316;</span>、<code class="inline">Letters</code>が実際に再読込された場合、ドラッグ中の一時状態(<code class="inline">_selectionAnchorLetterIndex</code>/<code class="inline">_selectionFocusLetterIndex</code>/<code class="inline">LiveSelectionLineRects</code>、<a href="#link-editor-selection">§7.4</a>参照)のみをリセットする(以前は<code class="inline">CancelPendingSelection()</code>を呼んでおり、<code class="inline">PendingSelection</code>/<code class="inline">IsPickingArbitraryTarget</code>も巻き込んで消去していた。しかし「任意の位置」へのジャンプ先指定は、本文を選択した後にジャンプ先を探して別ページへスクロールするという、本質的にページをまたぐ操作であるため、ページ遷移のたびに選択が消えると事実上使えない機能になっていた)。</li>
+        <li><code class="inline">LoadGeneration</code>(<code class="inline">ReactivePropertySlim&lt;int&gt;</code>、<span class="badge ok">v1.3.1&#12316;</span>)は<code class="inline">OnCurrentPageIndexChanged</code>とは独立に、<code class="inline">LoadAsync</code>が完了するたびに1つ増える。UI側の一部の状態(後述のプレビューのスクロール可能範囲、<a href="04-ui-design.html#link-editor-scroll-fix">04-ui-design.html §6.2</a>参照)は<code class="inline">CurrentPageIndex</code>の変更だけでは再初期化できない(2回目の<code class="inline">LoadAsync</code>開始時点で<code class="inline">CurrentPageIndex</code>がたまたま前回終了時と同じ0のままだと変更通知が飛ばないため)ので、常に変化するこのカウンタを別途用意している。</li>
       </ol>
       <p>
         <code class="inline">PageNumberInput</code>側の変更(テキストボックスへの直接入力)も、範囲を丸めつつ
         <code class="inline">CurrentPageIndex</code>へ反映する双方向の同期になっている(<code class="inline">OnPageNumberInputChanged</code>)。
       </p>
 
-      <h3>7.4 文字選択によるリンク作成</h3>
+      <h3 id="link-editor-selection">7.4 文字選択によるリンク作成</h3>
       <ul>
-        <li><code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code>/<code class="inline">EndTextSelection</code> &mdash; ドラッグ開始・移動・終了のPDFユーザー空間座標を受け取り、現在ページの<code class="inline">Letters</code>(<code class="inline">PdfTextExtractor</code>が抽出した文字矩形の列)に対しヒットテストして選択範囲(文字インデックスの区間)を求める。矩形内に文字が無い場合は中心点までの距離が最も近い文字を採用し、ドラッグがわずかに文字の外側へ外れても選択が破綻しないようにしている。</li>
-        <li>選択確定時、<code class="inline">GroupLettersIntoLineRects</code>が行(隣接文字のBottom座標が2pt以上離れていれば改行とみなす)ごとに外接矩形を求め、<code class="inline">PendingSelection</code>(<code class="inline">SourcePageIndex</code>+行ごとの矩形群)へ反映する。複数行にまたがる選択は複数の矩形として保持される(PDFのLinkアノテーションの<code class="inline">/Rect</code>が単一矩形のみのため)。</li>
+        <li><code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code>/<code class="inline">EndTextSelection</code> &mdash; ドラッグ開始・移動・終了のPDFユーザー空間座標を受け取り、現在ページの<code class="inline">Letters</code>(<code class="inline">PdfTextExtractor</code>が抽出した文字矩形の列)に対しヒットテストして選択範囲(文字インデックスの区間)を求める。矩形内に文字が無い場合は中心点までの距離が最も近い文字を採用し、ドラッグがわずかに文字の外側へ外れても選択が破綻しないようにしている。<code class="inline">BeginTextSelection</code>/<code class="inline">UpdateTextSelection</code>はドラッグ中、<code class="inline">LiveSelectionLineRects</code>(<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;PdfRect&gt;&gt;</code>、<span class="badge ok">v1.3.1&#12316;</span>)を現在の選択範囲から<code class="inline">GroupLettersIntoLineRects</code>(後述)で都度再計算し、ドラッグ中も行単位の正確な矩形でプレビュー上の可視化ができるようにする(以前はドラッグ開始点〜現在点を結ぶ単純な対角線矩形のみで、複数行選択の実際の形状と一致しなかった)。</li>
+        <li>選択確定時(<code class="inline">EndTextSelection</code>)、<code class="inline">LiveSelectionLineRects</code>をクリアしたうえで<code class="inline">GroupLettersIntoLineRects</code>が行(隣接文字のBottom座標が2pt以上離れていれば改行とみなす)ごとに外接矩形を求め、<code class="inline">PendingSelection</code>(<code class="inline">SourcePageIndex</code>+行ごとの矩形群)へ反映する。複数行にまたがる選択は複数の矩形として保持される(PDFのLinkアノテーションの<code class="inline">/Rect</code>が単一矩形のみのため)。<span class="badge ok">v1.3.1&#12316;</span>、<code class="inline">PendingSelection</code>はリンクを確定または<code class="inline">CancelPendingSelectionCommand</code>で明示的にキャンセルするまで保持され続ける(ドラッグ終了直後に可視化が消えてしまうという不具合の修正。UI側の描画は<a href="04-ui-design.html#link-editor-overlay">04-ui-design.html §6.3</a>参照)。</li>
         <li><code class="inline">CreateLinkToBookmark(bookmark)</code> &mdash; <code class="inline">PendingSelection</code>の各行矩形について、選択したしおりの<code class="inline">DestinationType</code>/座標をそのままコピーした<code class="inline">LinkAnnotationNode</code>を生成し<code class="inline">Links</code>へ追加する(複数行なら同一<code class="inline">GroupId</code>の複数リンクになる)。</li>
         <li><code class="inline">PickArbitraryTargetAndCreateLink(targetPageIndex, pdfX, pdfY)</code> &mdash; <code class="inline">IsPickingArbitraryTarget</code>中にプレビュー上でクリックされた位置をXYZ形式のジャンプ先として、同様にリンクを確定する。</li>
-        <li><code class="inline">LinkGroups</code>(<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;LinkGroupInfo&gt;&gt;</code>) &mdash; <code class="inline">Links</code>を<code class="inline">GroupId</code>単位で集約した一覧UI向けの要約情報。<code class="inline">Links.CollectionChanged</code>のたびに再計算される。</li>
+        <li><code class="inline">LinkGroups</code>(<code class="inline">ReactivePropertySlim&lt;IReadOnlyList&lt;LinkGroupInfo&gt;&gt;</code>) &mdash; <code class="inline">Links</code>を<code class="inline">GroupId</code>単位で集約した一覧UI向けの要約情報。<code class="inline">Links.CollectionChanged</code>に加え、<span class="badge ok">v1.3.1&#12316;</span><code class="inline">OnCurrentPageIndexChanged</code>のたびにも再計算される。集約対象は<code class="inline">!info.IsPreExisting || info.SourcePageIndex == CurrentPageIndex.Value</code>でフィルタする &mdash; 元々ファイルに含まれていた既存リンク(<code class="inline">IsPreExisting</code>)は現在プレビュー中のページ分のみを一覧に出す(既存リンクを多く含む文書で一覧が埋め尽くされるのを防ぐ)一方、本セッションで新規作成したリンクはページに関わらず常に表示する。</li>
       </ul>
 
       <h3>7.5 <code class="inline">DeleteLinkGroup</code> / <code class="inline">BeginEditLinkGroup</code></h3>
@@ -420,7 +462,7 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
         <li><strong>既存リンクの除外</strong>: <code class="inline">LoadAsync</code>で<code class="inline">ReadExistingLinksAsync</code>により読み取った既存リンクは、<code class="inline">_preExistingLinkIds</code>(<code class="inline">HashSet&lt;Guid&gt;</code>)へIdを記録した上で<code class="inline">Links</code>へ追加する(一覧に表示するため)。バックアップから復元した時点でこれらは既にファイルへ含まれているため、<code class="inline">FinishAsync</code>は<code class="inline">Links</code>から<code class="inline">_preExistingLinkIds</code>に含まれる分を除いた<strong>新規作成リンクのみ</strong>を<code class="inline">ApplyLinksAsync</code>へ渡す(渡してしまうと二重に書き込まれる)。同じ理由で<code class="inline">DeleteLinkGroup</code>/<code class="inline">BeginEditLinkGroup</code>(§7.5)は既存リンクに対して何もしない(削除・ジャンプ先変更を「なかったこと」にする手段がないため)。<code class="inline">LinkGroupInfo.IsPreExisting</code>(全リンクが<code class="inline">_preExistingLinkIds</code>に含まれるグループはtrue)をUI側が参照し、既存リンクの編集・削除ボタンを非表示にする(<a href="04-ui-design.html#link-editor-existing-links-ui">04-ui-design.html §6.4</a>参照)。</li>
       </ol>
 
-      <h3 id="link-editor-thread">7.7 実装中に発生した2つのバグ</h3>
+      <h3 id="link-editor-thread">7.7 実装中に発生したバグ</h3>
       <div class="card">
         <h4>クロススレッドクラッシュ(<code class="inline">ConfigureAwait(false)</code>)</h4>
         <p>
@@ -442,6 +484,36 @@ UndoCommand = new ReactiveCommand(canUndo);</pre>
           到達せず常に<code class="inline">PassiveScrollViewer</code>自身で止まっていた(診断ログを一時的に仕込んで特定)。
           全ページ同一のプレースホルダ高さを前提に、スクロールオフセットとページ高さから直接ページ番号を算出する
           方式へ変更して解決した(詳細は<a href="04-ui-design.html#link-editor-scroll-ui">04-ui-design.html §6.2</a>)。
+        </p>
+      </div>
+      <div class="card">
+        <h4>プレビューのスクロール可能範囲が前回ファイルのページ数のまま固定される <span class="badge ok">v1.3.1&#12316;で修正</span></h4>
+        <p>
+          一度リンク編集・保存を行った後、しおり編集画面へ戻って別ファイル構成で再結合し、再度リンク編集画面へ
+          入ると、<code class="inline">PageSlots</code>はページ数分正しく再構築されている(しおり一覧・目次構造も
+          正しい)にもかかわらず、プレビューのスクロールバーが<strong>前回の(通常はより小さい)ページ数</strong>の
+          時点で物理的に止まってしまう症状が報告された。WPFの<code class="inline">VirtualizingStackPanel</code>
+          (<code class="inline">ScrollUnit="Pixel"</code>)が内部に持つ「均一アイテムサイズ/推定スクロール範囲」の
+          キャッシュ状態が、同一<code class="inline">ObservableCollection</code>インスタンスへの単純な
+          <code class="inline">Clear()</code>+<code class="inline">Add()</code>だけでは確実には無効化されないことが
+          原因(参考: <a href="https://github.com/dotnet/wpf/issues/7017">dotnet/wpf#7017</a>、
+          <code class="inline">VirtualizingStackPanel.SyncUniformSizeFlags()</code>)。
+          <code class="inline">LoadGeneration</code>(<a href="#link-editor">§7.3</a>参照)の変更を契機に、
+          <code class="inline">VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false)</code>を呼んでから
+          再度<code class="inline">true</code>に戻すことで、パネルに内部状態を完全に破棄・再構築させて解決した
+          (Avaloniaには同等の内部キャッシュ問題が確認されず、対応するアタッチドプロパティも無いためAvalonia側は
+          変更していない)。詳細は<a href="04-ui-design.html#link-editor-scroll-fix">04-ui-design.html §6.2</a>を参照。
+        </p>
+      </div>
+      <div class="card">
+        <h4>ポインタキャプチャの喪失(Alt+Tab等) <span class="badge ok">v1.3.1&#12316;</span></h4>
+        <p>
+          ドラッグによる文字選択の途中でウィンドウがフォーカスを失うと(WPF: <code class="inline">LostMouseCapture</code>、
+          Avalonia: <code class="inline">PointerCaptureLost</code>)、<code class="inline">_isSelectingLinkText</code>が
+          trueのまま残り、次のクリックが「ドラッグ継続」と誤認識される不具合があった。両イベントのハンドラ
+          (<code class="inline">OnPdfPreviewLostMouseCapture</code>/<code class="inline">OnPdfPreviewPointerCaptureLost</code>)で
+          <code class="inline">_isSelectingLinkText</code>をリセットし<code class="inline">CancelPendingSelection()</code>を
+          呼ぶようにして解決した。
         </p>
       </div>
     </section>

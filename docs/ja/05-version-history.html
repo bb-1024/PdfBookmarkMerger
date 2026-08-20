@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html" class="current">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.3.0時点<br />
+      v1.3.1時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/05-version-history.html">English</a>
     </div>
@@ -31,7 +31,7 @@
   <main>
     <header class="doc-head" id="top">
       <div class="eyebrow">Design Documentation — 05 / 06</div>
-      <h1>バージョン間の設計差分(v1.0.0 &rarr; v1.3.0)</h1>
+      <h1>バージョン間の設計差分(v1.0.0 &rarr; v1.3.1)</h1>
       <p class="sub">
         このドキュメントは、<code class="inline">git diff --name-status &lt;前バージョン&gt; &lt;対象バージョン&gt; -- src tests</code>
         で洗い出した変更ファイル一覧と、該当コミットの内容(<code class="inline">git show &lt;commit&gt;</code>)
@@ -53,6 +53,7 @@
             <tr><td class="mono">v1.2.2</td><td>2026-08-17</td><td class="mono">0bc7147</td></tr>
             <tr><td class="mono">v1.2.3</td><td>2026-08-18</td><td class="mono">2bd2b45</td></tr>
             <tr><td class="mono">v1.3.0</td><td>2026-08-20</td><td class="mono">3056af1</td></tr>
+            <tr><td class="mono">v1.3.1</td><td>2026-08-20</td><td class="mono">db31720</td></tr>
           </tbody>
         </table>
       </div>
@@ -417,6 +418,78 @@
 
     <hr class="rule" />
 
+    <section id="v131">
+      <h2><span class="num">v1.3.1</span>2026-08-20</h2>
+      <p>
+        3個のコミット。v1.3.0リリース後のコードレビューフォローアップで見つかった、設定値の複製・
+        大量しおり時のフリーズ・リンク編集画面の選択操作という3系統の不具合修正。
+      </p>
+
+      <h3><code class="inline">c7b14e1</code> 設定値クローンの脆弱性修正</h3>
+      <p>
+        <code class="inline">MainWindowViewModel.MergeCoreAsync</code> と
+        <code class="inline">SettingsViewModel.ToOptions</code> がそれぞれ独立に
+        <code class="inline">PdfBookmarkMergerOptions</code> の全プロパティを手書きで列挙してコピー
+        していたため、新しいプロパティを追加した際に片方だけ追従し忘れる不具合が実際に発生していた
+        (<code class="inline">ShowMergeAndEditLinksButton</code> が結合のたびに既定値へ静かに巻き戻る
+        バグ)。<code class="inline">PdfBookmarkMergerOptions.Clone()</code> を新設し、両呼び出し箇所を
+        これ経由に統一。全公開プロパティが<code class="inline">Clone()</code>を生き残ることを
+        リフレクションで検証する回帰テストと、両呼び出し箇所の実際の挙動を検証するテストを追加した。
+      </p>
+
+      <h3><code class="inline">1baa944</code> 大量しおりツリーの読込・元に戻す時の長時間フリーズ修正</h3>
+      <p>
+        <code class="inline">BookmarkTreeViewModel.RebuildTree</code>(読込・Undoの共通経路)は、
+        <code class="inline">BookmarkNodeViewModel</code>のコンストラクタが子孫全ノード分の
+        ViewModelを再帰的に構築する設計だったため(1ノードあたりRx購読が約12本)、約2000ノードの
+        ツリーで1分近く無停止で走り、busyオーバーレイの初回描画すら間に合わないほどのフリーズを
+        起こしていた。コンストラクタから再帰構築を除去し、
+        <code class="inline">BookmarkTreeViewModel.RebuildTreeAsync</code>(旧称
+        <code class="inline">RebuildTree</code>)が<code class="inline">RecomputeChunkSize</code>
+        (200件)ノードごとに<code class="inline">await Task.Yield()</code>で制御を返しながら深さ優先で
+        構築する方式へ変更、<a href="#v121">v1.2.1</a>で導入済みの
+        <code class="inline">IsBusy</code>/<code class="inline">BusyProgress</code>チャンク処理の
+        枠組みを再利用した。<code class="inline">Load</code>/<code class="inline">Undo</code>は
+        <code class="inline">LoadAsync</code>/<code class="inline">UndoAsync</code>へ改名されている。
+        詳細設計は<a href="03-app-design.html#rebuild-tree-async">03-app-design.html &sect;2.6.1</a>を参照。
+      </p>
+
+      <h3><code class="inline">d11f72f</code> リンク編集画面の選択操作・プレビュー表示の不具合修正</h3>
+      <p>WPF/Avalonia双方での手動テストフィードバックに基づく4件の関連修正。</p>
+      <ol>
+        <li>
+          任意の位置へのジャンプ先指定中にページをまたいでスクロールすると選択状態がリセットされて
+          しまい、本質的にページ横断が前提の操作であるこの機能がほぼ使えなくなっていた不具合を修正
+          (<code class="inline">LoadCurrentPageMetadataAsync</code>のリセット範囲を、ドラッグ中の
+          一時状態のみへ縮小)。
+        </li>
+        <li>
+          矩形選択のドラッグ終了直後に選択範囲の可視化が消えてしまう不具合を修正
+          (<code class="inline">LiveSelectionLineRects</code>によるドラッグ中表示と
+          <code class="inline">PendingSelection</code>によるドラッグ後の保持表示を統合し、確定済み
+          リンク(緑)と区別可能な色(青)で描画)。
+        </li>
+        <li>
+          リンク編集・保存後にファイル選択へ戻って再結合し、再度リンク編集画面へ入ると、プレビューの
+          スクロール可能範囲が前回ファイルのページ数のまま固定される不具合を修正(WPFの
+          <code class="inline">VirtualizingStackPanel</code>内部キャッシュの問題。
+          <code class="inline">LinkEditorViewModel.LoadGeneration</code>の変更を契機に
+          <code class="inline">VirtualizingPanel.IsVirtualizing</code>を一度オフ→オンへ切り替えて
+          内部状態を再構築)。
+        </li>
+        <li>
+          既存リンクの一覧を現在プレビュー中のページ分のみに絞り込み、非アクティブなページを半透明の
+          グレーで重ね書きして視覚的に区別できるようにした。
+        </li>
+      </ol>
+      <p>
+        詳細設計は<a href="03-app-design.html#link-editor">03-app-design.html &sect;7.3〜7.4、&sect;7.7</a>、
+        <a href="04-ui-design.html#link-editor-ui">04-ui-design.html &sect;6.1〜6.4</a>を参照。
+      </p>
+    </section>
+
+    <hr class="rule" />
+
     <section id="verify">
       <h2><span class="num">&mdash;</span>確認方法</h2>
       <p>以下のコマンドを実行すると、本ドキュメントの記述を自分で再確認できる。</p>
@@ -431,6 +504,7 @@ git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
 git diff --name-status v1.2.3 v1.3.0 -- src tests
+git diff --name-status v1.3.0 v1.3.1 -- src tests
 
 <span class="c"># バージョン間の全コミット(区間内の個別コミットメッセージ)</span>
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -439,6 +513,7 @@ git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
 git log --oneline v1.2.3..v1.3.0 -- src tests
+git log --oneline v1.3.0..v1.3.1 -- src tests
 
 <span class="c"># 個別コミットの詳細diff</span>
 git show &lt;コミットハッシュ&gt;

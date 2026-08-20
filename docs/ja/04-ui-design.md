@@ -172,6 +172,14 @@ WPF版は `Wpf.Ui.Controls.MessageBox`、Avalonia版は自前の `AlertWindow` �
 `DataTemplate`内に常に存在するが、`IsCurrent`がtrueのアイテムでのみ`Visibility`/`IsVisible`が
 trueになる(=現在ページ以外は非表示・非ヒットテスト)。
 
+**v1.3.1〜**、各アイテムの`DataTemplate`には上記に加えて半透明グレーの`Rectangle`
+(`Fill="#59808080"`、`IsHitTestVisible="False"`)を重ねており、`IsCurrent`が**false**の
+アイテムでのみ表示する(WPF: `IsCurrent.Value`を`EnumToVisibilityConverter`に
+`ConverterParameter=False`で渡す、Avalonia: `IsVisible="{Binding !IsCurrent.Value}"`)。
+連続スクロール化以前は非アクティブなページをそもそも描画していなかったが、連続スクロール化以降は
+全ページが同時にプレビュー領域に表示されうるため、選択操作・ホットスポット表示の対象が
+どのページかを常に目視できるようにする狙い。
+
 <a id="link-editor-scroll-fix"></a>
 ### 6.2 スクロール連動のページ検出とページ送りの位置合わせ
 
@@ -207,16 +215,63 @@ trueになる(=現在ページ以外は非表示・非ヒットテスト)。
 追従させている最中」を示し、この間は`CurrentPageIndex`の変更を受けてもスクロール位置を
 動かし直さない(動かすと、追従した瞬間に別の位置へジャンプし直してスクロールが成立しなくなる)。
 
-### 6.3 リンクのホットスポット表示・テキスト選択
+**プレビューのスクロール可能範囲が前回ファイルのページ数のまま固定される不具合(v1.3.1〜で修正)**:
+一度リンク編集を終えてしおり編集画面へ戻り、別ファイル構成で再結合してからリンク編集画面へ
+再入すると、`PageSlots`の件数・しおり一覧・目次構造は正しく再構築されるにもかかわらず、
+プレビューのスクロールバーが物理的に**前回ファイルのページ数**の位置で頭打ちになる症状が発生した。
+WPFの`VirtualizingStackPanel`(`ScrollUnit="Pixel"`)は「均一アイテムサイズ/推定スクロール範囲」を
+内部にキャッシュしており、同一の`PageSlots`(`ObservableCollection`)インスタンスへの
+`Clear()`+`Add()`だけではこのキャッシュが確実には無効化されない
+(参考: [dotnet/wpf#7017](https://github.com/dotnet/wpf/issues/7017)、
+`VirtualizingStackPanel.SyncUniformSizeFlags()`)。原因調査は、`ScrollToVerticalOffset(0)`+
+`InvalidateMeasure()`/`UpdateLayout()`という一般的なレイアウト再計算の指示だけでは症状が
+再現し続けたことから始まり、ユーザーからの「スクロールバー自体が前回ページ数の位置で
+止まる」という切り分けにより、キャッシュされた推定スクロール範囲そのものが古いことが
+確定した。最終的に、`LinkEditorViewModel.LoadGeneration`
+([03-app-design.md §7.3](03-app-design.md#link-editor)参照。`LoadAsync`完了ごとに増える
+カウンタ)の変更を契機に、WPF側でのみ`VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false)`
+を呼んでから直後に`true`へ戻す処理を追加し、パネルへ内部状態を完全に破棄・再構築させることで
+解決した(`OnMainWindowLoaded`内の`LoadGeneration.Subscribe`ハンドラ)。Avaloniaの
+`VirtualizingStackPanel`は同種のキャッシュ問題を確認できず、対応するアタッチドプロパティも
+存在しないため、Avalonia側は`ScrollToVerticalOffset`相当のリセットのみで対応している。
+
+<a id="link-editor-overlay"></a>
+### 6.3 リンクのホットスポット表示・テキスト選択(v1.3.1〜再設計)
 
 `RedrawLinkOverlay`は、`PdfPageListBox.ItemContainerGenerator.ContainerFromIndex`(WPF)/
 `ContainerFromIndex`(Avalonia)で現在ページのコンテナを取得し(仮想化により未実体化なら
 何もしない — コンテナが実体化した時に`OnPageSlotLoaded`から改めて呼ばれる)、その中の
-`Canvas`(`LinkOverlayCanvas`)へ確定済みリンクを半透明の矩形として描画し直す。マウス/
-ポインタイベント(`OnPdfPreviewMouseLeftButtonDown`等)はヒットレイヤー自身(`sender`)を
-基準に座標を取り、兄弟要素の`Canvas`を`VisualTreeHelper`(WPF)/`GetVisualDescendants`
-(Avalonia)で探して描画対象にする — 連続スクロール表示では同名の`Canvas`が複数の
-コンテナに存在しうるため、常に「今操作しているコンテナ自身」のものを使う必要がある。
+`Canvas`(`LinkOverlayCanvas`)へ矩形を描画し直す。マウス/ポインタイベント
+(`OnPdfPreviewMouseLeftButtonDown`等)はヒットレイヤー自身(`sender`)を基準に座標を取り、
+兄弟要素の`Canvas`を`VisualTreeHelper`(WPF)/`GetVisualDescendants`(Avalonia)で探して
+描画対象にする — 連続スクロール表示では同名の`Canvas`が複数のコンテナに存在しうるため、
+常に「今操作しているコンテナ自身」のものを使う必要がある。
+
+**v1.3.1〜**、描画内容を共通ヘルパー`CreateOverlayRect(PdfRect, Brush fill, Brush stroke)`を
+介して2段階で描き分ける。
+
+1. 確定済みリンク(`LinkEditor.Links`のうち現在ページの`SourceRect`群)を緑
+   (`ExistingLinkFill`/`Brushes.Green`)で描画する。
+2. 選択中・確定待ちの範囲を青(`LiveSelectionFill`/`Brushes.DodgerBlue`)で描画する。対象は
+   `LinkEditor.LiveSelectionLineRects.Value`が空でなければそれ(ドラッグ中の行単位の矩形、
+   [03-app-design.md §7.4](03-app-design.md#link-editor-selection)参照)、空なら
+   `LinkEditor.PendingSelection.Value`の`SourcePageIndex`が現在ページと一致する場合に限り
+   その`LineRects`を使う(ドラッグ終了後〜リンク確定/キャンセルまでの保持分)。
+
+以前の実装は、確定待ち範囲の可視化を`DrawLiveSelectionRect`(ドラッグ開始点〜現在点を結ぶ単純な
+対角線矩形)という別関数・別描画パスで行っており、ドラッグ終了とともに呼ばれなくなるため
+可視化が消えてしまっていた(ユーザーからの不具合報告により発覚)。`PendingSelection`が
+`RedrawLinkOverlay`の入力に統合されたことで解消し、`OnMainWindowLoaded`に新設した
+`PendingSelection.Subscribe(_ => RedrawLinkOverlay())`により、`CancelPendingSelectionCommand`
+経由でのキャンセル時にも即座に青い可視化が消えるようになった(以前は`FindSiblingOverlayCanvas`
+経由の描画しかトリガーがなく、キャンセル操作自体に再描画契機が無かった)。
+
+**ポインタキャプチャの喪失(Alt+Tab等)への対応**: ドラッグによる文字選択の途中でウィンドウが
+フォーカスを失うと、マウスボタンを離すイベント自体を取りこぼし`_isSelectingLinkText`がtrueの
+まま残ってしまう。`OnPdfPreviewLostMouseCapture`(WPF、`LostMouseCapture`イベント)/
+`OnPdfPreviewPointerCaptureLost`(Avalonia、`PointerCaptureLost`イベント)を新設し、
+`_isSelectingLinkText`をfalseへ戻し`CancelPendingSelection()`を呼ぶことで、次のクリックが
+「ドラッグ継続」と誤認識されないようにしている。
 
 <a id="link-editor-existing-links-ui"></a>
 ### 6.4 設定済みリンク一覧と既存リンクの扱い
@@ -226,6 +281,12 @@ trueになる(=現在ページ以外は非表示・非ヒットテスト)。
 [03-app-design.md §7.6](03-app-design.md#link-editor-existing-links)参照)がtrueの項目は
 「編集」「削除」ボタンを非表示にし、代わりに「(既存)」バッジを表示する(`PdfLinkAnnotationService`
 が既存の注釈を安全に削除・置換できないため、この画面からは操作できない)。
+
+**v1.3.1〜**、`LinkGroups`自体が既存リンクを現在プレビュー中のページ分のみに絞り込むため
+([03-app-design.md §7.4](03-app-design.md#link-editor-selection)参照)、この一覧に既存リンクの
+バッジ付き項目が並ぶのは常に「今見ているページの既存リンク」のみになる(本セッションで新規に
+作成したリンクはページによらず常に一覧に残る)。多数の既存リンクを含む文書を開いた際に
+一覧がその全件で埋め尽くされる問題への対応。
 
 ### 6.5 設定ダイアログ: リンク編集ボタンの表示切り替え
 

@@ -1,4 +1,4 @@
-# 05. バージョン間の設計差分(v1.0.0 → v1.3.0)
+# 05. バージョン間の設計差分(v1.0.0 → v1.3.1)
 
 このドキュメントは、`git diff --name-status <前バージョン> <対象バージョン> -- src tests` で
 洗い出した変更ファイル一覧と、該当コミットの内容(`git show <commit>`)を個別に確認した上で
@@ -15,6 +15,7 @@
 | `v1.2.2` | 2026-08-17 | `0bc7147` |
 | `v1.2.3` | 2026-08-18 | `2bd2b45` |
 | `v1.3.0` | 2026-08-20 | `3056af1` |
+| `v1.3.1` | 2026-08-20 | `db31720` |
 
 ---
 
@@ -303,6 +304,55 @@ AppDataフォルダへ統一した。
 
 ---
 
+<a id="v131"></a>
+## v1.3.1(2026-08-20)
+
+3個のコミット。v1.3.0リリース後のコードレビューフォローアップで見つかった、設定値の複製・
+大量しおり時のフリーズ・リンク編集画面の選択操作という3系統の不具合修正。
+
+### `c7b14e1` 設定値クローンの脆弱性修正
+
+`MainWindowViewModel.MergeCoreAsync` と `SettingsViewModel.ToOptions` がそれぞれ独立に
+`PdfBookmarkMergerOptions` の全プロパティを手書きで列挙してコピーしていたため、新しいプロパティを
+追加した際に片方だけ追従し忘れる不具合が実際に発生していた(`ShowMergeAndEditLinksButton` が
+結合のたびに既定値へ静かに巻き戻るバグ)。`PdfBookmarkMergerOptions.Clone()` を新設し、両呼び出し
+箇所をこれ経由に統一。全公開プロパティが `Clone()` を生き残ることをリフレクションで検証する
+回帰テストと、両呼び出し箇所の実際の挙動を検証するテストを追加した。
+
+### `1baa944` 大量しおりツリーの読込・元に戻す時の長時間フリーズ修正
+
+`BookmarkTreeViewModel.RebuildTree`(読込・Undoの共通経路)は、`BookmarkNodeViewModel`の
+コンストラクタが子孫全ノード分のViewModelを再帰的に構築する設計だったため(1ノードあたり
+Rx購読が約12本)、約2000ノードのツリーで1分近く無停止で走り、busyオーバーレイの初回描画すら
+間に合わないほどのフリーズを起こしていた。コンストラクタから再帰構築を除去し、
+`BookmarkTreeViewModel.RebuildTreeAsync`(旧称`RebuildTree`)が`RecomputeChunkSize`(200件)
+ノードごとに`await Task.Yield()`で制御を返しながら深さ優先で構築する方式へ変更、
+[v1.2.1](#v121)で導入済みの`IsBusy`/`BusyProgress`チャンク処理の枠組みを再利用した。
+`Load`/`Undo`は`LoadAsync`/`UndoAsync`へ改名されている。詳細設計は
+[03-app-design.md §2.6.1](03-app-design.md#rebuild-tree-async)を参照。
+
+### `d11f72f` リンク編集画面の選択操作・プレビュー表示の不具合修正
+
+WPF/Avalonia双方での手動テストフィードバックに基づく4件の関連修正。
+
+1. 任意の位置へのジャンプ先指定中にページをまたいでスクロールすると選択状態がリセットされて
+   しまい、本質的にページ横断が前提の操作であるこの機能がほぼ使えなくなっていた不具合を修正
+   (`LoadCurrentPageMetadataAsync`のリセット範囲を、ドラッグ中の一時状態のみへ縮小)。
+2. 矩形選択のドラッグ終了直後に選択範囲の可視化が消えてしまう不具合を修正
+   (`LiveSelectionLineRects`によるドラッグ中表示と`PendingSelection`によるドラッグ後の保持表示を
+   統合し、確定済みリンク(緑)と区別可能な色(青)で描画)。
+3. リンク編集・保存後にファイル選択へ戻って再結合し、再度リンク編集画面へ入ると、プレビューの
+   スクロール可能範囲が前回ファイルのページ数のまま固定される不具合を修正
+   (WPFの`VirtualizingStackPanel`内部キャッシュの問題。`LinkEditorViewModel.LoadGeneration`の
+   変更を契機に`VirtualizingPanel.IsVirtualizing`を一度オフ→オンへ切り替えて内部状態を再構築)。
+4. 既存リンクの一覧を現在プレビュー中のページ分のみに絞り込み、非アクティブなページを半透明の
+   グレーで重ね書きして視覚的に区別できるようにした。
+
+詳細設計は[03-app-design.md §7.3〜7.4、§7.7](03-app-design.md#link-editor)、
+[04-ui-design.md §6.1〜6.4](04-ui-design.md#link-editor-ui)を参照。
+
+---
+
 ## 確認方法
 
 以下のコマンドを実行すると、本ドキュメントの記述を自分で再確認できる。
@@ -319,6 +369,7 @@ git diff --name-status v1.2.0 v1.2.1 -- src tests
 git diff --name-status v1.2.1 v1.2.2 -- src tests
 git diff --name-status v1.2.2 v1.2.3 -- src tests
 git diff --name-status v1.2.3 v1.3.0 -- src tests
+git diff --name-status v1.3.0 v1.3.1 -- src tests
 
 # バージョン間の全コミット(区間内の個別コミットメッセージ)
 git log --oneline v1.0.0..v1.1.0 -- src tests
@@ -327,6 +378,7 @@ git log --oneline v1.2.0..v1.2.1 -- src tests
 git log --oneline v1.2.1..v1.2.2 -- src tests
 git log --oneline v1.2.2..v1.2.3 -- src tests
 git log --oneline v1.2.3..v1.3.0 -- src tests
+git log --oneline v1.3.0..v1.3.1 -- src tests
 
 # 個別コミットの詳細diff
 git show <コミットハッシュ>

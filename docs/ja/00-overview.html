@@ -22,7 +22,7 @@
       <li><a href="05-version-history.html">バージョン間の差分</a></li>
     </ol>
     <div class="toc-foot">
-      v1.3.0時点<br />
+      v1.3.1時点<br />
       <a href="../index.html">&larr; 索引</a><br />
       <a href="../en/00-overview.html">English</a>
     </div>
@@ -33,7 +33,7 @@
       <div class="eyebrow">Design Documentation — 00 / 06</div>
       <h1>PdfBookmarkMerger 設計ドキュメント<br />概要</h1>
       <div class="chips">
-        <span class="chip">v1.0.0 〜 v1.3.0</span>
+        <span class="chip">v1.0.0 〜 v1.3.1</span>
         <span class="chip">.NET 10</span>
         <span class="chip">WPF-UI / Avalonia</span>
       </div>
@@ -43,7 +43,7 @@
       <p><strong>このドキュメントについて</strong> — 本ドキュメント群は、リポジトリに存在するタグ付きバージョン
       (<code class="inline">v1.0.0</code> / <code class="inline">v1.1.0</code> / <code class="inline">v1.2.0</code> /
       <code class="inline">v1.2.1</code> / <code class="inline">v1.2.2</code> / <code class="inline">v1.2.3</code> /
-      <code class="inline">v1.3.0</code>)の<strong>実際のソースコード・コミット履歴</strong>
+      <code class="inline">v1.3.0</code> / <code class="inline">v1.3.1</code>)の<strong>実際のソースコード・コミット履歴</strong>
       を出発点として書き起こしています。各記述がどのバージョンの何のコミットに由来するかは
       <a href="05-version-history.html">05-version-history.html</a> で個別に追跡できるようにしています。
       英語版は <code class="inline">docs/en/</code> に同じ構成で置いています。</p>
@@ -102,7 +102,7 @@
   PdfBookmarkMerger.Avalonia/   <span class="c"># Avaloniaフロントエンド(net10.0)</span>
 tests/
   PdfBookmarkMerger.Core.Tests/         <span class="c"># Core層のテスト(46件)</span>
-  PdfBookmarkMerger.App.Tests/          <span class="c"># App層ViewModelのテスト(120件)</span>
+  PdfBookmarkMerger.App.Tests/          <span class="c"># App層ViewModelのテスト(132件)</span>
   PdfBookmarkMerger.UiConverters.Tests/ <span class="c"># WPF/Avalonia双方のConverterを実行するゴールデンテスト(36件)</span>
   sample/                                <span class="c"># 手動確認・回帰テスト用の実サンプルPDF</span>
 tools/
@@ -142,7 +142,7 @@ scripts/
             <tr><td class="mono"><a href="02-core-design.html">02-core-design.html</a></td><td>Core層: モデル・ドメインサービスの詳細設計</td></tr>
             <tr><td class="mono"><a href="03-app-design.html">03-app-design.html</a></td><td>App層: ViewModel・アプリサービスの詳細設計</td></tr>
             <tr><td class="mono"><a href="04-ui-design.html">04-ui-design.html</a></td><td>WPF/Avaloniaフロントエンドの詳細設計(コードビハインド・Converter)</td></tr>
-            <tr><td class="mono"><a href="05-version-history.html">05-version-history.html</a></td><td>v1.0.0&rarr;v1.1.0&rarr;v1.2.0&rarr;v1.2.1&rarr;v1.2.2&rarr;v1.2.3&rarr;v1.3.0の設計上の差分と、その確認方法</td></tr>
+            <tr><td class="mono"><a href="05-version-history.html">05-version-history.html</a></td><td>v1.0.0&rarr;v1.1.0&rarr;v1.2.0&rarr;v1.2.1&rarr;v1.2.2&rarr;v1.2.3&rarr;v1.3.0&rarr;v1.3.1の設計上の差分と、その確認方法</td></tr>
           </tbody>
         </table>
       </div>
@@ -152,7 +152,7 @@ scripts/
       <h2><span class="num">6</span>この文書の裏付け方法</h2>
       <p>本ドキュメント群の内容は、以下の方法で実際のリポジトリ状態から確認しています。</p>
       <ul>
-        <li>現行設計の記述: HEAD(<code class="inline">v1.3.0</code>)時点の該当ソースファイルを直接参照</li>
+        <li>現行設計の記述: HEAD(<code class="inline">v1.3.1</code>)時点の該当ソースファイルを直接参照</li>
         <li>バージョン間差分の記述: <code class="inline">git diff --name-status &lt;前バージョンタグ&gt; &lt;対象バージョンタグ&gt; -- src tests</code> で変更ファイル一覧を洗い出した上で、各差分の内容を個別に確認</li>
         <li>テスト件数: <code class="inline">dotnet test &lt;プロジェクト&gt;.csproj --list-tests</code> の実出力件数(HEAD時点)</li>
       </ul>

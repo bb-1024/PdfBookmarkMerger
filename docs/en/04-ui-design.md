@@ -179,6 +179,13 @@ layer (a transparent `Rectangle`) and the hotspot overlay (a `Canvas`) both exis
 every item's template, but only become visible/hit-testable on the item whose `IsCurrent` is true — so
 every page except the current one stays invisible to input and undrawn.
 
+**Since v1.3.1**, every item template also layers a translucent gray `Rectangle`
+(`Fill="#59808080"`, `IsHitTestVisible="False"`) on top, shown only when that item's `IsCurrent` is
+**false** (WPF: `IsCurrent.Value` through `EnumToVisibilityConverter` with `ConverterParameter=False`;
+Avalonia: `IsVisible="{Binding !IsCurrent.Value}"`). Before continuous scrolling, a non-active page
+simply wasn't drawn at all; once every page could be visible in the preview at once, this dimming
+makes it visually obvious which page selection and link-creation currently apply to.
+
 <a id="link-editor-scroll-fix"></a>
 ### 6.2 Scroll-driven page detection and page-turn alignment
 
@@ -215,17 +222,64 @@ marks "currently following the user's manual scroll into `CurrentPageIndex`" —
 `CurrentPageIndex` change doesn't re-trigger a scroll (doing so would jump the view to yet another
 position the instant it caught up, and scrolling would never settle).
 
-### 6.3 Link hotspot display and text selection
+**The preview's scrollable extent getting stuck at the previous file's page count (fixed in
+v1.3.1)**: finishing one link-editing session, going back to file selection, re-merging with a
+different set of files, and re-entering the link editor left `PageSlots`, the bookmark list, and the
+outline structure all correctly rebuilt — but the preview's scrollbar physically capped out at the
+**previous** file's page count. WPF's `VirtualizingStackPanel` (`ScrollUnit="Pixel"`) caches a
+"uniform item size / estimated extent" internally, and a plain `Clear()`+`Add()` cycle on the same
+`PageSlots` (`ObservableCollection`) instance doesn't reliably invalidate it (see
+[dotnet/wpf#7017](https://github.com/dotnet/wpf/issues/7017),
+`VirtualizingStackPanel.SyncUniformSizeFlags()`). The investigation started with a general layout
+invalidation (`ScrollToVerticalOffset(0)` + `InvalidateMeasure()`/`UpdateLayout()`), which didn't fix
+it; user feedback narrowing it down to "the scrollbar itself stops at the previous page count"
+confirmed the cached extent itself was stale, not just the visible content. The fix: on every change of
+`LinkEditorViewModel.LoadGeneration` (see [03-app-design.md §7.3](03-app-design.md#link-editor); an
+always-incrementing counter bumped at the end of every `LoadAsync`), WPF-only, toggle
+`VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false)` then immediately back to `true`, forcing
+the panel to fully discard and rebuild its internal state (the `LoadGeneration.Subscribe` handler in
+`OnMainWindowLoaded`). Avalonia's `VirtualizingStackPanel` showed no equivalent caching problem and has
+no matching attached property, so its handling is just the scroll-position reset.
+
+<a id="link-editor-overlay"></a>
+### 6.3 Link hotspot display and text selection (redesigned in v1.3.1)
 
 `RedrawLinkOverlay` locates the current page's realized container via
 `PdfPageListBox.ItemContainerGenerator.ContainerFromIndex` (WPF) / `ContainerFromIndex` (Avalonia) —
 a no-op if it isn't realized yet (virtualization; it gets called again from `OnPageSlotLoaded` once it
-is), then redraws the confirmed links as translucent rectangles into that container's `Canvas`
-(`LinkOverlayCanvas`). Mouse/pointer handlers (`OnPdfPreviewMouseLeftButtonDown` etc.) take
-coordinates relative to the hit layer itself (`sender`), then locate the sibling `Canvas` via
-`VisualTreeHelper` (WPF) / `GetVisualDescendants` (Avalonia) to draw into — since the continuous-scroll
-view can have a same-named `Canvas` inside multiple containers at once, the code must always resolve
-the one belonging to whichever container is actually being interacted with.
+is), then redraws rectangles into that container's `Canvas` (`LinkOverlayCanvas`). Mouse/pointer
+handlers (`OnPdfPreviewMouseLeftButtonDown` etc.) take coordinates relative to the hit layer itself
+(`sender`), then locate the sibling `Canvas` via `VisualTreeHelper` (WPF) / `GetVisualDescendants`
+(Avalonia) to draw into — since the continuous-scroll view can have a same-named `Canvas` inside
+multiple containers at once, the code must always resolve the one belonging to whichever container is
+actually being interacted with.
+
+**Since v1.3.1**, drawing goes through a shared helper, `CreateOverlayRect(PdfRect, Brush fill, Brush
+stroke)`, in two passes:
+
+1. Confirmed links (`LinkEditor.Links`'s `SourceRect`s on the current page) draw in green
+   (`ExistingLinkFill`/`Brushes.Green`).
+2. The in-progress or pending selection draws in blue (`LiveSelectionFill`/`Brushes.DodgerBlue`).
+   The source is `LinkEditor.LiveSelectionLineRects.Value` when non-empty (the live, per-line rects of
+   an active drag — see [03-app-design.md §7.4](03-app-design.md#link-editor-selection)); otherwise,
+   if `LinkEditor.PendingSelection.Value`'s `SourcePageIndex` matches the current page, its
+   `LineRects` (held from the end of a drag until the link is created or cancelled).
+
+Previously, the pending-selection highlight was drawn by a separate function and code path,
+`DrawLiveSelectionRect` (a crude diagonal box from the drag's start point to its current point), which
+simply stopped being called once the drag ended — so the highlight vanished the instant the user
+released the mouse (reported as a bug by manual testing). Folding `PendingSelection` into
+`RedrawLinkOverlay`'s own inputs fixed that, and a new `PendingSelection.Subscribe(_ =>
+RedrawLinkOverlay())` in `OnMainWindowLoaded` means the blue highlight also disappears immediately on
+`CancelPendingSelectionCommand` (previously, only the `FindSiblingOverlayCanvas`-based draw path could
+trigger a redraw, and cancelling didn't go through it).
+
+**Handling lost pointer capture (Alt+Tab, etc.)**: losing window focus mid-drag during a text
+selection swallows the mouse-up event, leaving `_isSelectingLinkText` stuck `true`.
+`OnPdfPreviewLostMouseCapture` (WPF, the `LostMouseCapture` event) /
+`OnPdfPreviewPointerCaptureLost` (Avalonia, the `PointerCaptureLost` event) reset
+`_isSelectingLinkText` to `false` and call `CancelPendingSelection()`, so the next click isn't
+misread as "drag continuing."
 
 <a id="link-editor-existing-links-ui"></a>
 ### 6.4 The link list and how pre-existing links are handled
@@ -236,6 +290,12 @@ already present in the file — see
 [03-app-design.md §7.6](03-app-design.md#link-editor-existing-links)), the Edit and Delete buttons are
 hidden and a "(existing)" badge is shown instead, since `PdfLinkAnnotationService` has no way to safely
 delete or replace an existing annotation, so this screen can't act on them.
+
+**Since v1.3.1**, `LinkGroups` itself only aggregates pre-existing links for the page currently being
+previewed (see [03-app-design.md §7.4](03-app-design.md#link-editor-selection)), so a badged, "existing"
+entry in this list is always for whatever page is on screen right now (links created in this session
+keep showing regardless of page). This keeps a document with many pre-existing links from flooding the
+list.
 
 ### 6.5 Settings dialog: toggling the link-editing button
 

@@ -134,8 +134,10 @@ JSON serialization of `_rootModel`).
 - `PushUndoSnapshot(coalesceKey)` — used for property edits. Repeated calls with the same key within
   800ms (`SnapshotCoalesceWindow`) are treated as a single edit and don't push a new entry (this
   keeps the Undo history from ballooning by one entry per keystroke while typing).
-- `Undo()` — JSON-deserializes the most recent snapshot and hands it to `RebuildTree` (the entry is
-  popped and consumed; LIFO order).
+- `UndoAsync()` (**since v1.3.1**; formerly `Undo`, a synchronous method) — JSON-deserializes the
+  most recent snapshot and hands it to `RebuildTreeAsync` ([§2.6.1](#rebuild-tree-async)) (the entry
+  is popped and consumed; LIFO order). Called from `UndoCommand` via `TriggerUndo`, a fire-and-forget
+  wrapper of the same shape as `TriggerRecompute`.
 
 Each `BookmarkNodeViewModel` property (`Title`/`IsOpen`/`DestinationType`/coordinates) skips its
 constructor-time initial replay with `Skip(1)` before calling `RequestUndoSnapshot` on every
@@ -191,6 +193,32 @@ unmodified. On a large tree, the busy overlay covers the whole bookmark-editing 
 mouse input, so a second, overlapping call to this method (triggered by further user action) is not
 expected to happen while one is already in flight.
 
+<a id="rebuild-tree-async"></a>
+### 2.6.1 `RebuildTreeAsync` — chunking the tree construction itself (since v1.3.1)
+
+The chunking above covers "recomputing properties on an already-existing `BookmarkNodeViewModel`
+tree" — it originally didn't cover the path that **constructs the tree from scratch** on load and
+Undo. `BookmarkNodeViewModel`'s constructor used to recursively build a `BookmarkNodeViewModel` for
+every descendant from `model.Children` inline (roughly 12 Rx subscriptions per node — 8
+`Skip(1).Subscribe` pairs plus 4 `CombineLatest`-derived computed properties), so on a ~2000-node tree
+this ran uninterrupted for close to a minute — long enough that even the busy overlay never got a
+chance to render.
+
+To fix this, the constructor's recursive child construction was removed (`Children` now starts
+empty), and tree construction moved into a local function, `BuildChildrenAsync`, inside
+`BookmarkTreeViewModel.RebuildTreeAsync` (formerly `RebuildTree`, synchronous), which builds
+depth-first and yields via `await Task.Yield()` every `RecomputeChunkSize` (200) nodes, updating
+`IsBusy`/`BusyProgress` — reusing the exact same framework as the write-back loop in [§2.6](#recompute).
+The subsequent `RecomputeAllPageNumberDisplaysAsync()` call is now awaited directly inside the same
+`try` block instead of going through the fire-and-forget `TriggerRecompute()` wrapper — going through
+it left a brief window where `IsBusy` flipped back to `false` and then `true` again between the two
+phases (control returns to the UI thread at that seam), and a test polling for busy-state was
+occasionally flaky enough to catch that window.
+
+`Load`/`Undo` were renamed to `LoadAsync`/`UndoAsync` as part of this change (`LoadAsync`'s only
+caller, `MainWindowViewModel.ConfirmFilesAsync`, awaits it directly; `UndoAsync` is still invoked via
+the `TriggerUndo` wrapper described in [§2.4](#undo)).
+
 <a id="expand-level"></a>
 ### 2.7 Bulk expand/collapse-by-level (since v1.2.2)
 
@@ -219,8 +247,13 @@ The logic behind the "-" button, level-number text box, and "+" button above the
 The ViewModel for a single bookmark-tree node. Its `Title`/`IsOpen`/`DestinationType`/`Left`/`Top`/
 `Right`/`Bottom`/`Zoom` `ReactivePropertySlim<T>`s each write straight through to the underlying
 `Model` (`BookmarkNode`) on every change, while also asking `BookmarkTreeViewModel` to push an Undo
-snapshot. Skipping the constructor-time initial replay (`Skip(1)`) matters here too, for the same
-reason as [§2.4](#undo) above.
+snapshot. **Since v1.3.1**, `Children` (`ObservableCollection<BookmarkNodeViewModel>`) is only
+initialized empty in the constructor — it no longer recursively builds a `BookmarkNodeViewModel` for
+every descendant. Actually assembling the tree from `model.Children` is now the caller's job,
+`BookmarkTreeViewModel.RebuildTreeAsync` (see [§2.6.1](#rebuild-tree-async)) — pulled out so a single
+node's constructor can never drag in constructing its entire subtree, which is what let a large tree's
+construction be chunked in the first place. Skipping the constructor-time initial replay (`Skip(1)`)
+matters here too, for the same reason as [§2.4](#undo) above.
 
 `PreOffsetPageNumber` is the one exception: it does **not** write straight to `Model`. How an edited
 value should cascade (to later nodes in the same file, and to files after it) needs to be computed
@@ -321,12 +354,25 @@ Whenever `CurrentPageIndex` (0-based) changes, `OnCurrentPageIndexChanged`:
 3. Syncs `PageNumberInput` (1-based, two-way bound to the page-turn toolbar's text box).
 4. Fetches the current page's metadata (`PageHeight`, and `Letters` only if the page actually
    changed) fire-and-forget (`TriggerLoadCurrentPageMetadata`) — the page's bitmap itself is
-   `PageSlots`' job, not handled here.
+   `PageSlots`' job, not handled here. **Since v1.3.1**, when `Letters` is actually reloaded, only the
+   drag-in-progress state (`_selectionAnchorLetterIndex`/`_selectionFocusLetterIndex`/
+   `LiveSelectionLineRects`, see [§7.4](#link-editor-selection)) is reset. (It used to call
+   `CancelPendingSelection()`, which also wiped `PendingSelection`/`IsPickingArbitraryTarget` — but
+   picking an arbitrary jump target is inherently a cross-page workflow (select text, then scroll
+   elsewhere to click the target), so clearing it on every page change made the feature nearly
+   unusable.)
+5. `LoadGeneration` (`ReactivePropertySlim<int>`, **since v1.3.1**), incremented independently of
+   `OnCurrentPageIndexChanged` at the end of every `LoadAsync`. Some UI-side state (the preview's
+   scrollable extent, see [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-fix)) can't be
+   reliably reset from a `CurrentPageIndex` change alone — it may not fire at all if `CurrentPageIndex`
+   happens to already be 0 both before and after a second `LoadAsync` — so this always-incrementing
+   counter exists specifically to give that state a reliable trigger.
 
 Changes from the other direction — the user typing directly into `PageNumberInput` — also flow back
 into `CurrentPageIndex` with the same clamping (`OnPageNumberInputChanged`), so the two stay
 synchronized both ways.
 
+<a id="link-editor-selection"></a>
 ### 7.4 Creating links via text selection
 
 - `BeginTextSelection`/`UpdateTextSelection`/`EndTextSelection` — take the PDF-user-space coordinates
@@ -334,11 +380,20 @@ synchronized both ways.
   rectangles `PdfTextExtractor` extracted) to find a selection range (a span of character indices). If
   no character's rectangle actually contains the point, the nearest one by center-to-point distance is
   used instead, so a drag that strays slightly outside a character's bounds doesn't break selection.
-- On commit, `GroupLettersIntoLineRects` groups the selected characters by line (a gap of 2pt or more
-  between adjacent characters' Bottom coordinates counts as a line break) and computes each line's
-  bounding rect, populating `PendingSelection` (`SourcePageIndex` + a list of per-line rects). A
-  selection spanning multiple lines is kept as multiple rects (since a PDF Link annotation's `/Rect`
-  can only be a single rectangle).
+  While dragging, `BeginTextSelection`/`UpdateTextSelection` recompute
+  `LiveSelectionLineRects` (`ReactivePropertySlim<IReadOnlyList<PdfRect>>`, **since v1.3.1**) from the
+  current selection via `GroupLettersIntoLineRects` (below) on every update, so the in-progress
+  preview uses the actual per-line rects rather than a crude diagonal box that didn't match a
+  multi-line selection's real shape.
+- On commit (`EndTextSelection`), `LiveSelectionLineRects` is cleared, and `GroupLettersIntoLineRects`
+  groups the selected characters by line (a gap of 2pt or more between adjacent characters' Bottom
+  coordinates counts as a line break) and computes each line's bounding rect, populating
+  `PendingSelection` (`SourcePageIndex` + a list of per-line rects). A selection spanning multiple
+  lines is kept as multiple rects (since a PDF Link annotation's `/Rect` can only be a single
+  rectangle). **Since v1.3.1**, `PendingSelection` is kept around until the link is created or
+  explicitly cancelled via `CancelPendingSelectionCommand` (fixes the highlight disappearing the
+  instant a drag ended; see [04-ui-design.md §6.3](04-ui-design.md#link-editor-overlay) for how the UI
+  draws it).
 - `CreateLinkToBookmark(bookmark)` — for each line rect in `PendingSelection`, creates a
   `LinkAnnotationNode` that copies the chosen bookmark's `DestinationType`/coordinates verbatim and
   adds it to `Links` (multiple lines become multiple links sharing one `GroupId`).
@@ -346,7 +401,12 @@ synchronized both ways.
   `IsPickingArbitraryTarget` is on, commits a link the same way using the clicked preview position as
   an XYZ destination.
 - `LinkGroups` (`ReactivePropertySlim<IReadOnlyList<LinkGroupInfo>>`) — a summary of `Links` grouped
-  by `GroupId`, for the list UI. Recomputed on every `Links.CollectionChanged`.
+  by `GroupId`, for the list UI. Recomputed on every `Links.CollectionChanged`, and, **since v1.3.1**,
+  on every `OnCurrentPageIndexChanged` too. The aggregation filters by
+  `!info.IsPreExisting || info.SourcePageIndex == CurrentPageIndex.Value` — pre-existing links
+  (`IsPreExisting`, ones already in the file before this session) only show up for the page currently
+  being previewed, so a document with many pre-existing links doesn't flood the list, while links
+  created in this session keep showing regardless of page.
 
 ### 7.5 `DeleteLinkGroup` / `BeginEditLinkGroup`
 
@@ -383,7 +443,7 @@ decisions in `LinkEditorViewModel`:
    (see [04-ui-design.md §6.4](04-ui-design.md#link-editor-existing-links-ui)).
 
 <a id="link-editor-thread"></a>
-### 7.7 Two bugs found during implementation
+### 7.7 Bugs found during implementation
 
 - **Cross-thread crash (`ConfigureAwait(false)`)**: early on, `LoadAsync` and other async methods
   used `.ConfigureAwait(false)`, so the continuation after the first `await` ran on a thread-pool
@@ -400,3 +460,22 @@ decisions in `LinkEditorViewModel`:
   actually was). Fixed by switching to deriving the page directly from the scroll offset and the
   known per-page height, given every page shares the same placeholder size — see
   [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-ui).
+- **Preview's scrollable extent stuck at the previous file's page count (fixed in v1.3.1)**: after
+  finishing one link-editing session, going back to file selection, re-merging with a different set of
+  files, and re-entering the link editor, `PageSlots` rebuilt correctly (right page count, right
+  bookmark tree), but the preview's scrollbar physically capped out at the **previous** (usually
+  smaller) file's page count. WPF's `VirtualizingStackPanel` (`ScrollUnit="Pixel"`) caches internal
+  uniform-item-size/estimated-extent state that a plain `Clear()`+`Add()` cycle on the same
+  `ObservableCollection` instance doesn't reliably invalidate (see
+  [dotnet/wpf#7017](https://github.com/dotnet/wpf/issues/7017),
+  `VirtualizingStackPanel.SyncUniformSizeFlags()`). Fixed by toggling
+  `VirtualizingPanel.SetIsVirtualizing(PdfPageListBox, false)` then back to `true` when
+  `LoadGeneration` ([§7.3](#link-editor)) changes, forcing the panel to fully discard and rebuild that
+  internal state (WPF only — Avalonia showed no equivalent caching issue and has no matching attached
+  property). See [04-ui-design.md §6.2](04-ui-design.md#link-editor-scroll-fix).
+- **Lost pointer capture (Alt+Tab, etc.)**: if the window lost focus mid-drag during a text selection,
+  the corresponding mouse-up event was never delivered, leaving `_isSelectingLinkText` stuck `true` so
+  the next click was misread as "drag continuing." Fixed in v1.3.1 by handling
+  `OnPdfPreviewLostMouseCapture` (WPF, `LostMouseCapture`) /
+  `OnPdfPreviewPointerCaptureLost` (Avalonia, `PointerCaptureLost`) to reset
+  `_isSelectingLinkText` and call `CancelPendingSelection()`.
